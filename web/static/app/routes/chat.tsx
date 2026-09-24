@@ -234,7 +234,7 @@ export default function ChatPage() {
                 event.currentTarget.form?.requestSubmit();
               }
             }}
-            placeholder={`Message ${identityName}…`}
+            placeholder={`给 ${identityName} 发消息…`}
             className="max-h-40 flex-1 py-2"
           />
           <Button

@@ -4,16 +4,16 @@ import { ActivityBadge } from "~/components/activity-badge";
 import { cn } from "~/lib/utils";
 
 const TABS = [
-  { key: "timeline", label: "Timeline", path: "" },
-  { key: "recap", label: "Recap", path: "/recap" },
-  { key: "mindlog", label: "Mind log", path: "/mindlog" },
-  { key: "mindlog2", label: "Mind log v2", path: "/mindlog2" },
-  { key: "thinkers", label: "Thinkers", path: "/thinkers" },
-  { key: "health", label: "Health", path: "/health" },
-  { key: "usage", label: "Usage", path: "/usage" },
-  { key: "chat", label: "Chat", path: "/chat" },
-  { key: "memories", label: "Memories", path: "/memories" },
-  { key: "config", label: "Config", path: "/config" },
+  { key: "timeline", label: "时间线", path: "" },
+  { key: "recap", label: "摘要", path: "/recap" },
+  { key: "mindlog", label: "思维日志", path: "/mindlog" },
+  { key: "mindlog2", label: "思维日志 v2", path: "/mindlog2" },
+  { key: "thinkers", label: "思考者", path: "/thinkers" },
+  { key: "health", label: "健康", path: "/health" },
+  { key: "usage", label: "用量", path: "/usage" },
+  { key: "chat", label: "对话", path: "/chat" },
+  { key: "memories", label: "记忆", path: "/memories" },
+  { key: "config", label: "配置", path: "/config" },
 ] as const;
 
 /** Header row shared by the identity sub-pages: breadcrumb + tab links. */

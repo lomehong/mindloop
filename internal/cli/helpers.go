@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"mindloop/internal/identity"
 	"mindloop/internal/ids"
 	"mindloop/internal/traj"
 )
@@ -116,4 +117,18 @@ func readInput(path string) ([]byte, error) {
 		return io.ReadAll(os.Stdin)
 	}
 	return os.ReadFile(path)
+}
+
+// loadIdentity 加载身份；失败时列出可用身份，把"名字打错"从死胡同
+// 变成可自纠的提示（真实反馈：chat web 报找不到却不说有哪些）。
+func (c *CLI) loadIdentity(name string) (*identity.Identity, error) {
+	id, err := identity.Load(name)
+	if err != nil {
+		names, _ := identity.List()
+		if len(names) > 0 {
+			return nil, fmt.Errorf("身份 %q 不存在。可用: %s", name, strings.Join(names, ", "))
+		}
+		return nil, fmt.Errorf("身份 %q 不存在（还没有任何身份，先 mindloop identity create <名字>）", name)
+	}
+	return id, nil
 }

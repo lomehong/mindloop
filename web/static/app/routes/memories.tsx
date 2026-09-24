@@ -52,7 +52,7 @@ function memoryBody(content: string) {
 }
 
 export function meta() {
-  return [{ title: "Headlong · memories" }];
+  return [{ title: "Headlong · 条记忆" }];
 }
 
 export default function MemoriesPage() {
@@ -68,36 +68,36 @@ export default function MemoriesPage() {
   });
   const live = status?.live ?? false;
 
-  const { data: memories, isLoading } = useQuery({
-    queryKey: ["memories", identityId],
+  const { data: 条记忆, isLoading } = useQuery({
+    queryKey: ["条记忆", identityId],
     queryFn: () => fetchMemories(identityId),
     refetchInterval: pollWhileLive(live),
   });
 
   const types = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const memory of memories ?? []) {
+    for (const memory of 条记忆 ?? []) {
       counts.set(memory.type, (counts.get(memory.type) ?? 0) + 1);
     }
     return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [memories]);
+  }, [条记忆]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
-    return (memories ?? []).filter((memory) => {
+    return (条记忆 ?? []).filter((memory) => {
       if (typeFilter !== ALL_TYPES && memory.type !== typeFilter) return false;
       if (!needle) return true;
       return [memory.summary, memory.slug, memory.type, memory.name]
         .filter(Boolean)
         .some((value) => value?.toLocaleLowerCase().includes(needle));
     });
-  }, [memories, query, typeFilter]);
+  }, [条记忆, query, typeFilter]);
 
   const active =
     (selected && filtered.some((memory) => memory.name === selected) && selected) ||
     filtered[0]?.name ||
     null;
-  const activeInfo = memories?.find((item) => item.name === active);
+  const activeInfo = 条记忆?.find((item) => item.name === active);
 
   const { data: memory } = useQuery({
     queryKey: ["memory", identityId, active],
@@ -115,13 +115,13 @@ export default function MemoriesPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4">
-      <IdentityTabs identityId={identityId} live={live} active="memories" />
-      {!memories || memories.length === 0 ? (
+      <IdentityTabs identityId={identityId} live={live} active="条记忆" />
+      {!条记忆 || 条记忆.length === 0 ? (
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>No memories</EmptyTitle>
+            <EmptyTitle>No 条记忆</EmptyTitle>
             <EmptyDescription>
-              This identity's memories/ directory is empty.
+              This identity's 条记忆/ directory is empty.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -134,18 +134,18 @@ export default function MemoriesPage() {
                 <Input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search memories"
-                  aria-label="Search memories"
+                  placeholder="搜索记忆"
+                  aria-label="搜索记忆"
                   className="pl-8"
                 />
               </div>
               <Select value={typeFilter} onValueChange={setTypeFilter}>
                 <SelectTrigger size="sm" className="max-w-36">
-                  <SelectValue placeholder="All types" />
+                  <SelectValue placeholder="全部类型" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ALL_TYPES}>
-                    All types ({memories.length})
+                    全部类型 ({条记忆.length})
                   </SelectItem>
                   {types.map(([type, count]) => (
                     <SelectItem key={type} value={type}>
@@ -156,14 +156,14 @@ export default function MemoriesPage() {
               </Select>
             </div>
             <div className="mb-1 text-xs text-muted-foreground">
-              {filtered.length === memories.length
-                ? `${memories.length} memories`
-                : `${filtered.length} of ${memories.length} memories`}
+              {filtered.length === 条记忆.length
+                ? `${条记忆.length} 条记忆`
+                : `${filtered.length} of ${条记忆.length} 条记忆`}
             </div>
             <div className="max-h-[42vh] overflow-y-auto rounded-lg border lg:max-h-[calc(100vh-13rem)]">
               {filtered.length === 0 ? (
                 <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                  No memories match these filters.
+                  No 条记忆 match these filters.
                 </div>
               ) : (
                 filtered.map((mem) => (

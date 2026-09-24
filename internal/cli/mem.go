@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/identity"
 	"mindloop/internal/mem"
 )
 
@@ -16,7 +15,7 @@ func (c *CLI) resolveMemStore(name string) (mem.Store, error) {
 	if name == "" {
 		return mem.Store{}, fmt.Errorf("mem: 需要 --identity <身份名>")
 	}
-	id, err := identity.Load(name)
+	id, err := c.loadIdentity(name)
 	if err != nil {
 		return mem.Store{}, err
 	}

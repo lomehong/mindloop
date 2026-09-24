@@ -44,7 +44,7 @@ function pollForNewBuild(oldCommit: string, timeoutMs = 5 * 60 * 1000) {
   const started = Date.now();
   const tick = async () => {
     if (Date.now() - started > timeoutMs) {
-      toast.error("Update timed out — check `journalctl -u headlong-web` on the box");
+      toast.error("更新超时——请在服务器上检查 headlong-web 服务日志（journalctl -u headlong-web）");
       return;
     }
     try {
@@ -162,13 +162,13 @@ function LlmHealthChip() {
                         <a className="underline" href={LAST_CALL_HINT[last.provider]} target="_blank" rel="noreferrer">
                           {LAST_CALL_HINT[last.provider]}
                         </a>
-                        , or put a new key in ~/.headlong/.env, then restart the mind.
+                         充值，或在 ~/.headlong/.env 里更新 key 后重启心智。
                       </>
                     )}
                   </div>
                 )}
                 {last.kind === "auth" && (
-                  <div className="mt-1 text-[11px]">Put a working key in ~/.headlong/.env, then restart the mind.</div>
+                  <div className="mt-1 text-[11px]">请在 ~/.headlong/.env 里填入有效的 key，然后重启心智。</div>
                 )}
                 {last.ts && <div className="mt-1 text-[10px] text-muted-foreground">last tried {last.ts}</div>}
               </div>

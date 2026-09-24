@@ -167,7 +167,7 @@ export function MindlogSearch({
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
-          placeholder="Search…"
+          placeholder="搜索…"
           className="h-8 w-44 pl-8 text-xs sm:w-64"
           autoComplete="off"
         />

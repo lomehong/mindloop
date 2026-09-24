@@ -102,7 +102,7 @@ export function StartStopButtons({
         }}
       >
         <Square className="size-3" />
-        {isAll ? "Stop all" : "Stop"}
+        {isAll ? "全部停止" : "停止"}
       </Button>
     );
   }
@@ -115,7 +115,7 @@ export function StartStopButtons({
       onClick={() => mutation.mutate({ action: "start", names })}
     >
       <Play className="size-3" />
-      {isAll ? "Start all" : "Start"}
+      {isAll ? "全部启动" : "启动"}
     </Button>
   );
 }
