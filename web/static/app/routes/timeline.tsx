@@ -26,10 +26,10 @@ export function meta() {
 // Swatch opacity mirrors the canvas: triggers are always on, the rest rest
 // as ghosts until an attached step or run is hovered.
 const EDGE_LEGEND = [
-  { label: "trigger → run", color: "#f59e0b", opacity: 0.9 },
-  { label: "wake → thinker", color: "#38bdf8", opacity: 0.3 },
-  { label: "run → wrote", color: "#60a5fa", opacity: 0.3 },
-  { label: "fork → merge", color: "#e879f9", opacity: 0.3 },
+  { label: "触发 → 运行", color: "#f59e0b", opacity: 0.9 },
+  { label: "唤醒 → 思考者", color: "#38bdf8", opacity: 0.3 },
+  { label: "运行 → 写入", color: "#60a5fa", opacity: 0.3 },
+  { label: "分叉 → 合并", color: "#e879f9", opacity: 0.3 },
 ];
 
 export default function TimelinePage() {
@@ -151,7 +151,7 @@ export default function TimelinePage() {
               </span>
             ))}
             <span className="font-mono text-[10px] text-muted-foreground/70">
-              · hover a step to trace
+              · 悬停某步骤可追踪
             </span>
           </div>
         </div>

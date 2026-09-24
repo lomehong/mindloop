@@ -33,19 +33,19 @@ import {
 import type { Identity } from "~/lib/types";
 
 export function meta() {
-  return [{ title: "Headlong · identities" }];
+  return [{ title: "mindloop · 身份" }];
 }
 
 function relativeTime(iso: string | null): string {
   if (!iso) return "—";
   const delta = Date.now() - new Date(iso).getTime();
   const seconds = Math.floor(delta / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 60) return `${seconds}秒前`;
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60) return `${minutes}分前`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  if (hours < 48) return `${hours}小时前`;
+  return `${Math.floor(hours / 24)}天前`;
 }
 
 function LiveBadge({ live }: { live: boolean }) {
@@ -56,7 +56,7 @@ function LiveBadge({ live }: { live: boolean }) {
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
         <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
       </span>
-      live
+      运行中
     </Badge>
   );
 }
@@ -94,7 +94,7 @@ function NewIdentityForm() {
     return (
       <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
         <Plus className="size-3" />
-        New identity
+        新建身份
       </Button>
     );
   }
@@ -110,13 +110,13 @@ function NewIdentityForm() {
         autoFocus
         value={name}
         onChange={(event) => setName(event.target.value)}
-        placeholder="lowercase-name"
+        placeholder="小写名字"
         pattern="[a-z0-9][a-z0-9-]*"
-        title="lowercase alphanumeric + hyphens"
+        title="小写字母数字与连字符"
         className="h-8 w-44 font-mono text-xs"
       />
       <Button type="submit" size="sm" disabled={mutation.isPending || !name.trim()}>
-        Create
+        创建
       </Button>
       <Button
         type="button"
@@ -124,7 +124,7 @@ function NewIdentityForm() {
         size="sm"
         onClick={() => setOpen(false)}
       >
-        Cancel
+        取消
       </Button>
     </form>
   );
@@ -163,7 +163,7 @@ function ImportIdentityForm() {
       <Button
         variant="outline"
         size="sm"
-        title="Install identities from an `identity export` archive"
+        title="从归档导入身份"
         onClick={() => setOpen(true)}
       >
         <Upload className="size-3" />
@@ -189,13 +189,13 @@ function ImportIdentityForm() {
       <Input
         value={name}
         onChange={(event) => setName(event.target.value)}
-        placeholder="rename (optional)"
+        placeholder="重命名（可选）"
         pattern="[a-z0-9][a-z0-9-]*"
         title="lowercase alphanumeric + hyphens; only for single-identity archives"
         className="h-8 w-40 font-mono text-xs"
       />
       <Button type="submit" size="sm" disabled={mutation.isPending || !file}>
-        {mutation.isPending ? "Importing…" : "Import"}
+        {mutation.isPending ? "导入中…" : "导入"}
       </Button>
       <Button
         type="button"
@@ -203,7 +203,7 @@ function ImportIdentityForm() {
         size="sm"
         onClick={() => setOpen(false)}
       >
-        Cancel
+        取消
       </Button>
     </form>
   );
@@ -238,7 +238,7 @@ function KillAllButton() {
       onClick={() => mutation.mutate(true)}
     >
       <Skull className="size-3" />
-      Kill all
+      全部停止
     </Button>
   );
 }
@@ -279,11 +279,11 @@ export default function Home() {
               variant="outline"
               size="sm"
               asChild
-              title="Download every identity under .identities as one .shellm.tgz"
+              title="导出全部身份"
             >
               <a href={exportAllUrl()} download>
                 <Download className="size-3" />
-                Export all
+                导出全部
               </a>
             </Button>
           )}
