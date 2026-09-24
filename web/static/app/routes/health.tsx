@@ -9,7 +9,7 @@ import type { ActivityState } from "~/lib/types";
 import { cn } from "~/lib/utils";
 
 export function meta() {
-  return [{ title: "Headlong · health" }];
+  return [{ title: "mindloop · 健康" }];
 }
 
 const STATE_LABELS: Record<string, string> = {

@@ -37,7 +37,7 @@ export function StepHeader({ step }: { step: NormalizedStep }) {
   const color = stepColor(step.type);
   const copyId = () => {
     navigator.clipboard.writeText(step.step_id);
-    toast.success("Copied step id");
+    toast.success("已复制步骤 id");
   };
 
   return (

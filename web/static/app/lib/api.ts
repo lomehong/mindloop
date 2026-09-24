@@ -32,10 +32,25 @@ import type {
 
 export const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
+// errorMessage 从错误响应里取人类可读消息——后端统一返回
+// {detail: {message}}（中文），纯字符串 detail 也兼容。GET 与写
+// 请求走同一解析，不再出现"读请求失败只显示英文状态码"。
+async function errorMessage(response: Response): Promise<string> {
+  let message = `${response.status} ${response.statusText}`;
+  try {
+    const data = await response.json();
+    if (typeof data?.detail === "string") message = data.detail;
+    else if (data?.detail?.message) message = data.detail.message;
+  } catch {
+    // keep default message
+  }
+  return message;
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`);
   if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
+    throw new Error(await errorMessage(response));
   }
   return response.json() as Promise<T>;
 }
@@ -51,17 +66,7 @@ async function sendJson<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!response.ok) {
-    // Control endpoints put the CLI's message in detail.message; plain
-    // FastAPI errors put a string in detail.
-    let message = `${response.status} ${response.statusText}`;
-    try {
-      const data = await response.json();
-      if (typeof data?.detail === "string") message = data.detail;
-      else if (data?.detail?.message) message = data.detail.message;
-    } catch {
-      // keep default message
-    }
-    throw new Error(message);
+    throw new Error(await errorMessage(response));
   }
   return response.json() as Promise<T>;
 }

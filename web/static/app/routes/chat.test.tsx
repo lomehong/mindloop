@@ -113,7 +113,7 @@ afterEach(cleanup);
 describe("chat composer", () => {
   it("Enter sends the draft and clears the box", async () => {
     renderChatPage();
-    const box = await screen.findByPlaceholderText("Message ada…");
+    const box = await screen.findByPlaceholderText("给 ada 发消息…");
     fireEvent.change(box, { target: { value: "hello there" } });
     fireEvent.keyDown(box, { key: "Enter" });
     await waitFor(() => expect(sendChat).toHaveBeenCalledTimes(1));
@@ -125,7 +125,7 @@ describe("chat composer", () => {
 
   it("Shift+Enter does not send", async () => {
     renderChatPage();
-    const box = await screen.findByPlaceholderText("Message ada…");
+    const box = await screen.findByPlaceholderText("给 ada 发消息…");
     fireEvent.change(box, { target: { value: "line one" } });
     fireEvent.keyDown(box, { key: "Enter", shiftKey: true });
     // give any (incorrect) submit a tick to fire before asserting it didn't
@@ -136,7 +136,7 @@ describe("chat composer", () => {
 
   it("Enter does not send while an input method composition is active", async () => {
     renderChatPage();
-    const box = await screen.findByPlaceholderText("Message ada…");
+    const box = await screen.findByPlaceholderText("给 ada 发消息…");
     fireEvent.change(box, { target: { value: "unfinished" } });
     fireEvent.keyDown(box, { key: "Enter", isComposing: true });
     await new Promise((r) => setTimeout(r, 0));

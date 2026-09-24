@@ -214,15 +214,15 @@ function KillAllButton() {
   const mutation = useMutation({
     mutationFn: killAll,
     onSuccess: (result) => {
-      const summary = result.stdout.trim() || "No Headlong processes found.";
+      const summary = result.stdout.trim() || "没有找到运行中的进程。";
       if (result.dry_run) {
         if (window.confirm(`${summary}\n\nProceed with kill?`)) {
           mutation.mutate(false);
           return;
         }
-        toast.info("Kill-all cancelled");
+        toast.info("已取消全部停止");
       } else {
-        toast.success("Kill-all complete", { description: summary });
+        toast.success("全部停止完成", { description: summary });
         queryClient.invalidateQueries();
       }
     },

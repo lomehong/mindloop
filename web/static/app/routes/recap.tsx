@@ -18,7 +18,7 @@ import { fetchIdentityStatus, fetchRecap, refreshRecap } from "~/lib/api";
 import type { RecapStepRef } from "~/lib/types";
 
 export function meta() {
-  return [{ title: "Headlong · recap" }];
+  return [{ title: "mindloop · 摘要" }];
 }
 
 /** A step reference that deep-links into the mind log (scroll + highlight). */
@@ -58,8 +58,8 @@ function RefreshButtons({
     onSuccess: (_result, rebuild) => {
       toast.success(
         rebuild
-          ? "Full rebuild started — the whole log gets re-summarized in the background"
-          : "Recap refresh started — new steps get summarized in the background"
+          ? "已开始全量重建——整份日志会在后台重新摘要"
+          : "已开始增量刷新——新增步骤会在后台摘要"
       );
       queryClient.invalidateQueries({ queryKey: ["recap", identityId] });
     },
@@ -76,7 +76,7 @@ function RefreshButtons({
         onClick={() => mutation.mutate(false)}
       >
         <RefreshCw className={`size-3 ${refreshing ? "animate-spin" : ""}`} />
-        {refreshing ? "Recapping…" : "Refresh"}
+        {refreshing ? "摘要中…" : "刷新"}
       </Button>
       {showRebuild && (
         <Button
@@ -87,13 +87,13 @@ function RefreshButtons({
           onClick={() => {
             if (
               window.confirm(
-                "Rebuild the recap from scratch? All cached episodes are discarded and the full log is re-summarized (one LLM call per window)."
+                "从头重建摘要？将丢弃全部缓存分集，并对整份日志重新摘要（每个窗口一次模型调用）。"
               )
             )
               mutation.mutate(true);
           }}
         >
-          Rebuild
+          重建
         </Button>
       )}
     </div>
@@ -142,8 +142,8 @@ export default function RecapPage() {
             <EmptyTitle>暂无摘要</EmptyTitle>
             <EmptyDescription>
               {recap.refreshing
-                ? "A recap is being generated right now — this page refreshes itself."
-                : "Generate an LLM summary of this mind log: themes and episodes, each pointing at the steps behind them."}
+                ? "摘要正在生成中——本页会自动刷新。"
+                : "为这份思维日志生成 LLM 摘要：主题与情节分集，每一项都能回链到它背后的步骤。"}
             </EmptyDescription>
           </EmptyHeader>
           {controlsEnabled && !recap.refreshing && (
@@ -168,12 +168,12 @@ export default function RecapPage() {
       <div className="mx-auto w-full max-w-4xl space-y-8 pb-10">
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs text-muted-foreground">
-            {episodes.length} episodes · generated {themes.generated_at} ·{" "}
+            {episodes.length} 个情节 · 生成于 {themes.generated_at} ·{" "}
             <span className="font-mono">{themes.model}</span>
           </span>
           {(recap.new_steps ?? 0) > 0 && (
             <Badge variant="outline" className="text-[10px]">
-              {recap.new_steps} steps since
+              此后新增 {recap.new_steps} 步
             </Badge>
           )}
           {controlsEnabled && (
@@ -185,14 +185,14 @@ export default function RecapPage() {
 
         <section>
           <h2 className="mb-2 flex items-center gap-1.5 font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            <Sparkles className="size-3" /> arc
+            <Sparkles className="size-3" /> 主线
           </h2>
           <p className="whitespace-pre-line text-sm leading-relaxed">{themes.arc}</p>
         </section>
 
         <section>
           <h2 className="mb-2 font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            themes
+            主题
           </h2>
           <div className="space-y-3">
             {themes.themes.map((theme, index) => (
@@ -200,7 +200,7 @@ export default function RecapPage() {
                 <div className="mb-1 flex flex-wrap items-baseline gap-2">
                   <span className="text-sm font-medium">{theme.name}</span>
                   <span className="text-[11px] text-muted-foreground">
-                    episodes {theme.episodes.join(", ")}
+                    情节 {theme.episodes.join(", ")}
                   </span>
                 </div>
                 <p className="mb-2 text-sm text-muted-foreground">{theme.description}</p>
@@ -216,7 +216,7 @@ export default function RecapPage() {
 
         <section>
           <h2 className="mb-2 font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            episodes
+            情节
           </h2>
           <div className="space-y-3">
             {episodes.map((episode) => (
@@ -228,11 +228,11 @@ export default function RecapPage() {
                   <span className="text-sm font-medium">{episode.title}</span>
                   {episode.partial && (
                     <Badge variant="outline" className="text-[10px]">
-                      partial
+                      不完整
                     </Badge>
                   )}
                   <span className="ml-auto font-mono text-[11px] text-muted-foreground">
-                    {episode.first_ts} → {episode.last_ts} · {episode.n_steps} steps
+                    {episode.first_ts} → {episode.last_ts} · {episode.n_steps} 步
                   </span>
                 </div>
                 <p className="mb-2 text-sm">{episode.summary}</p>

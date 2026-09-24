@@ -26,7 +26,7 @@ import { slackConversationUrl, slackSourceUrl } from "~/lib/source-links";
 import { cn } from "~/lib/utils";
 
 export function meta() {
-  return [{ title: "Headlong · chat" }];
+  return [{ title: "mindloop · 对话" }];
 }
 
 const MY_NAME_KEY = "shellm-chat-from";
@@ -167,7 +167,7 @@ export default function ChatPage() {
       {controlsEnabled && !dispatcherRunning && (
         <div className="mb-3 flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
           <span>
-            Thinkers are stopped — {identityName} won't see or answer messages.
+            思考者已停止——{identityName} 看不到也不会回复消息。
           </span>
           <div className="ml-auto">
             <StartStopButtons identityId={identityId} names={[]} running={false} />

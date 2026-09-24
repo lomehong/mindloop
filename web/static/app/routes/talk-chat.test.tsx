@@ -104,7 +104,7 @@ afterEach(cleanup);
 describe("phone chat composer", () => {
   it("leaves Return for newlines and sends multiline text with the button", async () => {
     renderTalkChat();
-    const box = await screen.findByPlaceholderText("Message ada…");
+    const box = await screen.findByPlaceholderText("给 ada 发消息…");
     fireEvent.change(box, { target: { value: "line one" } });
 
     const allowedNativeBehavior = fireEvent.keyDown(box, { key: "Enter" });
@@ -112,7 +112,7 @@ describe("phone chat composer", () => {
     expect(sendChat).not.toHaveBeenCalled();
 
     fireEvent.change(box, { target: { value: "line one\nline two" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
     await waitFor(() => expect(sendChat).toHaveBeenCalledTimes(1));
     expect(sendChat).toHaveBeenCalledWith(
       "ada",

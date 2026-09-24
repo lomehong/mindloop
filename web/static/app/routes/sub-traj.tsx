@@ -20,7 +20,7 @@ import { TrajContext } from "~/lib/traj-context";
 import { scrollToStep } from "~/routes/identity";
 
 export function meta() {
-  return [{ title: "Headlong · sub-trajectory" }];
+  return [{ title: "mindloop · 子轨迹" }];
 }
 
 export default function SubTrajPage() {

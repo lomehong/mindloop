@@ -67,10 +67,10 @@ function pollForNewBuild(oldCommit: string, timeoutMs = 5 * 60 * 1000) {
 /** Headline for a hard failure on the last real LLM call (from bin/llm's
  * marker). Shown in the chip itself so it is visible on every page. */
 const LAST_CALL_LABEL: Record<string, string> = {
-  credit: "out of credit",
-  auth: "key rejected",
-  rate: "rate limited",
-  other: "last call failed",
+  credit: "余额耗尽",
+  auth: "密钥被拒",
+  rate: "请求被限流",
+  other: "上次调用失败",
 };
 const LAST_CALL_HINT: Record<string, string> = {
   openrouter: "https://openrouter.ai/settings/credits",
@@ -210,7 +210,7 @@ function LlmHealthChip() {
                   onClick={runProbe}
                 >
                   <Activity className={`size-3 ${probing ? "animate-pulse" : ""}`} />
-                  {probing ? "Probing…" : "Probe provider now"}
+                  {probing ? "探测中…" : "立即探测供应商"}
                 </Button>
                 {probe && (
                   <div className="font-mono text-[11px]">
@@ -240,12 +240,12 @@ function BuildMenu({ config }: { config: Config }) {
     try {
       const result = await selfUpdate();
       if (!result.updated) {
-        toast.info(`Already up to date (${result.commit})`);
+        toast.info(`已是最新版本 (${result.commit})`);
         setUpdating(false);
         return;
       }
       toast.success(
-        `Updating ${result.from_commit} → ${result.to_commit} — restarting, page reloads when it's back (~1-2 min)`
+        `更新中 ${result.from_commit} → ${result.to_commit}——服务重启中，恢复后页面自动刷新（约 1-2 分钟）`
       );
       pollForNewBuild(config.git_commit ?? "");
     } catch (error) {

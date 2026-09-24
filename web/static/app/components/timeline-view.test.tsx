@@ -291,7 +291,7 @@ describe("timeline deeplinks", () => {
     try {
       renderTimeline({ url: "?run=r1" });
       fireEvent.click(await screen.findByText("steps (2)"));
-      const buttons = screen.getAllByLabelText("Copy link to this step");
+      const buttons = screen.getAllByLabelText("复制此步骤的链接");
       expect(buttons).toHaveLength(2);
       for (const b of buttons) fireEvent.click(b);
       await waitFor(() => expect(written).toHaveLength(2));
