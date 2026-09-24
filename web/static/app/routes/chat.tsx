@@ -182,7 +182,7 @@ export default function ChatPage() {
           </div>
         ) : messages.length === 0 ? (
           <div className="py-10 text-center text-sm text-muted-foreground">
-            No messages yet. Say hello.
+            还没有消息，打个招呼吧。
           </div>
         ) : (
           messages.map((message, idx) => (

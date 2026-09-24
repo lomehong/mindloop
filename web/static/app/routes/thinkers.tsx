@@ -76,13 +76,22 @@ const STATE_STYLES: Record<ThinkerState, string> = {
   disabled: "border border-dashed bg-transparent text-muted-foreground",
 };
 
+const STATE_LABELS: Record<string, string> = {
+  stopped: "已停止",
+  idle: "空闲",
+  active: "活跃",
+  running: "运行中",
+  draining: "排空中",
+  disabled: "已停用",
+};
+
 function StateBadge({ thinker }: { thinker: ThinkerInfo }) {
-  let label: string = thinker.state;
-  if (thinker.state === "active") label = `active (${thinker.steps_in_flight})`;
+  let label: string = STATE_LABELS[thinker.state] ?? thinker.state;
+  if (thinker.state === "active") label = `活跃 (${thinker.steps_in_flight})`;
   if (thinker.state === "draining")
-    label = `draining (${thinker.steps_in_flight})`;
+    label = `排空中 (${thinker.steps_in_flight})`;
   if (thinker.state === "running" && thinker.pid != null)
-    label = `running (PID ${thinker.pid})`;
+    label = `运行中 (PID ${thinker.pid})`;
   return <Badge className={STATE_STYLES[thinker.state]}>{label}</Badge>;
 }
 
@@ -178,14 +187,14 @@ function ThinkerRow({
       setThinkerEnabled(identityId, thinker.name, enabled),
     onSuccess: (result) => {
       if (result.disabled) {
-        toast.success(`Disabled ${result.name} — "Start all" will skip it`);
+        toast.success(`已停用 ${result.name}——全部启动会跳过它`);
       } else if (result.needs_restart) {
-        toast.success(`Enabled ${result.name}`, {
+        toast.success(`已启用 ${result.name}`, {
           description:
             "The running dispatcher won't see its subscriptions — stop and start thinkers to pick it up.",
         });
       } else {
-        toast.success(`Enabled ${result.name}`);
+        toast.success(`已启用 ${result.name}`);
       }
       queryClient.invalidateQueries({ queryKey: ["thinkers", identityId] });
       queryClient.invalidateQueries({ queryKey: ["identities"] });
@@ -242,7 +251,7 @@ function ThinkerRow({
                 <Button
                   variant="ghost"
                   size="sm"
-                  title="Fire this thinker's step once (manual trigger)"
+                  title="手动触发这个思考者一次"
                   disabled={mutation.isPending}
                   onClick={() =>
                     mutation.mutate({ action: "step", names: [thinker.name] })
@@ -259,13 +268,13 @@ function ThinkerRow({
               className="text-muted-foreground"
               title={
                 disabled
-                  ? `Enable ${thinker.name}`
-                  : `Disable ${thinker.name} — "Start all" and the dispatcher will skip it`
+                  ? `启用 ${thinker.name}`
+                  : `停用 ${thinker.name}——全部启动与调度器将跳过它`
               }
               disabled={toggleMutation.isPending}
               onClick={() => toggleMutation.mutate(disabled)}
             >
-              {disabled ? "Enable" : "Disable"}
+              {disabled ? "启用" : "停用"}
             </Button>
           </div>
         )}
@@ -313,13 +322,13 @@ function StatusPanel({ identityId }: { identityId: string }) {
   return (
     <div className="mb-6 space-y-3">
       <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card px-4 py-3">
-        <span className="text-sm font-medium">Dispatcher</span>
+        <span className="text-sm font-medium">调度器</span>
         {dispatcherRunning ? (
           <Badge className={STATE_STYLES.active}>
             running (PID {status.dispatcher.pid})
           </Badge>
         ) : (
-          <Badge className={STATE_STYLES.stopped}>stopped</Badge>
+          <Badge className={STATE_STYLES.stopped}>已停止</Badge>
         )}
         <span className="font-mono text-xs text-muted-foreground">
           {status.active_thinkers}/{status.thinkers_total} thinkers active ·{" "}
@@ -333,26 +342,26 @@ function StatusPanel({ identityId }: { identityId: string }) {
             names={[]}
             running={dispatcherRunning}
             startDisabled={dispatcherRunning}
-            startDisabledReason="Dispatcher already running — start thinkers individually or stop first"
+            startDisabledReason="调度器已在运行——请先停止再启动，或逐个启动思考者"
           />
         </div>
       </div>
       {status.thinkers.length === 0 ? (
         <div className="py-4 text-center text-sm text-muted-foreground">
-          No thinkers installed for this identity.
+          此身份没有安装思考者。
         </div>
       ) : (
         <div className="rounded-lg border">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Thinker</TableHead>
-                <TableHead>State</TableHead>
-                <TableHead>Subscribes to</TableHead>
-                <TableHead>Pending</TableHead>
-                <TableHead>Log</TableHead>
-                <TableHead>Version</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>思考者</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead>订阅类型</TableHead>
+                <TableHead>排队</TableHead>
+                <TableHead>日志</TableHead>
+                <TableHead>版本</TableHead>
+                <TableHead className="text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -495,7 +504,7 @@ function DispatchView({
   if (events.length === 0) {
     return (
       <div className="py-10 text-center text-sm text-muted-foreground">
-        No dispatcher.log found.
+        未发现 dispatcher.log（调度器事件流待落盘）。
       </div>
     );
   }
@@ -575,9 +584,9 @@ export default function ThinkersPage() {
       {!logs || logs.length === 0 ? (
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>No thinker logs</EmptyTitle>
+            <EmptyTitle>暂无思考者日志</EmptyTitle>
             <EmptyDescription>
-              No run/logs/*.log files found for this identity.
+              此身份还没有 run/*.log 日志文件。
             </EmptyDescription>
           </EmptyHeader>
         </Empty>

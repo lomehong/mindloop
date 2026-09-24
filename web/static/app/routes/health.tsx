@@ -91,15 +91,15 @@ export default function HealthPage() {
         name={health.identity.name}
       />
       <div className="space-y-4">
-        <Section title="Right now">
+        <Section title="当前状态">
           <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
             <Stat
-              label="state"
+              label="状态"
               value={activity.state}
               className={STATE_TEXT[activity.state]}
             />
             <Stat
-              label="steps in flight"
+              label="进行中步骤"
               value={
                 activity.steps_in_flight > 0 && activity.busy_thinkers.length
                   ? `${activity.steps_in_flight} (${activity.busy_thinkers.join(", ")})`
@@ -178,9 +178,9 @@ export default function HealthPage() {
           ) : (
             <>
               <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
-                <Stat label="replied" value={String(responses.replied)} />
-                <Stat label="declined" value={String(responses.declined)} />
-                <Stat label="undecided" value={String(responses.undecided)} />
+                <Stat label="已回复" value={String(responses.replied)} />
+                <Stat label="已拒绝" value={String(responses.declined)} />
+                <Stat label="待处理" value={String(responses.undecided)} />
                 <Stat
                   label="duplicates"
                   value={String(responses.duplicates ?? 0)}
