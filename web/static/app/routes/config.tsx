@@ -38,7 +38,7 @@ import {
 import type { EnvEntry } from "~/lib/types";
 
 export function meta() {
-  return [{ title: "Headlong · config" }];
+  return [{ title: "mindloop · 配置" }];
 }
 
 function useEnvMutations(identityId: string) {
@@ -49,7 +49,7 @@ function useEnvMutations(identityId: string) {
     mutationFn: ({ key, value }: { key: string; value: string }) =>
       putEnvVar(identityId, key, value),
     onSuccess: (entry) => {
-      toast.success(`Saved ${entry.key}`);
+      toast.success(`已保存 ${entry.key}`);
       invalidate();
     },
     onError: (error: Error) => toast.error(error.message),
@@ -57,7 +57,7 @@ function useEnvMutations(identityId: string) {
   const remove = useMutation({
     mutationFn: (key: string) => deleteEnvVar(identityId, key),
     onSuccess: (result) => {
-      toast.success(`Removed ${result.key}`);
+      toast.success(`已移除 ${result.key}`);
       invalidate();
     },
     onError: (error: Error) => toast.error(error.message),
@@ -71,7 +71,7 @@ function ValueDisplay({ entry }: { entry: EnvEntry }) {
       {entry.secret && (
         <KeyRound className="size-3 shrink-0 text-muted-foreground" />
       )}
-      {entry.value || <span className="text-muted-foreground">(empty)</span>}
+      {entry.value || <span className="text-muted-foreground">（空）</span>}
     </span>
   );
 }
@@ -108,12 +108,12 @@ function EnvRow({
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder={
-                entry.secret ? "enter new value (replaces current)" : entry.value
+                entry.secret ? "输入新值（将替换当前值）" : entry.value
               }
               className="h-8 flex-1 font-mono text-xs"
             />
             <Button type="submit" size="sm" disabled={save.isPending}>
-              Save
+              保存
             </Button>
             <Button
               type="button"
@@ -121,7 +121,7 @@ function EnvRow({
               size="sm"
               onClick={() => setEditing(false)}
             >
-              Cancel
+              取消
             </Button>
           </form>
         ) : (
@@ -134,7 +134,7 @@ function EnvRow({
             <Button
               variant="ghost"
               size="icon-sm"
-              title={`Edit ${entry.key}`}
+              title={`编辑 ${entry.key}`}
               onClick={() => {
                 setDraft(entry.secret ? "" : entry.value);
                 setEditing(true);
@@ -145,10 +145,10 @@ function EnvRow({
             <Button
               variant="ghost"
               size="icon-sm"
-              title={`Remove ${entry.key}`}
+              title={`移除 ${entry.key}`}
               disabled={remove.isPending}
               onClick={() => {
-                if (window.confirm(`Remove ${entry.key} from this identity's .env?`))
+                if (window.confirm(`从该身份的 .env 移除 ${entry.key}？`))
                   remove.mutate(entry.key);
               }}
             >
@@ -197,7 +197,7 @@ function AddVarForm({
         onChange={(event) => setKey(event.target.value)}
         placeholder="变量名"
         pattern="[A-Za-z_][A-Za-z0-9_]*"
-        title="letters, digits, underscores"
+        title="仅字母、数字、下划线"
         className="h-8 w-56 font-mono text-xs"
       />
       <Input
@@ -208,7 +208,7 @@ function AddVarForm({
       />
       <Button type="submit" size="sm" disabled={save.isPending || !key.trim()}>
         <Plus className="size-3" />
-        Add
+        添加
       </Button>
     </form>
   );
@@ -216,10 +216,10 @@ function AddVarForm({
 
 function formatAgo(iso: string): string {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-  return `${Math.round(s / 86400)}d ago`;
+  if (s < 60) return "刚刚";
+  if (s < 3600) return `${Math.round(s / 60)} 分钟前`;
+  if (s < 86400) return `${Math.round(s / 3600)} 小时前`;
+  return `${Math.round(s / 86400)} 天前`;
 }
 
 function formatWhen(iso: string): string {
@@ -259,7 +259,7 @@ function ExportSection({ identityId }: { identityId: string }) {
   const start = useMutation({
     mutationFn: () => startExportJob(identityId, { soulOnly, slim }),
     onSuccess: refresh,
-    onError: (e: Error) => toast.error(`Export failed to start: ${e.message}`),
+    onError: (e: Error) => toast.error(`导出启动失败：${e.message}`),
   });
   const remove = useMutation({
     mutationFn: (jobId: string) => deleteExportJob(jobId),
@@ -274,12 +274,11 @@ function ExportSection({ identityId }: { identityId: string }) {
     <section className="mt-8">
       <div className="mb-2 flex items-baseline gap-3">
         <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          export
+          导出
         </h2>
         <span className="text-[11px] text-muted-foreground">
-          Snapshot this identity as a portable .tgz — import it on another
-          Headlong dash (or with `identity import`). Secrets (.env) and runtime
-          state never leave the box.
+          把该身份打包为可携带的 .tgz——可在另一台仪表盘导入（或用
+          identity import）。密钥（.env）与运行时状态永远不会离开本机。
         </span>
       </div>
       <div className="flex flex-col gap-3 rounded-lg border p-3">
@@ -291,11 +290,11 @@ function ExportSection({ identityId }: { identityId: string }) {
             onClick={() => start.mutate()}
           >
             {running ? (
-              <LoadingDots text="Building" />
+              <LoadingDots text="构建中" />
             ) : (
               <>
                 <Download className="size-3" />
-                Build export
+                构建导出
               </>
             )}
           </Button>
@@ -305,27 +304,20 @@ function ExportSection({ identityId }: { identityId: string }) {
               disabled={running}
               onCheckedChange={(checked) => setSlim(checked === true)}
             />
-            slim
+            精简
             <Tooltip>
               <TooltipTrigger asChild>
                 <Info className="size-3 shrink-0 cursor-help" />
               </TooltipTrigger>
               <TooltipContent className="max-w-sm text-xs">
                 <p className="mb-1">
-                  <b>精简</b> (on): every step is kept, but the two fields that
-                  repeat in each step — the rendered prompt context and the
-                  shellm launch command line — are cut to a short head plus
-                  &ldquo;…[truncated N chars]&rdquo;. API keys are replaced with
-                  [REDACTED:…]. Thoughts, messages, reasoning and shell output
-                  travel whole, as do memories, blobs and the workdir. Roughly a
-                  tenth of the fat size (Audel: 1 GB of trajectories, 92 MB
-                  archive) and still imports.
+                  <b>精简</b>（开）：排除 runs/ 工作现场，保留全部轨迹、
+                  人格与记忆——.env 密钥与 run/ 控制面永远不进归档。
+                  体积更小，适合日常备份与迁移，导入后可继续运行。
                 </p>
                 <p>
-                  <b>Fat</b> (off): a byte-for-byte copy of the trajectories,
-                  including any keys that leaked into them. Use it for a real
-                  backup or to replay exact prompts; roughly a third of the raw
-                  size once gzipped.
+                  <b>完整</b>（关）：身份目录的完整复制（同样排除 .env
+                  与 run/），用于逐字节备份或精确重放。
                 </p>
               </TooltipContent>
             </Tooltip>
@@ -336,15 +328,13 @@ function ExportSection({ identityId }: { identityId: string }) {
               disabled={running}
               onCheckedChange={(checked) => setSoulOnly(checked === true)}
             />
-            soul only — skip trajectories (memories, thinkers, and skills; the
-            import starts a fresh mind log)
+            仅灵魂——跳过轨迹（只带人格与记忆；导入后从全新的日志开始）
           </label>
         </div>
         {running && (
           <span className="text-xs text-muted-foreground">
-            Building on the server. Big mind logs take a minute or two; the
-            build keeps going if you leave this page, and the file will be
-            listed here when you come back.
+            服务器正在构建。大日志需要一两分钟；离开本页构建仍会继续，
+            回来后文件会列在这里。
           </span>
         )}
         {jobs.data && jobs.data.length > 0 && (
@@ -376,11 +366,11 @@ function ExportSection({ identityId }: { identityId: string }) {
                 )}
                 <span className="text-muted-foreground">
                   {job.status === "running" &&
-                    `building… ${Math.round(job.seconds)}s`}
+                    `构建中… ${Math.round(job.seconds)}s`}
                   {job.status === "done" &&
-                    `${formatWhen(job.started_at)}, built in ${Math.round(job.seconds)}s`}
+                    `${formatWhen(job.started_at)} 构建，耗时 ${Math.round(job.seconds)}s`}
                   {job.status === "failed" &&
-                    `failed: ${job.error ?? "unknown error"}`}
+                    `失败：${job.error ?? "未知错误"}`}
                 </span>
                 {job.status !== "running" && (
                   <Button
@@ -439,7 +429,7 @@ export default function ConfigPage() {
       <section className="mb-8">
         <div className="mb-2 flex items-baseline gap-3">
           <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            identity .env
+            身份 .env
           </h2>
           <span className="text-[11px] text-muted-foreground">{env.note}</span>
         </div>
@@ -449,7 +439,7 @@ export default function ConfigPage() {
               <TableRow>
                 <TableHead className="w-64">变量</TableHead>
                 <TableHead>值</TableHead>
-                <TableHead className="w-24 text-right">Actions</TableHead>
+                <TableHead className="w-24 text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -459,7 +449,7 @@ export default function ConfigPage() {
                     colSpan={3}
                     className="py-6 text-center text-sm text-muted-foreground"
                   >
-                    No identity-specific variables yet.
+                    还没有身份级变量。
                   </TableCell>
                 </TableRow>
               )}
@@ -484,10 +474,10 @@ export default function ConfigPage() {
       <section>
         <div className="mb-2 flex items-baseline gap-3">
           <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            inherited from serve root .env
+            继承自服务根 .env
           </h2>
           <span className="text-[11px] text-muted-foreground">
-            Applies to every identity; add a variable above to override it here.
+            对所有身份生效；在上方添加同名变量即可在此身份覆盖它。
           </span>
         </div>
         <div className="rounded-lg border">
@@ -496,7 +486,7 @@ export default function ConfigPage() {
               {env.inherited.length === 0 && (
                 <TableRow>
                   <TableCell className="py-6 text-center text-sm text-muted-foreground">
-                    No .env at the serve root.
+                    服务根目录没有 .env。
                   </TableCell>
                 </TableRow>
               )}
@@ -509,7 +499,7 @@ export default function ConfigPage() {
                     <ValueDisplay entry={entry} />
                     {entry.overridden && (
                       <Badge variant="outline" className="ml-2 text-[10px]">
-                        overridden
+                        已覆盖
                       </Badge>
                     )}
                   </TableCell>

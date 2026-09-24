@@ -56,7 +56,7 @@ export function PushBell({ name }: { name: string }) {
       if (permission !== "granted") {
         setState(permission === "denied" ? "denied" : "off");
         if (permission === "denied") {
-          toast.error("Notifications are blocked for this app in system settings");
+          toast.error("系统设置里已禁止本应用的通知");
         }
         return;
       }
@@ -68,7 +68,7 @@ export function PushBell({ name }: { name: string }) {
       });
       await subscribePush(name, sub.toJSON());
       setState("on");
-      toast.success("This phone will buzz when someone messages you back");
+      toast.success("收到回复时这台手机会震动提醒");
     } catch (error) {
       setState("off");
       toast.error((error as Error).message);
@@ -107,12 +107,12 @@ export function PushBell({ name }: { name: string }) {
       disabled={state === "loading" || state === "denied"}
       title={
         state === "on"
-          ? "Notifications on — tap to disable"
+          ? "通知已开启——点按关闭"
           : state === "denied"
-            ? "Notifications blocked in system settings"
-            : "Notify this phone when you get a reply"
+            ? "系统设置里已禁止通知"
+            : "收到回复时通知这台手机"
       }
-      aria-label="Toggle push notifications"
+      aria-label="开关推送通知"
       onClick={state === "on" ? disable : enable}
     >
       {icon}

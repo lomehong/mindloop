@@ -47,7 +47,7 @@ import type {
 import { cn } from "~/lib/utils";
 
 export function meta() {
-  return [{ title: "Headlong · thinkers" }];
+  return [{ title: "mindloop · 思考者" }];
 }
 
 function kb(bytes: number): string {
@@ -57,12 +57,12 @@ function kb(bytes: number): string {
 function relativeTime(iso: string | null): string {
   if (!iso) return "—";
   const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 60) return `${seconds} 秒前`;
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60) return `${minutes} 分钟前`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  if (hours < 48) return `${hours} 小时前`;
+  return `${Math.floor(hours / 24)} 天前`;
 }
 
 const STATE_STYLES: Record<ThinkerState, string> = {
@@ -103,11 +103,11 @@ function usePullMutation(identityId: string) {
     onSuccess: (result) => {
       const changed = result.results.filter((r) => r.action !== "unchanged");
       if (changed.length === 0) {
-        toast.success("Already up to date");
+        toast.success("已是最新");
       } else {
         toast.success(
           changed.map((r) => `${r.action} ${r.name}`).join(", "),
-          { description: "Restart thinkers to pick up the new code." }
+          { description: "重启思考者以加载新代码。" }
         );
       }
       queryClient.invalidateQueries({ queryKey: ["thinker-sync", identityId] });
@@ -331,10 +331,10 @@ function StatusPanel({ identityId }: { identityId: string }) {
           <Badge className={STATE_STYLES.stopped}>已停止</Badge>
         )}
         <span className="font-mono text-xs text-muted-foreground">
-          {status.active_thinkers}/{status.thinkers_total} thinkers active ·{" "}
-          {status.steps_in_flight} step(s) in flight
-          {status.pending_total > 0 && ` · ${status.pending_total} pending`}
-          {status.thinkers_disabled > 0 && ` · ${status.thinkers_disabled} disabled`}
+          {status.active_thinkers}/{status.thinkers_total} 个思考者活跃 ·{" "}
+          {status.steps_in_flight} 个步骤进行中
+          {status.pending_total > 0 && ` · ${status.pending_total} 条待处理`}
+          {status.thinkers_disabled > 0 && ` · ${status.thinkers_disabled} 个已停用`}
         </span>
         <div className="ml-auto">
           <StartStopButtons

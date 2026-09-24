@@ -97,7 +97,7 @@ function SubstepLink({ stepId }: { stepId: string }) {
   return (
     <button
       type="button"
-      aria-label="Copy link to this step"
+      aria-label="复制此步骤的链接"
       title="复制此步骤的链接"
       className="absolute right-1 top-1.5 z-10 rounded-md p-1 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/substep:opacity-100"
       onClick={copy}

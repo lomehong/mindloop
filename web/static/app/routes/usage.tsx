@@ -28,7 +28,7 @@ import { fetchIdentityStatus, fetchUsage, refreshUsage } from "~/lib/api";
 import type { UsageDay } from "~/lib/types";
 
 export function meta() {
-  return [{ title: "Headlong · usage" }];
+  return [{ title: "mindloop · 用量" }];
 }
 
 // --- formatting ------------------------------------------------------------
@@ -49,10 +49,10 @@ function fmtBytes(n: number): string {
 
 function fmtAgo(iso: string): string {
   const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
-  if (s < 90) return "just now";
-  if (s < 5400) return `${Math.round(s / 60)} min ago`;
-  if (s < 129600) return `${(s / 3600).toFixed(1).replace(/\.0$/, "")} h ago`;
-  return `${(s / 86400).toFixed(1).replace(/\.0$/, "")} d ago`;
+  if (s < 90) return "刚刚";
+  if (s < 5400) return `${Math.round(s / 60)} 分钟前`;
+  if (s < 129600) return `${(s / 3600).toFixed(1).replace(/\.0$/, "")} 小时前`;
+  return `${(s / 86400).toFixed(1).replace(/\.0$/, "")} 天前`;
 }
 
 /** Round a y-axis max up to 1/2/2.5/5 x 10^k. */
@@ -297,8 +297,8 @@ function RefreshButtons({
     onSuccess: (_result, rebuild) => {
       toast.success(
         rebuild
-          ? "Recount started — the whole mind log and llm ledger are read again in the background"
-          : "Usage refresh started — new mind-log and ledger rows get counted in the background"
+          ? "已开始重算——后台将重新读取整份思维日志与 LLM 账本"
+          : "已开始增量刷新——后台统计新增的日志与账本行"
       );
       queryClient.invalidateQueries({ queryKey: ["usage", identityId] });
     },
@@ -315,7 +315,7 @@ function RefreshButtons({
         title="统计上次刷新以来新增的行（增量；首次会完整读取一次）"
       >
         <RefreshCw className={`size-3 ${refreshing ? "animate-spin" : ""}`} />
-        {refreshing ? "Counting…" : label}
+        {refreshing ? "统计中…" : label}
       </Button>
       {showRecount && (
         <Button
@@ -326,13 +326,13 @@ function RefreshButtons({
           onClick={() => {
             if (
               window.confirm(
-                "Recount from scratch? The cached counts are discarded and the whole mind log and llm ledger are read again. No LLM calls; takes seconds to a minute on a big log."
+                "从头重算？将丢弃缓存的计数，重新读取整份思维日志与 LLM 账本。不调用模型；大日志约需数秒到一分钟。"
               )
             )
               mutation.mutate(true);
           }}
         >
-          Recount
+          重算
         </Button>
       )}
     </div>
@@ -382,15 +382,15 @@ export default function UsagePage() {
             <EmptyTitle>暂无用量数据</EmptyTitle>
             <EmptyDescription>
               {usage.refreshing
-                ? "The mind log is being counted right now — this page refreshes itself."
-                : "Count messages, model calls, tokens and runs per day from the mind log. The first pass reads the whole log once; refreshes after that only read what was appended."}
+                ? "思维日志正在统计中——本页会自动刷新。"
+                : "从思维日志统计每日的消息、模型调用、token 与运行数。首次统计会完整读取一遍日志；之后的刷新只读取新增部分。"}
             </EmptyDescription>
           </EmptyHeader>
           {controlsEnabled && !usage.refreshing && (
             <RefreshButtons
               identityId={identityId}
               refreshing={false}
-              label="Count usage"
+              label="统计用量"
               showRecount={false}
             />
           )}
@@ -422,27 +422,27 @@ export default function UsagePage() {
       <div className="space-y-5 pb-10">
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs text-muted-foreground">
-            {usage.rows?.toLocaleString()} mind-log rows · counted{" "}
-            {usage.generated ? fmtAgo(usage.generated) : "—"} · days are UTC
+            {usage.rows?.toLocaleString()} 行日志 · 统计于{" "}
+            {usage.generated ? fmtAgo(usage.generated) : "—"} · 按 UTC 天分组
           </span>
           {usage.pending_bytes > 0 && (
             <Badge variant="outline" className="text-[10px]">
-              {fmtBytes(usage.pending_bytes)} not counted yet
+              {fmtBytes(usage.pending_bytes)} 待统计
             </Badge>
           )}
           {controlsEnabled && (
             <div className="ml-auto">
-              <RefreshButtons identityId={identityId} refreshing={usage.refreshing} label="Refresh" />
+              <RefreshButtons identityId={identityId} refreshing={usage.refreshing} label="刷新" />
             </div>
           )}
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <Tile value={fmtNum(totals.in + totals.out + totals.think)} label="tokens, all time" />
-          <Tile value={fmtNum(tok7)} label="tokens / day, last 7d" />
-          <Tile value={msg7.toFixed(0)} label="messages / day, last 7d" />
-          <Tile value={calls7.toFixed(0)} label="model calls / day, last 7d" />
-          <Tile value={String(days.length)} label="days in the log" />
+          <Tile value={fmtNum(totals.in + totals.out + totals.think)} label="token 总量" />
+          <Tile value={fmtNum(tok7)} label="日均 token（近 7 天）" />
+          <Tile value={msg7.toFixed(0)} label="日均消息（近 7 天）" />
+          <Tile value={calls7.toFixed(0)} label="日均模型调用（近 7 天）" />
+          <Tile value={String(days.length)} label="日志覆盖天数" />
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
@@ -451,21 +451,21 @@ export default function UsagePage() {
               <CardTitle className="text-sm">每日 Token</CardTitle>
               <CardDescription>
                 {ledgerSince === null
-                  ? "Input, output and thinking tokens stamped on shellm reasoning steps. Only shellm runs are counted: the llm usage ledger (every bin/llm call) has no rows yet, so fast-path replies and other thinkers are missing until it does."
+                  ? "思维日志 reasoning 步骤上标记的输入/输出/思考 token。目前只统计了代理运行：LLM 用量台账（每次模型调用一行）还没有数据，快速回复与其他思考者的调用暂时缺席。"
                   : ledgerCoversAll
-                    ? "Input, output and thinking tokens of every bin/llm call (usage ledger): shellm runs, fast-path replies and other thinkers."
-                    : `Input, output and thinking tokens. From ${ledgerSince} on: every bin/llm call (usage ledger). Before that: shellm runs only (tokens stamped on reasoning steps), so fast-path replies and other thinkers are missing on those days.`}
+                    ? "每次模型调用的输入/输出/思考 token（用量台账）：代理运行、快速回复与其他思考者的调用全部覆盖。"
+                    : `输入/输出/思考 token。${ledgerSince} 起为每次模型调用（用量台账）；此前只有代理运行（token 标在 reasoning 步骤上），那几天的快速回复与其他思考者调用缺席。`}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <BarChart
                 days={days}
                 stacked
-                totalLabel="total tokens"
+                totalLabel="合计"
                 series={[
-                  { key: "in", label: "input", color: INPUT },
-                  { key: "out", label: "output", color: OUTPUT },
-                  { key: "think", label: "thinking", color: THIRD },
+                  { key: "in", label: "输入", color: INPUT },
+                  { key: "out", label: "输出", color: OUTPUT },
+                  { key: "think", label: "思考", color: THIRD },
                 ]}
               />
             </CardContent>
@@ -474,18 +474,17 @@ export default function UsagePage() {
             <CardHeader>
               <CardTitle className="text-sm">每日消息</CardTitle>
               <CardDescription>
-                Inbound = messages to this identity from anyone else; outbound = its own
-                messages out.
+                收到的消息 = 其他人发给该身份的消息；发出的消息 = 它自己发出的消息。
               </CardDescription>
             </CardHeader>
             <CardContent>
               <BarChart
                 days={days}
                 stacked={false}
-                totalLabel="total messages"
+                totalLabel="合计"
                 series={[
-                  { key: "in_msg", label: "inbound", color: INPUT },
-                  { key: "out_msg", label: "outbound", color: OUTPUT },
+                  { key: "in_msg", label: "收到", color: INPUT },
+                  { key: "out_msg", label: "发出", color: OUTPUT },
                 ]}
               />
             </CardContent>
@@ -494,8 +493,7 @@ export default function UsagePage() {
             <CardHeader>
               <CardTitle className="text-sm">每日活动</CardTitle>
               <CardDescription>
-                Model calls (same coverage as the tokens chart), agentic runs started, and reasoning
-                steps.
+                模型调用（覆盖范围与 token 图相同）、启动的代理运行与 reasoning 步骤。
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -503,33 +501,32 @@ export default function UsagePage() {
                 days={days}
                 stacked={false}
                 series={[
-                  { key: "calls", label: "model calls", color: INPUT },
-                  { key: "runs", label: "runs started", color: OUTPUT },
-                  { key: "reasoning", label: "reasoning steps", color: THIRD },
+                  { key: "calls", label: "模型调用", color: INPUT },
+                  { key: "runs", label: "启动的运行", color: OUTPUT },
+                  { key: "reasoning", label: "reasoning 步骤", color: THIRD },
                 ]}
               />
             </CardContent>
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Tokens per model</CardTitle>
+              <CardTitle className="text-sm">各模型的 Token</CardTitle>
               <CardDescription>
-                Same coverage as the tokens chart. Ledger days carry the model on each call; on
-                mind-log days it comes from the run's shellm-run row ("?" = steps with no run id).
+                覆盖范围与 token 图相同。台账日期的模型来自每次调用记录；日志日期的模型来自该运行的头行（"?" = 没有 run id 的步骤）。
               </CardDescription>
             </CardHeader>
             <CardContent>
               {models.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No usage stamped yet.</p>
+                <p className="text-sm text-muted-foreground">还没有用量记录。</p>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>model</TableHead>
-                      <TableHead className="text-right">calls</TableHead>
-                      <TableHead className="text-right">input</TableHead>
-                      <TableHead className="text-right">output</TableHead>
-                      <TableHead className="text-right">thinking</TableHead>
+                      <TableHead>模型</TableHead>
+                      <TableHead className="text-right">调用</TableHead>
+                      <TableHead className="text-right">输入</TableHead>
+                      <TableHead className="text-right">输出</TableHead>
+                      <TableHead className="text-right">思考</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

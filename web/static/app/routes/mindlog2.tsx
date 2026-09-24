@@ -11,7 +11,7 @@ import { useMindlog } from "~/lib/use-mindlog";
 import { cn } from "~/lib/utils";
 
 export function meta() {
-  return [{ title: "Headlong · mind log v2" }];
+  return [{ title: "mindloop · 思维日志 v2" }];
 }
 
 /** Presentation stream: newest first, so a calm page with no scroll chasing. */

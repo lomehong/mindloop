@@ -20,7 +20,7 @@ import { TrajContext } from "~/lib/traj-context";
 import { cn } from "~/lib/utils";
 
 export function meta() {
-  return [{ title: "Headlong · timeline" }];
+  return [{ title: "mindloop · 时间线" }];
 }
 
 // Swatch opacity mirrors the canvas: triggers are always on, the rest rest
@@ -73,7 +73,7 @@ export default function TimelinePage() {
       <Empty>
         <EmptyHeader>
           <EmptyTitle>暂无思维日志</EmptyTitle>
-          <EmptyDescription>No trajectory found for {identityId}.</EmptyDescription>
+          <EmptyDescription>未找到 {identityId} 的轨迹。</EmptyDescription>
         </EmptyHeader>
       </Empty>
     );

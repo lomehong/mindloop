@@ -18,7 +18,7 @@ import { getPwaName, pwaSender, setLastIdentity } from "~/lib/pwa";
 import { cn } from "~/lib/utils";
 
 export function meta({ params }: { params: { identityId?: string } }) {
-  return [{ title: params.identityId ? `${params.identityId} · talk` : "Headlong · talk" }];
+  return [{ title: params.identityId ? `${params.identityId} · talk` : "mindloop · 对话" }];
 }
 
 // After a send: poll fast for this long so the reply lands near-instantly.
@@ -129,11 +129,11 @@ function PendingBubble({
             className="mt-0.5 block w-full text-right font-mono text-[10px] text-red-200 underline"
             onClick={onRetry}
           >
-            failed to send — tap to retry
+            发送失败——点按重试
           </button>
         ) : (
           <div className="mt-0.5 text-right font-mono text-[10px] text-primary-foreground/60">
-            sending…
+            发送中…
           </div>
         )}
       </div>
@@ -330,7 +330,7 @@ export default function TalkChat() {
         <Link
           to="/talk?pick=1"
           className="flex h-9 w-9 items-center justify-center rounded-full active:bg-accent"
-          aria-label="Back to identity list"
+          aria-label="返回身份列表"
         >
           <ChevronLeft className="size-5" />
         </Link>
@@ -352,14 +352,12 @@ export default function TalkChat() {
 
       {!dispatcherRunning && (
         <div className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-          {identityName} is asleep (thinkers stopped) — messages will wait
-          until it wakes.
+          {identityName} 正在睡眠（思考者已停止）——消息会等它醒来后再被看到。
         </div>
       )}
       {dispatcherRunning && queuedMine && (
         <div className="border-b border-sky-300 bg-sky-50 px-4 py-2 text-xs text-sky-900 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-200">
-          {identityName} is mid-task — your message is queued and will be
-          seen when the current run finishes.
+          {identityName} 正在忙——你的消息已排队，当前任务结束后会被看到。
         </div>
       )}
 
@@ -379,7 +377,7 @@ export default function TalkChat() {
           </div>
         ) : messages.length === 0 && visiblePending.length === 0 ? (
           <div className="py-10 text-center text-sm text-muted-foreground">
-            No messages yet. Say hello.
+            还没有消息，打个招呼吧。
           </div>
         ) : (
           <>
@@ -400,17 +398,17 @@ export default function TalkChat() {
             {showTyping && <TypingBubble />}
             {showDeclinedNote && (
               <div className="py-2 text-center font-mono text-[10px] text-muted-foreground">
-                {identityName} read it and chose not to answer
+                {identityName} 已读但选择不回复
               </div>
             )}
             {showFailedNote && (
               <div className="py-2 text-center font-mono text-[10px] text-muted-foreground">
-                {identityName} tried to reply but it failed — try again
+                {identityName} 尝试回复但失败了——请重试
               </div>
             )}
             {showNoReplyNote && (
               <div className="py-2 text-center font-mono text-[10px] text-muted-foreground">
-                no reply yet — {identityName} may still be busy
+                还没有回复——{identityName} 可能还在忙
               </div>
             )}
           </>

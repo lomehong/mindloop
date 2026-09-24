@@ -15,18 +15,18 @@ import {
 } from "~/lib/pwa";
 
 export function meta() {
-  return [{ title: "Headlong · talk" }];
+  return [{ title: "mindloop · 对话" }];
 }
 
 function relativeTime(iso: string | null): string {
   if (!iso) return "";
   const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (seconds < 60) return "just now";
+  if (seconds < 60) return "刚刚";
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60) return `${minutes} 分钟前`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  if (hours < 48) return `${hours} 小时前`;
+  return `${Math.floor(hours / 24)} 天前`;
 }
 
 function NamePrompt({ onDone }: { onDone: (name: string) => void }) {
@@ -37,8 +37,7 @@ function NamePrompt({ onDone }: { onDone: (name: string) => void }) {
       <img src="/icons/icon-192.png" alt="" className="h-16 w-16 rounded-2xl" />
       <h1 className="text-lg font-semibold">你是谁？</h1>
       <p className="text-center text-sm text-muted-foreground">
-        Messages you send are signed with this name, so the identity knows who
-        it's talking to.
+        你发的消息会以这个名字署名，身份由此知道在和谁说话。
       </p>
       <form
         className="flex w-full max-w-xs items-center gap-2"
@@ -57,12 +56,12 @@ function NamePrompt({ onDone }: { onDone: (name: string) => void }) {
           className="h-10 flex-1"
         />
         <Button type="submit" disabled={!name}>
-          Start
+          开始
         </Button>
       </form>
       {name && (
         <p className="font-mono text-xs text-muted-foreground">
-          you'll appear as pwa-{name}
+          你将以 pwa-{name} 的身份出现
         </p>
       )}
     </div>
@@ -121,7 +120,7 @@ export default function TalkHome() {
         </div>
       ) : !identities || identities.length === 0 ? (
         <p className="py-16 text-center text-sm text-muted-foreground">
-          No identities found on this server.
+          这台服务器上还没有身份。
         </p>
       ) : (
         <div className="flex flex-col gap-2 pb-8">
@@ -147,8 +146,8 @@ export default function TalkHome() {
                 <span className="block font-medium">{identity.name}</span>
                 <span className="block text-xs text-muted-foreground">
                   {identity.dispatcher?.running
-                    ? "awake"
-                    : "asleep — won't answer"}
+                    ? "清醒中"
+                    : "睡眠中——不会回复"}
                   {identity.last_activity_ts
                     ? ` · ${relativeTime(identity.last_activity_ts)}`
                     : ""}

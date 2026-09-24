@@ -32,7 +32,7 @@ import { useMindlog } from "~/lib/use-mindlog";
 import type { NormalizedStep } from "~/lib/types";
 
 export function meta() {
-  return [{ title: "Headlong · mind log" }];
+  return [{ title: "mindloop · 思维日志" }];
 }
 
 export function scrollToStep(step: {
@@ -174,7 +174,7 @@ export default function IdentityPage() {
       <Empty>
         <EmptyHeader>
           <EmptyTitle>暂无思维日志</EmptyTitle>
-          <EmptyDescription>No trajectory found for {identityId}.</EmptyDescription>
+          <EmptyDescription>未找到 {identityId} 的轨迹。</EmptyDescription>
         </EmptyHeader>
       </Empty>
     );
