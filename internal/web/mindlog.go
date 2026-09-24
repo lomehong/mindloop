@@ -360,31 +360,6 @@ func snippetAround(s string, idx, width int) string {
 	return out
 }
 
-// handleStepDetail 返回单步详情（viewer 点开一步时拉全字段）。
-func (s *Server) handleStepDetail(w http.ResponseWriter, r *http.Request, id *identity.Identity, rest []string) {
-	if len(rest) == 0 || rest[0] == "" {
-		writeError(w, 400, "缺少 step id")
-		return
-	}
-	want := rest[0]
-	steps, err := id.Timeline.Steps()
-	if err != nil {
-		writeError(w, 500, err.Error())
-		return
-	}
-	for i, s := range steps {
-		if strings.HasPrefix(s.StepID, want) {
-			writeJSON(w, 200, map[string]any{
-				"step":  normalizeStep(s),
-				"index": i,
-				"run":   nil,
-			})
-			return
-		}
-	}
-	writeError(w, 404, "未找到步骤 "+want)
-}
-
 // handleRunCommand 返回某次 run 的 prompt 全文（viewer 的
 // command_truncated 展开按钮用）。
 func (s *Server) handleRunCommand(w http.ResponseWriter, r *http.Request, id *identity.Identity, rest []string) {
