@@ -6,8 +6,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
+	"time"
 
 	"mindloop/internal/identity"
+	"mindloop/internal/traj"
 )
 
 // recapView 是 viewer Recap 契约——id/available/refreshing 必有，
@@ -109,105 +112,90 @@ func (s *Server) handleRecap(w http.ResponseWriter, _ *http.Request, id *identit
 	writeJSON(w, 200, view)
 }
 
-// handleLlmHealth 是 viewer Health 页的探测信号。v0.1 用 llm-health.json
-// 透传即可——更深的健康指标（如 429 频率、按 provider 聚合）留给后续轮次。
-type llmHealthView struct {
-	Status      string              `json:"status"`
-	Failures15m int                 `json:"failures_15m"`
-	Failures1h  int                 `json:"failures_1h"`
-	CadenceSlow bool                `json:"cadence_slow"`
-	CheckedAt   string              `json:"checked_at"`
-	Identities  []llmHealthIdentity `json:"identities"`
-	LastCall    *llmHealthLastCall  `json:"last_call,omitempty"`
-}
-
-type llmHealthIdentity struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Live        bool              `json:"live"`
-	Failures1h  int               `json:"failures_1h"`
-	Failures15m int               `json:"failures_15m"`
-	LastFailure *llmHealthFailure `json:"last_failure,omitempty"`
-	Cadence     *llmHealthCadence `json:"cadence,omitempty"`
-}
-
-type llmHealthFailure struct {
-	TS      string `json:"ts"`
-	Content string `json:"content"`
-}
-
-type llmHealthCadence struct {
-	RecentMedianS   int  `json:"recent_median_s"`
-	BaselineMedianS *int `json:"baseline_median_s,omitempty"`
-	RecentN         int  `json:"recent_n"`
-}
-
-type llmHealthLastCall struct {
-	OK       bool    `json:"ok"`
-	TS       *string `json:"ts,omitempty"`
-	Provider *string `json:"provider,omitempty"`
-	Model    *string `json:"model,omitempty"`
-	Kind     *string `json:"kind,omitempty"`
-	HTTPCode any     `json:"http_code"`
-	Message  *string `json:"message,omitempty"`
-}
-
-// handleLlmHealth 读取每个身份目录下的 llm-health.json 聚合返回。
-// 单一身份是 viewer 的正常使用场景——只回该身份。
+// handleLlmHealth 返回 IdentityHealth 契约：
+// {identity, activity: IdentityActivity, responses: ResponseStats}。
+// responses 大部分从对话步骤实算：replied 有 reply_to 章并可配对
+// 计算响应延迟（入站消息 ts → 回复 ts），recent 为最近对话事件；
+// model/p90/paths 是 LLM 指标——用量账本未落盘前为诚实的 0/null。
 func (s *Server) handleLlmHealth(w http.ResponseWriter, _ *http.Request, id *identity.Identity, _ []string) {
-	out := llmHealthView{
-		Status:      "ok",
-		Failures15m: 0,
-		Failures1h:  0,
-		CadenceSlow: false,
-		CheckedAt:   nowISO(),
-	}
-	hp := filepath.Join(id.Dir, "llm-health.json")
-	data, err := os.ReadFile(hp)
-	if err != nil {
-		// 文件不存在（心智从未运行或无失败）= 一切健康
-		if !os.IsNotExist(err) {
-			writeError(w, 500, err.Error())
-			return
+	replied, undecided := 0, 0
+	var recent []map[string]any
+	var latencies []float64
+	if steps, err := id.Timeline.Steps(); err == nil {
+		// 回复索引：reply_to → 回复 ts
+		replyAt := map[string]string{}
+		for _, st := range steps {
+			if st.Type == "message" {
+				if rt, ok := st.Field("reply_to"); ok && rt != "" {
+					replyAt[rt] = st.TS
+				}
+			}
 		}
-		// 健康身份=无历史故障
-		ent := llmHealthIdentity{ID: id.Name, Name: id.Name, Live: isIdentityLive(id.Timeline.Dir)}
-		out.Identities = append(out.Identities, ent)
-		writeJSON(w, 200, out)
-		return
-	}
-	var h struct {
-		ConsecutiveErrors int    `json:"consecutive_errors"`
-		LastError         string `json:"last_error,omitempty"`
-		LastErrorAt       string `json:"last_error_at,omitempty"`
-		LastOK            string `json:"last_ok,omitempty"`
-		LastCheck         string `json:"last_check,omitempty"`
-	}
-	if err := json.Unmarshal(data, &h); err != nil {
-		writeError(w, 500, err.Error())
-		return
-	}
-	ent := llmHealthIdentity{
-		ID: id.Name, Name: id.Name, Live: isIdentityLive(id.Timeline.Dir),
-	}
-	if h.ConsecutiveErrors > 0 {
-		ent.Failures1h = h.ConsecutiveErrors // 近似：本地缓存不切窗口
-		ent.Failures15m = h.ConsecutiveErrors
-		if h.LastErrorAt != "" {
-			ent.LastFailure = &llmHealthFailure{TS: h.LastErrorAt, Content: h.LastError}
+		for _, st := range steps {
+			if st.Type != "message" {
+				continue
+			}
+			from, _ := st.Field("from")
+			if from == id.Name {
+				continue
+			}
+			outcome := "declined"
+			var respS float64
+			if rts, ok := replyAt[st.StepID]; ok && rts != "" && st.TS != "" {
+				outcome = "replied"
+				replied++
+				if t0, e0 := time.Parse(traj.TimeFormat, st.TS); e0 == nil {
+					if t1, e1 := time.Parse(traj.TimeFormat, rts); e1 == nil {
+						respS = t1.Sub(t0).Seconds()
+						latencies = append(latencies, respS)
+					}
+				}
+			} else {
+				undecided++
+			}
+			recent = append(recent, map[string]any{
+				"ts": st.TS, "from": from, "outcome": outcome,
+				"path": nil, "response_s": respS,
+			})
 		}
-		out.Failures15m = h.ConsecutiveErrors
-		out.Failures1h = h.ConsecutiveErrors
 	}
-	if h.ConsecutiveErrors == 0 && h.LastOK != "" {
-		// 探针成功=ok 状态
+	if recent == nil {
+		recent = []map[string]any{}
 	}
-	if h.ConsecutiveErrors > 2 {
-		out.Status = "degraded"
-		// last_call 不强解为 type，因为我们没有 marker；留空
+	if len(recent) > 20 {
+		recent = recent[len(recent)-20:]
 	}
-	out.Identities = append(out.Identities, ent)
-	writeJSON(w, 200, out)
+	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
+	var median, p90 *float64
+	if n := len(latencies); n > 0 {
+		m := latencies[n/2]
+		median = &m
+		p := latencies[(n*9)/10]
+		p90 = &p
+	}
+	pathStats := map[string]any{"n": 0, "median_s": nil, "p90_s": nil}
+	writeJSON(w, 200, map[string]any{
+		"identity": map[string]string{"id": id.Name, "name": id.Name},
+		"activity": activityMap(id),
+		"responses": map[string]any{
+			"window_days": 7,
+			"replied":     replied,
+			"declined":    0,
+			"undecided":   undecided,
+			"duplicates":  0,
+			"median_s":    median,
+			"p90_s":       p90,
+			"max_s":       nil,
+			"paths":       map[string]any{"fast": pathStats, "inline": pathStats},
+			"injections":  []any{},
+			"model": map[string]any{
+				"calls": 0, "llm_p50_s": nil, "llm_p90_s": nil,
+				"in_tok": 0, "out_tok": 0, "think_tok": 0,
+				"daily": []any{},
+			},
+			"recent": recent,
+		},
+	})
 }
 
 // splitNonEmptyLines 按 \n 分割并丢弃空行（trim 后）。

@@ -20,6 +20,8 @@ import (
 // 直接读取 dispatcher/group/thinkers_* 渲染表格，缺一个字段就崩
 // 进错误边界（首版发布的真实事故：缺 group 导致首页 "Oops!"）。
 type IdentityInfo struct {
+	// Dir 仅服务端内部使用（killall 等），不进 JSON 契约。
+	Dir            string         `json:"-"`
 	ID             string         `json:"id"`
 	Name           string         `json:"name"`
 	PathRel        string         `json:"path_rel"`
@@ -92,6 +94,8 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 	switch sub {
 	case "":
 		writeJSON(w, 200, identitySummary(s.cfg.Root, id))
+	case "activity":
+		s.handleActivity(w, r, id, rest)
 	case "mindlog":
 		if len(rest) > 0 && rest[0] == "search" {
 			s.handleMindlogSearch(w, r, id, rest[1:])
@@ -109,11 +113,33 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 	case "memories":
 		s.handleMemories(w, r, id, rest)
 	case "thinkers":
-		s.handleThinkers(w, r, id)
+		s.routeThinkers(w, r, id, rest)
+	case "thinker-sync":
+		s.handleThinkerSync(w, r, id)
+	case "dispatch":
+		s.handleDispatchLog(w, r, id, rest)
 	case "health":
 		s.handleLlmHealth(w, r, id, rest)
 	case "recap":
 		s.handleRecap(w, r, id, rest)
+	case "recap/refresh":
+		s.handleRecapRefresh(w, r, id)
+	case "usage":
+		s.handleUsage(w, r, id, rest)
+	case "usage/refresh":
+		s.handleUsageRefresh(w, r, id)
+	case "env":
+		s.handleIdentityEnv(w, r, id, rest)
+	case "tree":
+		s.handleTree(w, r, id, rest)
+	case "logs":
+		if len(rest) > 0 {
+			s.handleLogTail(w, r, id, rest)
+			return
+		}
+		s.handleLogs(w, r, id, rest)
+	case "traj":
+		s.handleSubTrajectory(w, r, id, rest)
 	default:
 		writeError(w, 404, "未知子路径: "+sub)
 	}
@@ -240,6 +266,7 @@ func scanIdentities(root string) ([]IdentityInfo, error) {
 func summarizeIdentity(id *identity.Identity, root string) IdentityInfo {
 	dir := id.Dir
 	info := IdentityInfo{
+		Dir:         dir,
 		ID:          id.Name,
 		Name:        id.Name,
 		PathRel:     relTrajDir(root, dir),
