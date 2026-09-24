@@ -71,10 +71,11 @@ type recapEpisode struct {
 // 文件 recap/episodes.jsonl 不存在时 available=false（这是常态）：
 // 真实分集要等心智空闲时由 recap 命令异步生成。viewer 据此区分。
 func (s *Server) handleRecap(w http.ResponseWriter, _ *http.Request, id *identity.Identity, _ []string) {
+	_, refreshErr := os.Stat(filepath.Join(id.Dir, "recap", ".refreshing"))
 	view := recapView{
 		Identity:   recapIdentity{ID: id.Name, Name: id.Name},
 		Available:  false,
-		Refreshing: false,
+		Refreshing: refreshErr == nil,
 	}
 	cachePath := filepath.Join(id.Dir, "recap", "episodes.jsonl")
 	data, err := os.ReadFile(cachePath)

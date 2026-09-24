@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"mindloop/internal/identity"
+	"mindloop/internal/mind"
 	"mindloop/internal/traj"
 )
 
@@ -226,6 +227,9 @@ func (s *Server) handleThinkers(w http.ResponseWriter, _ *http.Request, id *iden
 	disabled := 0
 	for _, t := range seen {
 		state := "idle"
+		if mind.IsThinkerDisabled(id.Timeline.Dir, t.Name) {
+			state = "disabled"
+		}
 		if live && t.LastTS != "" {
 			last, _ := time.Parse("2006-01-02T15:04:05Z07:00", t.LastTS)
 			if last.IsZero() {

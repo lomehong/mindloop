@@ -11,6 +11,7 @@ import (
 	"mindloop/internal/identity"
 	"mindloop/internal/llm"
 	"mindloop/internal/mind"
+	"mindloop/internal/obs"
 	"mindloop/internal/traj"
 )
 
@@ -47,7 +48,7 @@ monolith 负责自主行动；闲置时指数回退，活性由调度器的 watc
 				return c.fail(err)
 			}
 			// 观测面：用量台账 + 健康标记（<身份目录>/ 下）。
-			client.OnDone = usageRecorder(id.Dir)
+			client.OnDone = obs.UsageRecorder(id.Dir, client.Model, client.Provider)
 
 			policy := mind.BackoffPolicy{Base: idleBaseP, Max: idleMaxP, ThoughtCap: thoughtCapP}
 			dispatcher := mind.NewDispatcher(id.Timeline, pollP)

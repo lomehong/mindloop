@@ -129,7 +129,18 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 	case "usage/refresh":
 		s.handleUsageRefresh(w, r, id)
 	case "env":
-		s.handleIdentityEnv(w, r, id, rest)
+		switch r.Method {
+		case http.MethodPut:
+			s.handleEnvPut(w, r, id)
+		case http.MethodDelete:
+			key := ""
+			if len(rest) > 0 {
+				key = rest[0]
+			}
+			s.handleEnvDelete(w, r, id, key)
+		default:
+			s.handleIdentityEnv(w, r, id, rest)
+		}
 	case "tree":
 		s.handleTree(w, r, id, rest)
 	case "logs":

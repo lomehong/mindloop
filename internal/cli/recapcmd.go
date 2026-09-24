@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"mindloop/internal/llm"
+	"mindloop/internal/obs"
 	"mindloop/internal/recap"
 	"mindloop/internal/traj"
 )
@@ -36,7 +37,7 @@ monolith 唤醒时的上下文 = 人生分集摘要（本命令的缓存，粗�
 				if err != nil {
 					return c.fail(err)
 				}
-				client.OnDone = usageRecorder(t.Dir)
+				client.OnDone = obs.UsageRecorder(t.Dir, client.Model, client.Provider)
 				u := &recap.Updater{
 					Timeline: t,
 					Thinker:  llmThinker{c: client},
