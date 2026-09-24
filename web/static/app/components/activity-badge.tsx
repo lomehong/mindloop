@@ -37,38 +37,38 @@ function label(activity: IdentityActivity): string {
     case "working":
       return [
         "working",
-        stepAge ? `step ${stepAge} ago` : null,
-        run ? `run ${run}` : null,
+        stepAge ? `步骤 ${stepAge} 前` : null,
+        run ? `运行 ${run}` : null,
       ]
         .filter(Boolean)
         .join(" · ");
     case "stalled":
-      return `busy but quiet ${stepAge ?? "?"}`;
+      return `忙碌但安静 ${stepAge ?? "?"}`;
     case "idle":
-      return "idle";
+      return "空闲";
     case "asleep":
-      return "asleep";
+      return "休眠";
   }
 }
 
 function tooltip(activity: IdentityActivity): string {
   const lines = [
-    `${activity.steps_in_flight} step(s) in flight` +
+    `${activity.steps_in_flight} 个步骤进行中` +
       (activity.busy_thinkers.length
         ? ` (${activity.busy_thinkers.join(", ")})`
         : ""),
     activity.last_step_ts
-      ? `last mind-log write ${fmtDuration(activity.last_step_age_s)} ago`
-      : "no mind-log write seen",
+      ? `最近写入思维日志 ${fmtDuration(activity.last_step_age_s)} 前`
+      : "尚未看到思维日志写入",
     activity.cadence_s !== null
-      ? `recent step cadence ~${fmtDuration(activity.cadence_s)}`
+      ? `近期步调节奏约 ${fmtDuration(activity.cadence_s)}`
       : null,
     activity.state === "stalled"
-      ? `quiet past the ${fmtDuration(activity.stall_after_s)} stall threshold`
+      ? `已安静超过 ${fmtDuration(activity.stall_after_s)} 停滞阈值`
       : null,
     ...activity.queued_messages.map(
       (m) =>
-        `queued ${fmtDuration(m.age_s) ?? "?"}: ${m.from ?? "unknown"}` +
+        `排队 ${fmtDuration(m.age_s) ?? "?"}: ${m.from ?? "未知"}` +
         (m.preview ? ` — ${m.preview.slice(0, 60)}` : "")
     ),
   ];

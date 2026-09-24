@@ -34,7 +34,7 @@ function StepRef({
       <Link
         to={`/i/${encodeURIComponent(identityId)}/mindlog?step=${encodeURIComponent(refItem.step)}`}
         className="rounded bg-muted px-1 font-mono text-[11px] text-primary hover:underline"
-        title="Open in mind log"
+        title="在思维日志中打开"
       >
         {refItem.step}
       </Link>
@@ -72,7 +72,7 @@ function RefreshButtons({
         variant="outline"
         size="sm"
         disabled={busy}
-        title="Incremental: summarize only the steps added since the last recap"
+        title="增量：只摘要上次摘要以来新增的步骤"
         onClick={() => mutation.mutate(false)}
       >
         <RefreshCw className={`size-3 ${refreshing ? "animate-spin" : ""}`} />
@@ -83,7 +83,7 @@ function RefreshButtons({
           variant="ghost"
           size="sm"
           disabled={busy}
-          title="Full refresh: discard all cached episodes and re-summarize the entire log (use after changing model or window settings)"
+          title="全量重算：丢弃缓存的分集并重新摘要整个日志（更换模型或窗口设置后使用）"
           onClick={() => {
             if (
               window.confirm(
@@ -139,7 +139,7 @@ export default function RecapPage() {
         {header}
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>No recap yet</EmptyTitle>
+            <EmptyTitle>暂无摘要</EmptyTitle>
             <EmptyDescription>
               {recap.refreshing
                 ? "A recap is being generated right now — this page refreshes itself."

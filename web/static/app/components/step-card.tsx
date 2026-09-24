@@ -273,7 +273,7 @@ export function StepContent({
               {label} ↗
             </TrajLink>
           ) : (
-            <span className="truncate" title="child trajectory not found on disk">
+            <span className="truncate" title="磁盘上未找到子轨迹">
               {label} (unresolved)
             </span>
           )}

@@ -85,7 +85,7 @@ export function StartStopButtons({
         variant="outline"
         size="sm"
         disabled={mutation.isPending}
-        title="Drain stop: no new triggers, in-flight steps finish (shift-click: kill in-flight steps immediately)"
+        title="优雅停止：不再接收新触发，进行中步骤跑完（Shift+点击：立即终止进行中步骤）"
         onClick={(event) => {
           const force = event.shiftKey;
           if (

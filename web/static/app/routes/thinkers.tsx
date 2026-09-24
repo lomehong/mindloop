@@ -159,7 +159,7 @@ function VersionCell({
           </>
         )}
         {sync.status === "local_only" && (
-          <Badge variant="outline" className="text-[10px]" title="No bundled counterpart — never touched by pull">
+          <Badge variant="outline" className="text-[10px]" title="无内置对应物——拉取操作不会触及它">
             local only
           </Badge>
         )}

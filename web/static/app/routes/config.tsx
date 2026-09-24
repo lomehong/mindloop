@@ -195,7 +195,7 @@ function AddVarForm({
       <Input
         value={key}
         onChange={(event) => setKey(event.target.value)}
-        placeholder="VARIABLE_NAME"
+        placeholder="变量名"
         pattern="[A-Za-z_][A-Za-z0-9_]*"
         title="letters, digits, underscores"
         className="h-8 w-56 font-mono text-xs"
@@ -203,7 +203,7 @@ function AddVarForm({
       <Input
         value={value}
         onChange={(event) => setValue(event.target.value)}
-        placeholder="value"
+        placeholder="值"
         className="h-8 flex-1 font-mono text-xs"
       />
       <Button type="submit" size="sm" disabled={save.isPending || !key.trim()}>
@@ -312,7 +312,7 @@ function ExportSection({ identityId }: { identityId: string }) {
               </TooltipTrigger>
               <TooltipContent className="max-w-sm text-xs">
                 <p className="mb-1">
-                  <b>Slim</b> (on): every step is kept, but the two fields that
+                  <b>精简</b> (on): every step is kept, but the two fields that
                   repeat in each step — the rendered prompt context and the
                   shellm launch command line — are cut to a short head plus
                   &ldquo;…[truncated N chars]&rdquo;. API keys are replaced with
@@ -386,7 +386,7 @@ function ExportSection({ identityId }: { identityId: string }) {
                   <Button
                     size="icon-sm"
                     variant="ghost"
-                    title="Delete this export from the server"
+                    title="从服务器删除此条目"
                     onClick={() => remove.mutate(job.job_id)}
                   >
                     <Trash2 className="size-3" />
@@ -447,8 +447,8 @@ export default function ConfigPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-64">Variable</TableHead>
-                <TableHead>Value</TableHead>
+                <TableHead className="w-64">变量</TableHead>
+                <TableHead>值</TableHead>
                 <TableHead className="w-24 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>

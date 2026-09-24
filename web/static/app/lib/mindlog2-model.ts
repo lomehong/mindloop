@@ -57,15 +57,15 @@ function party(name: string): { person: string | null; channel: string | null } 
 function messageLabel(direction: "outbound" | "inbound", other: string): string {
   const { person, channel } = party(other);
   if (direction === "outbound") {
-    if (person && channel) return `sent to ${person} via ${channel}`;
-    if (channel) return `sent via ${channel}`;
-    if (person) return `sent to ${person}`;
-    return "message sent";
+    if (person && channel) return `经 ${channel} 发给 ${person}`;
+    if (channel) return `经 ${channel} 发出`;
+    if (person) return `发给 ${person}`;
+    return "消息已发出";
   }
-  if (person && channel) return `${person} replied via ${channel}`;
-  if (channel) return `reply via ${channel}`;
-  if (person) return `${person} replied`;
-  return "message received";
+  if (person && channel) return `${person} 经 ${channel} 回复`;
+  if (channel) return `经 ${channel} 回复`;
+  if (person) return `${person} 已回复`;
+  return "收到消息";
 }
 
 /** Map a step to a presentation card, or null to hide it. */
@@ -82,12 +82,12 @@ export function toCard(
     case "tp-thought": {
       const body = str(raw.content) || str(raw.thought) || step.preview;
       if (!body) return null;
-      return { ...base, kind: "thought", group: "thought", label: "inner monologue", body };
+      return { ...base, kind: "thought", group: "thought", label: "内心独白", body };
     }
     case "observation": {
       const body = str(raw.content) || step.preview;
       if (!body) return null;
-      return { ...base, kind: "observation", group: "observation", label: "observation", body };
+      return { ...base, kind: "observation", group: "observation", label: "观察", body };
     }
     case "message":
     case "human-msg":

@@ -629,7 +629,7 @@ export function TimelineView({
                     <button
                       type="button"
                       onClick={() => moveLane(lane.id, -1)}
-                      title="move left"
+                      title="左移"
                       className="rounded p-0.5 text-cyan-400/60 hover:bg-cyan-300/10 hover:text-cyan-200"
                     >
                       <ChevronLeft className="h-3 w-3" />
@@ -637,7 +637,7 @@ export function TimelineView({
                     <button
                       type="button"
                       onClick={() => moveLane(lane.id, 1)}
-                      title="move right"
+                      title="右移"
                       className="rounded p-0.5 text-cyan-400/60 hover:bg-cyan-300/10 hover:text-cyan-200"
                     >
                       <ChevronRight className="h-3 w-3" />
@@ -645,7 +645,7 @@ export function TimelineView({
                     <button
                       type="button"
                       onClick={() => toggleLane(lane.id)}
-                      title={`collapse ${lane.label}`}
+                      title={`收起 ${lane.label}`}
                       className="rounded p-0.5 text-cyan-400/60 hover:bg-cyan-300/10 hover:text-cyan-200"
                     >
                       <ChevronsRightLeft className="h-3 w-3" />
@@ -653,7 +653,7 @@ export function TimelineView({
                     <button
                       type="button"
                       onClick={() => hideLane(lane.id)}
-                      title={`hide ${lane.label}`}
+                      title={`隐藏 ${lane.label}`}
                       className="rounded p-0.5 text-cyan-400/60 hover:bg-cyan-300/10 hover:text-cyan-200"
                     >
                       <EyeOff className="h-3 w-3" />

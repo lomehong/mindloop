@@ -55,6 +55,13 @@ function fmtTime(ts: string): string {
   });
 }
 
+const ACTIVITY_LABELS: Record<string, string> = {
+  working: "工作中",
+  stalled: "停滞",
+  idle: "空闲",
+  asleep: "休眠",
+};
+
 function StatusPill({ identityId }: { identityId: string }) {
   const { data: activity } = useQuery({
     queryKey: ["activity", identityId],
@@ -84,7 +91,7 @@ function StatusPill({ identityId }: { identityId: string }) {
           )}
         />
       </span>
-      {state}
+      {ACTIVITY_LABELS[state] ?? state}
     </span>
   );
 }
@@ -208,7 +215,7 @@ export default function Mindlog2Page() {
       )}
     >
       <header className="flex items-center gap-4">
-        <span className="text-2xl font-bold tracking-tight text-white">headlong</span>
+        <span className="text-2xl font-bold tracking-tight text-white">mindloop</span>
         <div className="ml-auto flex items-center gap-3">
           <span className="font-mono text-lg text-zinc-300">{displayName}</span>
           <StatusPill identityId={identityId} />
@@ -216,7 +223,7 @@ export default function Mindlog2Page() {
             type="button"
             onClick={() => setFullscreen((v) => !v)}
             className="rounded-md border border-zinc-700 p-1.5 text-zinc-400 hover:text-zinc-100"
-            title={fullscreen ? "exit fullscreen (Esc)" : "fullscreen"}
+            title={fullscreen ? "退出全屏（Esc）" : "全屏"}
           >
             {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
@@ -227,7 +234,7 @@ export default function Mindlog2Page() {
       <div className="mt-6 flex gap-8">
         <aside className="hidden w-44 shrink-0 pt-2 sm:block">
           <h3 className="mb-3 font-mono text-xs uppercase tracking-[0.2em] text-zinc-500">
-            Step types
+            步骤类型
           </h3>
           <div className="space-y-2.5">
             {LEGEND.map(({ group, label, dot }) => (
@@ -253,10 +260,10 @@ export default function Mindlog2Page() {
         <main className="min-w-0 flex-1 border-l border-zinc-800 pl-6 md:pl-10">
           <div className="flex items-baseline">
             <h2 className="text-4xl font-extrabold tracking-tight text-white md:text-5xl">
-              MINDLOG
+              思维日志
             </h2>
             <span className="ml-auto font-mono text-sm text-zinc-500">
-              {live ? "live stream" : "not live"}
+              {live ? "实时流" : "未运行"}
             </span>
           </div>
 
