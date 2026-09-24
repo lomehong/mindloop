@@ -1,11 +1,9 @@
 package web
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -75,7 +73,32 @@ func (s *Server) handleIdentities(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, 200, infos)
 }
 
+// handleIdentityCreate 新建身份——POST /api/identities {name}。
+// 返回 {id, name}（viewer 首页建身份表单契约）。
+func (s *Server) handleIdentityCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeError(w, 400, "请求体必须是 {name} JSON")
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if !isSafeIdentName(req.Name) || isBadIdentSegment(req.Name) {
+		writeError(w, 400, "身份名含非法字符（仅允许字母/数字/-/_/.，且不含穿越段）")
+		return
+	}
+	id, err := identity.Create(r.Context(), req.Name)
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]string{"id": id.Name, "name": id.Name})
+}
+
 // routeIdentity 把 /api/identities/{name}/{sub,...} 路由到具体 handler。
+// 注意 sub 是单段（splitIdentityPath 的第二段）；recap/refresh 这类
+// 两段子路径靠 rest[0] 再分流——写成 case "recap/refresh" 永远不可达。
 func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 	name, sub, rest, ok := splitIdentityPath(r.URL.Path)
 	if !ok {
@@ -109,25 +132,55 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 	case "status":
 		s.handleIdentityStatus(w, r, id)
 	case "chat":
+		if r.Method == http.MethodPost {
+			s.handleChatSend(w, r, id)
+			return
+		}
 		s.handleChat(w, r, id)
 	case "memories":
 		s.handleMemories(w, r, id, rest)
 	case "thinkers":
 		s.routeThinkers(w, r, id, rest)
 	case "thinker-sync":
+		if r.Method == http.MethodPost {
+			s.handleThinkerSyncPull(w, r, id)
+			return
+		}
 		s.handleThinkerSync(w, r, id)
 	case "dispatch":
 		s.handleDispatchLog(w, r, id, rest)
 	case "health":
 		s.handleLlmHealth(w, r, id, rest)
 	case "recap":
+		if len(rest) > 0 && rest[0] == "refresh" {
+			if !requireMethod(w, r, http.MethodPost) {
+				return
+			}
+			s.handleRecapRefresh(w, r, id)
+			return
+		}
 		s.handleRecap(w, r, id, rest)
-	case "recap/refresh":
-		s.handleRecapRefresh(w, r, id)
 	case "usage":
+		if len(rest) > 0 && rest[0] == "refresh" {
+			if !requireMethod(w, r, http.MethodPost) {
+				return
+			}
+			s.handleUsageRefresh(w, r, id)
+			return
+		}
 		s.handleUsage(w, r, id, rest)
-	case "usage/refresh":
-		s.handleUsageRefresh(w, r, id)
+	case "export":
+		s.handleIdentityExport(w, r, id)
+	case "export-jobs":
+		switch r.Method {
+		case http.MethodPost:
+			s.handleExportJobCreate(w, r, id)
+		case http.MethodGet:
+			s.handleExportJobsList(w, r, id)
+		default:
+			w.Header().Set("Allow", "GET, POST")
+			writeError(w, http.StatusMethodNotAllowed, "export-jobs 只接受 GET/POST")
+		}
 	case "env":
 		switch r.Method {
 		case http.MethodPut:
@@ -335,7 +388,3 @@ func truncate(s string, n int) string {
 	}
 	return s
 }
-
-var _ = context.Canceled
-var _ = url.Values{}
-var _ = json.Marshal

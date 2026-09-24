@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"mindloop/internal/config"
 	"mindloop/internal/identity"
 	"mindloop/internal/llm"
 	"mindloop/internal/mind"
@@ -19,20 +21,32 @@ import (
 // 守护）。与人对话请用 mindloop chat ada。
 func (c *CLI) newMindRunCmd() *cobra.Command {
 	var pollP, watchdogP, idleBaseP, idleMaxP, thoughtCapP time.Duration
+	var idleHoldP int
 	var maxIterP int
 	cmd := &cobra.Command{
 		Use:   "run <身份名>",
 		Short: "启动常驻心智（前台守护；与人对话请用 mind chat）",
 		Long: `调度器跟踪根轨迹：人类消息经 mind say 注入，responder 负责回复，
-monolith 负责自主行动；闲置时指数回退，活性由调度器的 watchdog 与
-自发性预约共同保证。同一身份同时只允许一个调度器（运行锁）。`,
+monolith 负责自主行动；闲置时指数回退（每级驻留 --idle-hold 次空
+唤醒再加深），活性由调度器的 watchdog 与自发性预约共同保证。
+同一身份同时只允许一个调度器（运行锁）。
+
+双模型分层：设置 MINDLOOP_REQUEST_MODEL 后，反应式唤醒（人类来话、
+外部产物）走请求档模型，自发的空闲唤醒走便宜的思考档。`,
 		Example: `  mindloop mind run ada --watchdog 5m
-  mindloop mind run ada --idle-base 10s --idle-max 2m`,
+  mindloop mind run ada --idle-base 10s --idle-max 2m --idle-hold 3`,
 		Args: exactArgs(1, "用法: mindloop mind run <身份名> [flags]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := c.loadIdentity(args[0])
 			if err != nil {
 				return c.fail(err)
+			}
+			// 身份级 .env：模型等配置按身份覆盖。加载顺序保证优先级
+			// 为 显式环境变量 > 身份 .env > 全局 ~/.mindloop/.env
+			// （LoadEnv 不覆盖已存在的进程环境变量，全局 .env 已在
+			// CLI 启动时并入）。
+			if err := config.LoadEnv(filepath.Join(id.Dir, ".env")); err != nil {
+				fmt.Fprintf(c.stderr, "⚠ 身份 .env 加载失败: %v\n", err)
 			}
 			lock, owned, err := mind.TryRunLock(id.Timeline)
 			if err != nil {
@@ -48,9 +62,11 @@ monolith 负责自主行动；闲置时指数回退，活性由调度器的 watc
 				return c.fail(err)
 			}
 			// 观测面：用量台账 + 健康标记（<身份目录>/ 下）。
-			client.OnDone = obs.UsageRecorder(id.Dir, client.Model, client.Provider)
+			client.OnDone = obs.UsageRecorder(id.Dir, client.Model, client.Provider, c.mindLog)
+			// 请求档（MINDLOOP_REQUEST_MODEL，未设则与思考档同一）。
+			requestClient := requestTierClient(client, id.Dir, c.mindLog)
 
-			policy := mind.BackoffPolicy{Base: idleBaseP, Max: idleMaxP, ThoughtCap: thoughtCapP}
+			policy := mind.BackoffPolicy{Base: idleBaseP, Max: idleMaxP, ThoughtCap: thoughtCapP, Hold: idleHoldP}
 			dispatcher := mind.NewDispatcher(id.Timeline, pollP)
 			dispatcher.SetLogger(c.mindLog)
 			persona, err := id.Persona()
@@ -58,28 +74,36 @@ monolith 负责自主行动；闲置时指数回退，活性由调度器的 watc
 				return c.fail(err)
 			}
 			dispatcher.Register(mind.NewMonolith(mind.MonolithOptions{
-				Timeline:      id.Timeline,
-				Thinker:       llmThinker{c: client},
-				Backoff:       &policy,
-				MaxIterations: maxIterP,
-				Watchdog:      watchdogP,
-				Persona:       persona,
-				MemDir:        id.Dir + "/memories",
-				EnableRecap:   true,
-				SetLogger:     c.mindLog,
+				Timeline:       id.Timeline,
+				Thinker:        mind.LLMThinker{Client: client},
+				RequestThinker: mind.LLMThinker{Client: requestClient},
+				Backoff:        &policy,
+				MaxIterations:  maxIterP,
+				Watchdog:       watchdogP,
+				Persona:        persona,
+				MemDir:         id.Dir + "/memories",
+				EnableRecap:    true,
+				SetLogger:      c.mindLog,
 			}))
 			dispatcher.Register(mind.NewResponder(mind.ResponderOptions{
 				Timeline: id.Timeline,
-				Thinker:  llmThinker{c: client},
+				Thinker:  mind.LLMThinker{Client: client},
 				SelfName: id.Name,
 				Persona:  persona,
 			}))
 			fmt.Fprintf(c.stderr, "心智 %s 启动（Ctrl+C 停机）。与它对话: mindloop chat ada 或 mindloop mind say ada \"...\"\n", id.Name)
-			if err := dispatcher.Run(c.ctx); err != nil && !errors.Is(err, mind.ErrStopRequested) {
-				if errors.Is(err, context.Canceled) {
+			runErr := dispatcher.Run(c.ctx)
+			// 在途思考收尾再释放运行锁（defer lock.Release() 在函数
+			// 返回时执行）——进程退出把跑一半的 bash 与落盘硬切，
+			// 正是"优雅停机"承诺要避免的。
+			if !dispatcher.WaitIdle(15 * time.Second) {
+				fmt.Fprintln(c.stderr, "⚠ 15 秒内思考未全部收尾，放弃等待")
+			}
+			if runErr != nil && !errors.Is(runErr, mind.ErrStopRequested) {
+				if errors.Is(runErr, context.Canceled) {
 					return nil
 				}
-				return c.fail(err)
+				return c.fail(runErr)
 			}
 			return nil
 		},
@@ -90,6 +114,7 @@ monolith 负责自主行动；闲置时指数回退，活性由调度器的 watc
 	fs.DurationVar(&idleBaseP, "idle-base", 5*time.Second, "回退基础延迟")
 	fs.DurationVar(&idleMaxP, "idle-max", 5*time.Minute, "回退封顶")
 	fs.DurationVar(&thoughtCapP, "thought-cap", time.Minute, "思考型唤醒的回退封顶")
+	fs.IntVar(&idleHoldP, "idle-hold", 3, "每级驻留的空唤醒次数（dwell，0 取默认 3）")
 	fs.IntVar(&maxIterP, "max-iterations", 8, "每次唤醒的内部轮次上限")
 	return cmd
 }
@@ -245,7 +270,7 @@ func (c *CLI) newMindHistoryCmd() *cobra.Command {
 			}
 			for _, l := range out {
 				fmt.Fprintf(c.stdout, "[%s] %s → %s: %s\n",
-					replaceFirstT(l.ts), l.from, l.to, oneLineLocal(l.content, 160))
+					replaceFirstT(l.ts), l.from, l.to, traj.OneLine(l.content, 160))
 			}
 			return nil
 		},

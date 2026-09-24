@@ -150,8 +150,13 @@ func (r *Responder) history(person string, max int) []llm.Message {
 		if from == r.opts.SelfName {
 			role = "assistant"
 		}
+		// 日志即 API：ts 是外部输入（手工编辑/jq 重写的日志可能是
+		// 任意字符串），不校验就切片会在调度器 goroutine 里 panic。
 		ts := strings.ReplaceAll(s.TS, "T", " ")
-		msgs = append(msgs, llm.Message{Role: role, Content: fmt.Sprintf("[%s] %s", ts[:19], content)})
+		if len(ts) >= 19 {
+			ts = ts[:19]
+		}
+		msgs = append(msgs, llm.Message{Role: role, Content: fmt.Sprintf("[%s] %s", ts, content)})
 	}
 	if len(msgs) > max {
 		msgs = msgs[len(msgs)-max:]

@@ -133,6 +133,7 @@ type Dispatcher struct {
 
 	mu      sync.Mutex
 	workers []*worker
+	wg      sync.WaitGroup // 在途思考计数：优雅停机时 join（WaitIdle）
 }
 
 // NewDispatcher 构造一个调度器。poll 是轨迹轮询间隔（默认 200ms）。
@@ -200,9 +201,11 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 	}
 }
 
-// step 是一次心跳：feeder → watchdog/自发性 → 投递。
+// step 是一次心跳：控制面 → feeder → watchdog/自发性 → 投递。
 func (d *Dispatcher) step(ctx context.Context) error {
 	// 0. 控制面：消费 web/CLI 发来的手动唤醒信号（读完即删）。
+	// 忙碌的思考者不投递——信号写回文件下个心跳再消费，手动唤醒
+	// 绝不被静默丢弃（monolith 依赖"同一思考者至多一次唤醒在跑"）。
 	for _, name := range collectWakeSignals(d.tlDir) {
 		d.mu.Lock()
 		var target *worker
@@ -213,9 +216,14 @@ func (d *Dispatcher) step(ctx context.Context) error {
 			}
 		}
 		d.mu.Unlock()
-		if target != nil {
-			d.deliver(ctx, target, Wake{Step: syntheticStep("manual-wake"), Kind: WakeScheduled})
+		if target == nil {
+			continue
 		}
+		if target.isBusy() {
+			_ = SignalWake(d.tlDir, name)
+			continue
+		}
+		d.deliver(ctx, target, Wake{Step: syntheticStep("manual-wake"), Kind: WakeScheduled})
 	}
 
 	// 1. feeder：新步骤路由给订阅者。
@@ -227,16 +235,31 @@ func (d *Dispatcher) step(ctx context.Context) error {
 		d.route(s)
 	}
 
-	// 2. watchdog 与到点的自发性唤醒。
+	// 2. watchdog 与到点的自发性唤醒。活性窗口度量的是"空闲且
+	// 安静"的时长（Headlong THINKERS_spec 的判据）：忙碌或还有
+	// 排队工作的思考者不算安静——时钟持续刷新，长任务结束的
+	// 瞬间不会立即触发补偿性 watchdog（那是浪费一次模型调用）。
+	// 忙碌的思考者跳过投递：watchdog 到点预约保持原样，空闲后
+	// 下个心跳补投。
 	now := time.Now()
 	d.mu.Lock()
 	for _, w := range d.workers {
 		w.mu.Lock()
 		due := !w.wakeAt.IsZero() && !now.Before(w.wakeAt)
 		idle := w.sub.Watchdog > 0 && now.Sub(w.lastUsed) >= w.sub.Watchdog
+		busy := w.busy
+		queued := len(w.fifo) > 0 || len(w.coalesced) > 0
+		if busy || queued {
+			w.lastUsed = now
+		}
 		w.mu.Unlock()
+		if busy {
+			continue
+		}
 		if due {
+			w.mu.Lock()
 			w.wakeAt = time.Time{}
+			w.mu.Unlock()
 			d.deliver(ctx, w, Wake{Step: syntheticStep("monolith-wake"), Kind: WakeScheduled})
 			continue
 		}
@@ -252,10 +275,7 @@ func (d *Dispatcher) step(ctx context.Context) error {
 	// 3. 投递：空闲槽位优先给 FIFO 里的消息。
 	d.mu.Lock()
 	for _, w := range d.workers {
-		w.mu.Lock()
-		busy := w.busy
-		w.mu.Unlock()
-		if busy {
+		if w.isBusy() {
 			continue
 		}
 		if wake, ok := w.next(); ok {
@@ -266,10 +286,11 @@ func (d *Dispatcher) step(ctx context.Context) error {
 	return nil
 }
 
-// route 把一个新步骤按订阅路由（不投递，只入队）。
+// route 把一个新步骤按订阅路由（不投递，只入队）。文件 IO（禁用
+// 名单读取、事件落盘）在 d.mu 外做——磁盘卡顿不能停摆心跳。
 func (d *Dispatcher) route(step traj.Step) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
+	var targets []*worker
 	for _, w := range d.workers {
 		matched := false
 		for _, typ := range w.sub.Types {
@@ -288,10 +309,26 @@ func (d *Dispatcher) route(step traj.Step) {
 				continue
 			}
 		}
-		if IsThinkerDisabled(d.tlDir, w.t.Name()) {
+		targets = append(targets, w)
+	}
+	d.mu.Unlock()
+
+	// 禁用名单整个 route 只读一次。
+	disabled := readDisabled(d.tlDir)
+	isDisabled := func(name string) bool {
+		for _, n := range disabled {
+			if n == name {
+				return true
+			}
+		}
+		return false
+	}
+	for _, w := range targets {
+		name := w.t.Name()
+		if isDisabled(name) {
 			if d.evlog != nil {
 				d.evlog.Append(map[string]any{
-					"kind": "other", "type": step.Type, "thinker": w.t.Name(),
+					"kind": "other", "type": step.Type, "thinker": name,
 					"reason": "disabled", "ts": traj.NowString(),
 				})
 			}
@@ -300,7 +337,7 @@ func (d *Dispatcher) route(step traj.Step) {
 		if d.evlog != nil {
 			src, _ := step.Field("launched_by")
 			d.evlog.Append(map[string]any{
-				"kind": "dispatch", "type": step.Type, "thinker": w.t.Name(),
+				"kind": "dispatch", "type": step.Type, "thinker": name,
 				"source": src, "step_id": step.StepID, "ts": step.TS,
 			})
 		}
@@ -327,23 +364,62 @@ func (d *Dispatcher) deliver(ctx context.Context, w *worker, wake Wake) {
 			"synthetic": bool(wake.Kind != WakeStep), "ts": traj.NowString(),
 		})
 	}
+	d.wg.Add(1)
 	go func() {
-		outcome := w.t.Wake(ctx, wake)
-		w.mu.Lock()
-		w.busy = false
-		if outcome.WantWake {
-			delay := outcome.NextWakeIn
-			const minGap = time.Second // 防紧密自旋的最小间隔
-			if delay < minGap {
-				delay = minGap
+		// panic 防护：思考者的 panic 绝不能带走调度器进程，也绝不能
+		// 把 busy 永久卡死（否则该思考者再也不被投递）。
+		var outcome Outcome
+		defer func() {
+			if r := recover(); r != nil {
+				d.logf("!! %s 的 Wake panic（已恢复，工作槽位释放）: %v", name, r)
+				if d.evlog != nil {
+					d.evlog.Append(map[string]any{
+						"kind": "other", "type": wake.Step.Type, "thinker": name,
+						"reason": fmt.Sprintf("panic: %v", r), "ts": traj.NowString(),
+					})
+				}
 			}
-			w.wakeAt = time.Now().Add(delay)
-		}
-		w.mu.Unlock()
-		if outcome.Note != "" {
-			d.logf("← %s: %s", name, outcome.Note)
-		}
+			w.mu.Lock()
+			w.busy = false
+			if outcome.WantWake {
+				delay := outcome.NextWakeIn
+				const minGap = time.Second // 防紧密自旋的最小间隔
+				if delay < minGap {
+					delay = minGap
+				}
+				w.wakeAt = time.Now().Add(delay)
+			}
+			w.mu.Unlock()
+			if outcome.Note != "" {
+				d.logf("← %s: %s", name, outcome.Note)
+			}
+			d.wg.Done()
+		}()
+		outcome = w.t.Wake(ctx, wake)
 	}()
+}
+
+// WaitIdle 等待全部在途思考收尾（优雅停机的最后一步）。超过
+// timeout 返回 false——调用方决定是否放弃。Run 返回后调用。
+func (d *Dispatcher) WaitIdle(timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		d.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+// isBusy 报告思考者当前是否有唤醒在跑。
+func (w *worker) isBusy() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.busy
 }
 
 // syntheticStep 构造合成唤醒的内存步骤（不落盘）。

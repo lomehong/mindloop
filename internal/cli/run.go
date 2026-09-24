@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -9,19 +8,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"mindloop/internal/llm"
+	"mindloop/internal/mind"
 	"mindloop/internal/obs"
 	"mindloop/internal/runner"
 	"mindloop/internal/sandbox"
 	"mindloop/internal/traj"
 )
-
-// llmThinker 把 llm.Client 适配成 runner.Thinker——运行循环不认识
-// 具体供应商，供应商不关心循环协议，接缝在这里。
-type llmThinker struct{ c *llm.Client }
-
-func (a llmThinker) Think(ctx context.Context, system string, msgs []llm.Message) (string, error) {
-	return a.c.Complete(ctx, system, msgs)
-}
 
 // errStalledExit / errMaxIterExit：运行的真实结局——先自行输出
 // 诊断，再以退出码 3 结束。
@@ -57,11 +49,13 @@ func (c *CLI) newRunCmd() *cobra.Command {
 			if err != nil {
 				return c.fail(err)
 			}
-			client.OnDone = obs.UsageRecorder(t.Dir, client.Model, client.Provider)
+			client.OnDone = obs.UsageRecorder(t.Dir, client.Model, client.Provider, func(f string, a ...any) {
+				fmt.Fprintf(c.stderr, "· "+f+"\n", a...)
+			})
 			fmt.Fprintf(c.stderr, "供应商=%s 模型=%s\n", client.Provider, client.Model)
 			res, err := runner.Run(c.ctx, runner.Options{
 				Timeline:       t,
-				Thinker:        llmThinker{c: client},
+				Thinker:        mind.LLMThinker{Client: client},
 				Task:           args[1],
 				MaxIterations:  maxIterP,
 				StallLimit:     stallP,

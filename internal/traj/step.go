@@ -178,7 +178,9 @@ func (s Step) String() string {
 	return fmt.Sprintf("[%s] %s :: %s", ids.Short(s.StepID, 8), s.Type, oneLine(summary, 100))
 }
 
-func oneLine(s string, max int) string {
+// OneLine 把多行文本压成单行（换行转义 + 按 rune 截断 + 省略号）
+// ——摘要展示的统一形态，mind/cli 共用这一份实现。
+func OneLine(s string, max int) string {
 	s = strings.ReplaceAll(s, "\n", "\\n")
 	r := []rune(s)
 	if len(r) > max {
@@ -186,3 +188,5 @@ func oneLine(s string, max int) string {
 	}
 	return s
 }
+
+func oneLine(s string, max int) string { return OneLine(s, max) }

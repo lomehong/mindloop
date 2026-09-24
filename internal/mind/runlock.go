@@ -42,8 +42,12 @@ func (l *RunLock) Release() {
 // RequestStop 向运行中的调度器投递停机标志。调度器在下一次心跳
 // （默认 200ms 内）检测到后优雅退出——比杀进程干净：在途的思考
 // 有机会收尾。
-func RequestStop(tl *traj.Timeline) error {
-	dir := filepath.Join(tl.Dir, "run")
+func RequestStop(tl *traj.Timeline) error { return RequestStopDir(tl.Dir) }
+
+// RequestStopDir 是 RequestStop 的目录形态——web 仪表盘手里只有
+// 身份目录时用同一套实现，不自己拼 stop 文件路径。
+func RequestStopDir(tlDir string) error {
+	dir := controlDir(tlDir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}

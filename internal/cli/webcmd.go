@@ -50,7 +50,7 @@ func (c *CLI) newWebCmd() *cobra.Command {
 	fs.IntVar(&portP, "port", 8080, "监听端口")
 	fs.StringVar(&hostP, "host", "127.0.0.1", "监听地址（0.0.0.0 = 对外可见）")
 	fs.StringVar(&tokenP, "token", os.Getenv("MINDLOOP_WEB_TOKEN"), "可选 bearer token；非空时所有 /api/* 必须带 Authorization: Bearer <token>")
-	fs.StringVar(&rootP, "root", "", "身份父目录；默认 MINDLOOP_HOME")
+	fs.StringVar(&rootP, "root", "", "身份目录（含各个身份子目录）；默认 MINDLOOP_HOME/identities")
 	fs.StringVar(&viewerDirP, "viewer-dir", "", "viewer 静态文件根；默认 <项目>/web/static")
 	fs.BoolVar(&noBuildP, "no-build", false, "跳过 viewer 构建（开发模式：b/cd web/static && bun run dev）")
 	return cmd
@@ -183,4 +183,4 @@ func openBrowser(url string) error {
 
 // ensureCancel 是被 c.ctx 启用的退场钩子——web.Serve 是阻塞调用，
 // 确保 Ctrl+C 触发 srv.Shutdown（见 server.go 的 Serve 实现）。
-var _ = time.Second
+

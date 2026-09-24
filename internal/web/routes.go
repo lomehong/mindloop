@@ -1,7 +1,6 @@
 package web
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -10,28 +9,37 @@ import (
 
 // routes 装载所有 API 端点 + 静态 viewer 文件 + catch-all。
 //
-// 端点形态对齐 headlong viewer 的 lib/api.ts；v0.1 实现所有读取
-// 与控制端点，外部服务（OpenRouter、push）返回空实现——viewer
-// 那里走空态分支。
+// 写端点用 Go 1.22 方法模式注册（"POST /api/…"）：方法不匹配时
+// mux 自动回 405（带 Allow 头）——从根上杜绝"GET 触发写操作"
+// 被 <img src> 一类跨站请求驱动的整类问题。读端点不标方法（浏览器
+// 导航、下载链接都走 GET，标了反而拒掉合法变体）。
+//
+// 端点形态对齐 headlong viewer 的 lib/api.ts。
 func (s *Server) routes() {
 	// /api/* —— 根级 API
-	s.mux.HandleFunc("/api/config", s.withAuth(s.handleConfig))
-	s.mux.HandleFunc("/api/identities", s.withAuth(s.handleIdentities))
+	s.mux.HandleFunc("GET /api/config", s.withAuth(s.handleConfig))
+	s.mux.HandleFunc("GET /api/identities", s.withAuth(s.handleIdentities))
+	s.mux.HandleFunc("POST /api/identities", s.withAuth(s.handleIdentityCreate))
 	s.mux.HandleFunc("/api/identities/", s.withAuth(s.routeIdentity)) // /api/identities/{name}/...
-	s.mux.HandleFunc("/api/health", s.withAuth(s.handleHealth))
+	s.mux.HandleFunc("GET /api/health", s.withAuth(s.handleHealth))
 	// 导入是字面路径（比 /api/identities/ 子树更具体，mux 择优）。
-	s.mux.HandleFunc("/api/export", s.withAuth(s.handleExport))
-	s.mux.HandleFunc("/api/identities/import", s.withAuth(s.handleImport))
+	s.mux.HandleFunc("GET /api/export", s.withAuth(s.handleExport))
+	s.mux.HandleFunc("POST /api/identities/import", s.withAuth(s.handleImport))
+
+	// 单身份导出任务的全局端点（config 页的导出标签）。
+	s.mux.HandleFunc("GET /api/export-jobs/{jobID}", s.withAuth(s.handleExportJobGet))
+	s.mux.HandleFunc("DELETE /api/export-jobs/{jobID}", s.withAuth(s.handleExportJobDelete))
+	s.mux.HandleFunc("GET /api/export-jobs/{jobID}/download", s.withAuth(s.handleExportJobDownload))
 
 	// 全局端点
-	s.mux.HandleFunc("/api/llm-health", s.withAuth(s.handleLlmHealthGlobal))
-	s.mux.HandleFunc("/api/llm-health/probe", s.withAuth(s.handleLlmHealthProbe))
-	s.mux.HandleFunc("/api/openrouter/models", s.withAuth(s.handleOpenRouterModels))
-	s.mux.HandleFunc("/api/killall", s.withAuth(s.handleKillall))
-	s.mux.HandleFunc("/api/update", s.withAuth(s.handleSelfUpdate))
-	s.mux.HandleFunc("/api/push/key", s.withAuth(s.handleEmpty404))
-	s.mux.HandleFunc("/api/push/subscriptions", s.withAuth(s.handleEmpty404))
-	s.mux.HandleFunc("/api/push/unsubscribe", s.withAuth(s.handleEmpty404))
+	s.mux.HandleFunc("GET /api/llm-health", s.withAuth(s.handleLlmHealthGlobal))
+	s.mux.HandleFunc("POST /api/llm-health/probe", s.withAuth(s.handleLlmHealthProbe))
+	s.mux.HandleFunc("GET /api/openrouter/models", s.withAuth(s.handleOpenRouterModels))
+	s.mux.HandleFunc("POST /api/killall", s.withAuth(s.handleKillall))
+	s.mux.HandleFunc("POST /api/update", s.withAuth(s.handleSelfUpdate))
+	s.mux.HandleFunc("GET /api/push/key", s.withAuth(s.handleEmpty404))
+	s.mux.HandleFunc("POST /api/push/subscriptions", s.withAuth(s.handleEmpty404))
+	s.mux.HandleFunc("POST /api/push/unsubscribe", s.withAuth(s.handleEmpty404))
 
 	// /assets/* 与 /favicon.ico —— viewer 构建产物
 	if s.cfg.ViewerDir != "" {
@@ -56,13 +64,25 @@ func (s *Server) routes() {
 	}
 }
 
-// routeThinkers 调度 viewers thinkers/* 多层路径：
+// requireMethod 在子路径手工路由里强制 HTTP 方法（子树是通配注册，
+// 方法细化要到 handler 内部才能做）。方法不符写 405 + Allow。
+func requireMethod(w http.ResponseWriter, r *http.Request, method string) bool {
+	if r.Method == method {
+		return true
+	}
+	w.Header().Set("Allow", method)
+	writeError(w, http.StatusMethodNotAllowed, "该方法只接受 "+method)
+	return false
+}
+
+// routeThinkers 调度 viewers thinkers/* 多层路径（写端点全部只收
+// POST——thinkers/start 曾因不分方法被 GET 触发子进程拉起）：
 //
-//	/api/identities/{n}/thinkers                       → handleThinkers
-//	/api/identities/{n}/thinkers/start                 → 全部启动
-//	/api/identities/{n}/thinkers/stop                  → 全部停止
-//	/api/identities/{n}/thinkers/{name}/enable|disable → 切换某 thinker
-//	/api/identities/{n}/thinkers/{name}/step           → 给某 thinker 一次手动唤醒
+//	/api/identities/{n}/thinkers                       → handleThinkers（读）
+//	/api/identities/{n}/thinkers/start                 → 全部启动（POST）
+//	/api/identities/{n}/thinkers/stop                  → 全部停止（POST）
+//	/api/identities/{n}/thinkers/{name}/enable|disable → 切换某 thinker（POST）
+//	/api/identities/{n}/thinkers/{name}/step           → 给某 thinker 一次手动唤醒（POST）
 func (s *Server) routeThinkers(w http.ResponseWriter, r *http.Request, id *identity.Identity, rest []string) {
 	if len(rest) == 0 {
 		s.handleThinkers(w, r, id, nil)
@@ -70,25 +90,55 @@ func (s *Server) routeThinkers(w http.ResponseWriter, r *http.Request, id *ident
 	}
 	switch rest[0] {
 	case "start":
-		s.handleThinkersAll(w, r, id, []string{"start"})
+		if !requireMethod(w, r, http.MethodPost) {
+			return
+		}
+		s.handleThinkersAll(w, r, id, "start")
 	case "stop":
-		s.handleThinkersAll(w, r, id, []string{"stop"})
+		if !requireMethod(w, r, http.MethodPost) {
+			return
+		}
+		s.handleThinkersAll(w, r, id, "stop")
 	default:
 		// rest[0]=thinker name，rest[1]=enable|disable|step
 		if len(rest) >= 2 && rest[1] == "step" {
-			s.handleThinkerStep(w, r, id, rest[:1])
+			if !requireMethod(w, r, http.MethodPost) {
+				return
+			}
+			if !validThinkerPathParam(w, rest[0]) {
+				return
+			}
+			s.handleThinkerStep(w, r, id, rest[0])
 			return
 		}
 		if len(rest) >= 2 && (rest[1] == "enable" || rest[1] == "disable") {
-			s.handleThinkerToggle(w, r, id, rest[:2])
+			if !requireMethod(w, r, http.MethodPost) {
+				return
+			}
+			if !validThinkerPathParam(w, rest[0]) {
+				return
+			}
+			s.handleThinkerToggle(w, r, id, rest[0], rest[1] == "enable")
 			return
 		}
-		writeError(w, 404, fmt.Sprintf("未知子路径: thinkers/%s", strings.Join(rest, "/")))
+		writeError(w, 404, "未知子路径: thinkers/"+strings.Join(rest, "/"))
 	}
 }
 
-// withAuth 是 Token 鉴权中间件。Token 为空则放行（默认本机安全）；
-// 非空则所有 /api/* 必须带 Authorization: Bearer <token>。
+// validThinkerPathParam 校验 URL 段里的 thinker 名并直接写 400。
+// mind.SignalWake 用它拼 wake.<name> 文件名，Windows 下 \ 是路径
+// 分隔符而 mux 的 cleanPath 不消化它——必须在这里白名单拦下。
+func validThinkerPathParam(w http.ResponseWriter, name string) bool {
+	if name == "" || strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
+		writeError(w, 400, "非法 thinker 名: "+name)
+		return false
+	}
+	return true
+}
+
+// withAuth 是 Token 鉴权中间件。Token 为空则放行（默认本机安全，
+// 且 New() 强制非回环绑定必须配 Token）；非空则所有 /api/* 必须带
+// Authorization: Bearer <token>。
 func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.Token == "" {

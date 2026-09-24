@@ -54,7 +54,10 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return err
 			}
-			hdr.Name = filepath.ToSlash(rel)
+			// 条目名统一 identities/<name>/... 形态——与
+			// writeIdentityArchive 一致，也是 handleImport 唯一
+			// 接受的形态（外来路径一律拒绝落盘）。
+			hdr.Name = "identities/" + filepath.ToSlash(rel)
 			if err := tw.WriteHeader(hdr); err != nil {
 				return err
 			}
@@ -116,10 +119,22 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, "归档包含非法路径: "+name)
 			return
 		}
+		// 归档只认 identities/ 子树（handleExport 的产物形态）。
+		// 外来路径（如 x/y、etc/passwd）绝不落盘——否则任何两段
+		// 路径都会在身份根下创建任意目录，可覆盖身份文件构成
+		// 持久化注入链。
+		if !strings.HasPrefix(name, "identities/") {
+			writeError(w, 400, "归档条目不在 identities/ 下，拒绝导入: "+name)
+			return
+		}
 		trimmed := strings.TrimPrefix(name, "identities/")
 		parts := strings.Split(strings.TrimSuffix(trimmed, "/"), "/")
 		if len(parts) == 0 || parts[0] == "" {
 			continue
+		}
+		if !isSafeIdentName(parts[0]) || isBadIdentSegment(parts[0]) {
+			writeError(w, 400, "归档包含非法身份名: "+parts[0])
+			return
 		}
 		topDirs[parts[0]] = true
 		if hdr.Typeflag == tar.TypeDir || hdr.Size == 0 {
@@ -207,6 +222,12 @@ func (s *Server) handleEnvPut(w http.ResponseWriter, r *http.Request, id *identi
 	req.Key = strings.TrimSpace(req.Key)
 	if req.Key == "" || strings.ContainsAny(req.Key, "=\n\r") {
 		writeError(w, 400, "非法环境变量名")
+		return
+	}
+	// 值也不允许换行：dotenv 是按行解析的，换行能注入任意
+	// 附加变量行（如再塞一个 MINDLOOP_BASE_URL）。
+	if strings.ContainsAny(req.Value, "\n\r") {
+		writeError(w, 400, "环境变量值不能包含换行")
 		return
 	}
 	envPath := filepath.Join(id.Dir, ".env")

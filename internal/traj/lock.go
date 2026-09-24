@@ -64,6 +64,21 @@ func TryDirLock(ctx context.Context, dir string) (release func() error, owned bo
 // ProcessAlive 报告进程是否存活（锁属主诊断用）。
 func ProcessAlive(pid int) bool { return processAlive(pid) }
 
+// LockOwnerAlive 报告 dir 处目录锁的属主是否存活。锁目录存在但
+// 属主已死是残留锁——监控面据此判断"心智是否真的在跑"，而不是
+// 只看锁目录存在（那是把崩溃现场当成运行中）。
+func LockOwnerAlive(dir string) bool {
+	data, err := os.ReadFile(filepath.Join(dir, ownerFile))
+	if err != nil {
+		return false
+	}
+	var o lockOwner
+	if json.Unmarshal(data, &o) != nil || o.PID <= 0 {
+		return false
+	}
+	return processAlive(o.PID)
+}
+
 // acquireDirLock 获取 dir 处的咨询锁：一次原子的 mkdir，外加一份
 // 记录持有者的 owner 文件。mkdir 在 Windows 状态根目录可能落在的
 // 每种文件系统上（含 NTFS）都是原子的——这正是 Headlong 用它而

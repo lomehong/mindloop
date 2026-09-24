@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -26,7 +27,7 @@ import (
 // 的 value 给脱敏预览、secret=true，viewer 据此决定是否打码显示。
 func (s *Server) handleIdentityEnv(w http.ResponseWriter, _ *http.Request, id *identity.Identity, _ []string) {
 	entries := []map[string]any{}
-	note := "环境变量来自身份 .env；心智根 .env 未合并（v0.1）"
+	note := "写入身份 .env；mind run / chat 启动时加载（优先级：显式环境变量 > 身份 .env > 全局 .env）"
 	for _, path := range []string{filepath.Join(id.Dir, ".env"), filepath.Join(s.cfg.Root, ".env")} {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -197,18 +198,13 @@ func findRunGroup(steps []traj.Step, target *traj.Step) map[string]any {
 }
 
 // handleDispatch 切换 dispatcher 启停（viewer thinkers 头部按钮）。
-// 我们用 mind 包的 RequestStop + RunLock 模拟实现：停机 = 写停机标志，
-// 启动 = 删除停机标志 + 写运行锁文件让 next 调度周期接管。
+// 停机 = mind.RequestStopDir 写停机标志；启动 = 清除停机标志并告知
+// 用户用终端拉起（浏览器触发后台进程启动容易出错，告知更诚实）。
 func (s *Server) handleDispatch(w http.ResponseWriter, _ *http.Request, id *identity.Identity) {
-	runLockDir := filepath.Join(id.Timeline.Dir, "run", "dispatcher.lock")
-	stopPath := filepath.Join(id.Timeline.Dir, "run", "stop")
-	_ = os.MkdirAll(filepath.Dir(runLockDir), 0o755)
-
 	// 状态：已停→重启；已运行→停机。
 	currentlyLive := isIdentityLive(id.Timeline.Dir)
 	if currentlyLive {
-		// 写停机标志（dispatcher 的 dispatcher.go 会读到并退出）
-		if err := os.WriteFile(stopPath, []byte(traj.NowString()), 0o644); err != nil {
+		if err := mind.RequestStopDir(id.Timeline.Dir); err != nil {
 			writeError(w, 500, err.Error())
 			return
 		}
@@ -220,10 +216,7 @@ func (s *Server) handleDispatch(w http.ResponseWriter, _ *http.Request, id *iden
 		return
 	}
 	// 启动：删除停机标志 + 写一个空锁文件作为意图标识。
-	_ = os.Remove(stopPath)
-	// 实际启动心智需要 `mindloop mind run ada`——这里仅清理信号，
-	// 返回要求用户手动启动。设计取舍：浏览器触发后台进程启动容易出错
-	//（依赖、fork），告知更诚实。
+	_ = os.Remove(filepath.Join(id.Timeline.Dir, "run", "stop"))
 	writeJSON(w, 200, map[string]any{
 		"identity": map[string]string{"id": id.Name, "name": id.Name},
 		"action":   "start",
@@ -231,76 +224,81 @@ func (s *Server) handleDispatch(w http.ResponseWriter, _ *http.Request, id *iden
 	})
 }
 
-// handleThinkerStep 给某个 thinker 一次手动唤醒（viewer 按钮）。
-// 简化：写一个"思考者唤醒"的合步骤作为本步轨迹——调度器轮询时
-// 会触发对应 thinker。如果心智没运行则拒绝。// handleThinkerStep 给某个 thinker 一次手动唤醒：写 wake 信号文件，
-// 调度器下个心跳（≤200ms）消费并精确投递给该 thinker——不经过订阅
-// 匹配，因此不会误触发其他思考者。
-func (s *Server) handleThinkerStep(w http.ResponseWriter, r *http.Request, id *identity.Identity, rest []string) {
-	if len(rest) == 0 || rest[0] == "" {
-		writeError(w, 400, "缺少 thinker 名")
-		return
-	}
+// handleThinkerStep 给某个 thinker 一次手动唤醒（viewer 按钮）：写
+// wake 信号文件，调度器下个心跳（≤200ms）消费并精确投递给该
+// thinker——不经过订阅匹配，因此不会误触发其他思考者。
+func (s *Server) handleThinkerStep(w http.ResponseWriter, r *http.Request, id *identity.Identity, name string) {
 	if !isIdentityLive(id.Timeline.Dir) {
 		writeError(w, 409, "心智未运行")
 		return
 	}
-	if err := mind.SignalWake(id.Timeline.Dir, rest[0]); err != nil {
+	if err := mind.SignalWake(id.Timeline.Dir, name); err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}
+	// ControlResult 契约（viewer types.ts）：{ok, action, names}。
 	writeJSON(w, 200, map[string]any{
-		"ok":       true,
-		"identity": map[string]string{"id": id.Name, "name": id.Name},
-		"thinker":  rest[0],
-		"detail":   "唤醒信号已发出，调度器心跳内投递",
+		"ok":     true,
+		"action": "step",
+		"names":  []string{name},
+		"stderr": "唤醒信号已发出，调度器心跳内投递",
 	})
 }
 
 // handleThinkerToggle 启用/禁用单个 thinker：写禁用名单文件，调度
-// 器路由时检查并跳过——真实生效，非记账。
-func (s *Server) handleThinkerToggle(w http.ResponseWriter, r *http.Request, id *identity.Identity, rest []string) {
-	if len(rest) < 2 {
-		writeError(w, 400, "缺少 thinker 名或动作")
-		return
-	}
-	name, action := rest[0], rest[1]
-	enabled := action == "enable"
+// 器路由时检查并跳过——真实生效，非记账。契约（viewer setThinkerEnabled）：
+// {ok, name, disabled, needs_restart}——禁用在调度器每个心跳的路由
+// 现场生效，永远不需要重启。
+func (s *Server) handleThinkerToggle(w http.ResponseWriter, r *http.Request, id *identity.Identity, name string, enabled bool) {
 	if err := mind.SetThinkerEnabled(id.Timeline.Dir, name, enabled); err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{
-		"ok":       true,
-		"identity": map[string]string{"id": id.Name, "name": id.Name},
-		"thinker":  name,
-		"enabled":  enabled,
+		"ok":            true,
+		"name":          name,
+		"disabled":      !enabled,
+		"needs_restart": false,
 	})
 }
 
-// handleThinkersAll 启/停全部思考者。
-//   - stop：写停机标志，调度器心跳内优雅退出（真实生效）。
+// thinkerControlReq 是 start/stop 请求体（viewer 发 {names, force}）。
+type thinkerControlReq struct {
+	Names []string `json:"names"`
+	Force bool     `json:"force"`
+}
+
+// handleThinkersAll 启/停思考者，返回 viewer ControlResult 契约
+// {ok, action, names, stderr}（stderr 末行会出现在 toast 描述里）。
+//   - stop：写停机标志，调度器心跳内优雅退出（真实生效）。force
+//     （Shift+点击"立即终止"）当前与优雅停机同路径——在途思考自然
+//     收尾，不额外杀进程。
 //   - start：detached spawn 一个 mind run 子进程接管（同二进制）；
 //     运行锁保证不重复启动，3 秒内锁被持有即报成功。
-func (s *Server) handleThinkersAll(w http.ResponseWriter, r *http.Request, id *identity.Identity, rest []string) {
-	if len(rest) == 0 {
-		writeError(w, 400, "缺少 start/stop")
-		return
+func (s *Server) handleThinkersAll(w http.ResponseWriter, r *http.Request, id *identity.Identity, action string) {
+	var req thinkerControlReq
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req)
+	names := req.Names
+	if names == nil {
+		names = []string{}
 	}
-	switch rest[0] {
+	switch action {
 	case "stop":
-		if err := mind.RequestStop(id.Timeline); err != nil {
+		if err := mind.RequestStopDir(id.Timeline.Dir); err != nil {
 			writeError(w, 500, err.Error())
 			return
 		}
 		writeJSON(w, 200, map[string]any{
-			"ok": true, "action": "stop",
-			"detail": "停机标志已写入，调度器心跳内退出",
+			"ok":     true,
+			"action": "stop",
+			"names":  names,
+			"stderr": "停机标志已写入，调度器心跳内退出（在途思考自然收尾）",
 		})
 	case "start":
 		if isIdentityLive(id.Timeline.Dir) {
 			writeJSON(w, 200, map[string]any{
-				"ok": true, "action": "start", "detail": "心智已在运行（未重复启动）",
+				"ok": true, "action": "start", "names": names,
+				"stderr": "心智已在运行（未重复启动）",
 			})
 			return
 		}
@@ -309,6 +307,8 @@ func (s *Server) handleThinkersAll(w http.ResponseWriter, r *http.Request, id *i
 			writeError(w, 500, err.Error())
 			return
 		}
+		// 清掉可能残留的停机标志，否则子进程启动即退出。
+		_ = os.Remove(filepath.Join(id.Timeline.Dir, "run", "stop"))
 		cmd := exec.Command(exe, "mind", "run", id.Name)
 		cmd.Dir = ""
 		// 与当前 web 进程同环境（.env 已在 web 进程加载）。
@@ -329,19 +329,21 @@ func (s *Server) handleThinkersAll(w http.ResponseWriter, r *http.Request, id *i
 		}
 		if !ok {
 			writeJSON(w, 200, map[string]any{
-				"ok": true, "action": "start",
-				"detail": "子进程已拉起但运行锁 3 秒内未出现——请检查 mindrun 日志",
+				"ok": true, "action": "start", "names": names,
+				"stderr": "子进程已拉起但运行锁 3 秒内未出现——请检查 mindrun 日志",
 			})
 			return
 		}
 		writeJSON(w, 200, map[string]any{
-			"ok": true, "action": "start", "detail": "心智已由子进程接管",
+			"ok": true, "action": "start", "names": names,
+			"stderr": "心智已由子进程接管",
 		})
 	default:
-		writeError(w, 400, "未知动作: "+rest[0])
+		writeError(w, 400, "未知动作: "+action)
 	}
 }
 
+// handleThinkerSync GET 返回同步状态（ThinkerSyncStatus 契约）。
 func (s *Server) handleThinkerSync(w http.ResponseWriter, _ *http.Request, id *identity.Identity) {
 	thinkers := []map[string]any{}
 	for _, t := range bundledThinkers {
@@ -359,6 +361,22 @@ func (s *Server) handleThinkerSync(w http.ResponseWriter, _ *http.Request, id *i
 	})
 }
 
+// handleThinkerSyncPull POST 执行拉取（ThinkerSyncResult 契约：
+// {ok, results:[{name, action, files}]}）。内置 thinker 与运行时
+// 同源，永远 unchanged——viewer 按这个动作词过滤出"有变化"的
+// 条目，全 unchanged 时它显示"已是最新"。
+func (s *Server) handleThinkerSyncPull(w http.ResponseWriter, _ *http.Request, id *identity.Identity) {
+	results := []map[string]any{}
+	for _, t := range bundledThinkers {
+		results = append(results, map[string]any{
+			"name":   t,
+			"action": "unchanged",
+			"files":  []string{},
+		})
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "results": results})
+}
+
 // handleRecapRefresh 真触发分集重算：异步跑 recap.Updater（Flush=true，
 // 连尾窗一起算），完成后删除 refreshing 标志；GET /recap 据此上报
 // refreshing 状态供前端轮询。
@@ -374,17 +392,21 @@ func (s *Server) handleRecapRefresh(w http.ResponseWriter, r *http.Request, id *
 		writeError(w, 503, "模型未配置，无法重算: "+err.Error())
 		return
 	}
-	client.OnDone = obs.UsageRecorder(id.Dir, client.Model, client.Provider)
+	client.OnDone = obs.UsageRecorder(id.Dir, client.Model, client.Provider, nil)
 	if err := os.WriteFile(flagPath, []byte(nowISO()), 0o644); err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}
-	ctx := r.Context()
+	// 请求 ctx 在 handler 返回即被 net/http 取消——后台重算必须
+	// 脱离它（WithoutCancel）并自带超时，否则每次都是"已开始"
+	// 然后必然中途夭折。
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Minute)
 	go func() {
+		defer cancel()
 		defer os.Remove(flagPath)
 		up := &recap.Updater{
 			Timeline:     id.Timeline,
-			Thinker:      webThinker{c: client},
+			Thinker:      mind.LLMThinker{Client: client},
 			Flush:        true,
 			MaxSummaries: 20,
 		}
@@ -400,24 +422,47 @@ func (s *Server) handleUsageRefresh(w http.ResponseWriter, _ *http.Request, id *
 }
 
 // handleKillall 强制结束所有心智相关进程——viewer 的 Kill all 按钮。
-// 写停机标志到身份目录（我们的调度器读到会优雅退出）。
-func (s *Server) handleKillall(w http.ResponseWriter, _ *http.Request) {
+// 请求体 {dry_run}：dry_run=true 只报告将停哪些、不写任何标志
+//（viewer 先 dryRun 弹确认框，确认后再真停）；stdout 是确认框里
+// 展示的人类可读摘要（KillallResult 契约 {ok, dry_run, stdout, stderr}）。
+func (s *Server) handleKillall(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DryRun bool `json:"dry_run"`
+	}
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req)
 	infos, err := scanIdentities(s.cfg.Root)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}
+	var names []string
+	for _, info := range infos {
+		if isIdentityLive(info.Dir) {
+			names = append(names, info.Name)
+		}
+	}
+	if req.DryRun {
+		summary := "没有正在运行的心智。"
+		if len(names) > 0 {
+			summary = fmt.Sprintf("将向 %d 个运行中的心智写入停机标志: %s", len(names), strings.Join(names, ", "))
+		}
+		writeJSON(w, 200, map[string]any{
+			"ok": true, "dry_run": true, "stdout": summary, "stderr": "",
+		})
+		return
+	}
 	stopped := 0
 	for _, info := range infos {
-		stop := filepath.Join(info.Dir, "run", "stop")
-		if err := os.WriteFile(stop, []byte(traj.NowString()), 0o644); err == nil {
+		if err := mind.RequestStopDir(info.Dir); err == nil {
 			stopped++
 		}
 	}
+	summary := fmt.Sprintf("已向 %d 个心智写入停机标志（调度器心跳内优雅退出）", stopped)
+	if stopped == 0 {
+		summary = "没有需要停止的心智。"
+	}
 	writeJSON(w, 200, map[string]any{
-		"ok":      true,
-		"stopped": stopped,
-		"dry_run": false,
+		"ok": true, "dry_run": false, "stdout": summary, "stderr": "",
 	})
 }
 
@@ -539,11 +584,4 @@ func (s *Server) handleDispatchLog(w http.ResponseWriter, _ *http.Request, id *i
 		events = []map[string]any{}
 	}
 	writeJSON(w, 200, events)
-}
-
-// webThinker 把 llm.Client 适配成 runner.Thinker（recap.Updater 用）。
-type webThinker struct{ c *llm.Client }
-
-func (a webThinker) Think(ctx context.Context, system string, msgs []llm.Message) (string, error) {
-	return a.c.Complete(ctx, system, msgs)
 }

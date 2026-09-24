@@ -148,6 +148,10 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	if exe, err := os.Executable(); err == nil {
 		exeEnv = append(exeEnv, "MINDLOOP_EXE="+exe)
 	}
+	// appendStep 落盘带 run_id 章的步骤。ctx 用 WithoutCancel：
+	// 思考失败/失速/轮次耗尽这些终局审计步骤恰恰发生在取消之后，
+	// 用已取消的 ctx 会让 Append 必败，关键事实永远落不了盘。
+	// 写失败不静默——有 logf 就喊出来。
 	appendStep := func(typ, content string, extra map[string]any) error {
 		s := traj.NewStep(typ)
 		s.Fields["run_id"] = runID
@@ -160,7 +164,11 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		for k, v := range extra {
 			s.Fields[k] = v
 		}
-		return opts.Timeline.Append(ctx, s)
+		err := opts.Timeline.Append(context.WithoutCancel(ctx), s)
+		if err != nil && logf != nil {
+			logf("runner: 步骤 %q 落盘失败: %v", typ, err)
+		}
+		return err
 	}
 
 	consecutiveFails := 0
