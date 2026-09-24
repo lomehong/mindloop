@@ -72,7 +72,7 @@ export default function TimelinePage() {
     return (
       <Empty>
         <EmptyHeader>
-          <EmptyTitle>No mind log</EmptyTitle>
+          <EmptyTitle>暂无思维日志</EmptyTitle>
           <EmptyDescription>No trajectory found for {identityId}.</EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -103,9 +103,9 @@ export default function TimelinePage() {
         <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <span className="text-sm text-muted-foreground">
             {hiddenOlder > 0
-              ? `last ${mindlog.steps.length} of ${mindlog.step_count} steps`
-              : `${mindlog.step_count} steps`}{" "}
-            · {mindlog.runs.length} runs
+              ? `最近 ${mindlog.steps.length} / 共 ${mindlog.step_count} 步`
+              : `${mindlog.step_count} 步`}{" "}
+            · {mindlog.runs.length} 次运行
           </span>
           {hiddenOlder > 0 && (
             <button
@@ -114,7 +114,7 @@ export default function TimelinePage() {
               disabled={loadingOlder}
               onClick={() => void loadOlder()}
             >
-              {loadingOlder ? "loading…" : "load older"}
+              {loadingOlder ? "加载中…" : "加载更早"}
             </button>
           )}
           <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">

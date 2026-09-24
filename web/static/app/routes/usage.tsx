@@ -312,7 +312,7 @@ function RefreshButtons({
         variant="outline"
         onClick={() => mutation.mutate(false)}
         disabled={busy}
-        title="Count the rows appended since the last refresh (incremental; the first run reads everything once)"
+        title="统计上次刷新以来新增的行（增量；首次会完整读取一次）"
       >
         <RefreshCw className={`size-3 ${refreshing ? "animate-spin" : ""}`} />
         {refreshing ? "Counting…" : label}
@@ -322,7 +322,7 @@ function RefreshButtons({
           size="sm"
           variant="ghost"
           disabled={busy}
-          title="Discard the cached counts and read the whole mind log and llm ledger again (use after the log was rewritten or curated)"
+          title="丢弃缓存计数并重新读取整个思维日志与 LLM 账本（日志被重写或整理后使用）"
           onClick={() => {
             if (
               window.confirm(
@@ -379,7 +379,7 @@ export default function UsagePage() {
         {header}
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>No usage numbers yet</EmptyTitle>
+            <EmptyTitle>暂无用量数据</EmptyTitle>
             <EmptyDescription>
               {usage.refreshing
                 ? "The mind log is being counted right now — this page refreshes itself."
@@ -448,7 +448,7 @@ export default function UsagePage() {
         <div className="grid gap-4 lg:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Tokens per day</CardTitle>
+              <CardTitle className="text-sm">每日 Token</CardTitle>
               <CardDescription>
                 {ledgerSince === null
                   ? "Input, output and thinking tokens stamped on shellm reasoning steps. Only shellm runs are counted: the llm usage ledger (every bin/llm call) has no rows yet, so fast-path replies and other thinkers are missing until it does."
@@ -472,7 +472,7 @@ export default function UsagePage() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Messages per day</CardTitle>
+              <CardTitle className="text-sm">每日消息</CardTitle>
               <CardDescription>
                 Inbound = messages to this identity from anyone else; outbound = its own
                 messages out.
@@ -492,7 +492,7 @@ export default function UsagePage() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Activity per day</CardTitle>
+              <CardTitle className="text-sm">每日活动</CardTitle>
               <CardDescription>
                 Model calls (same coverage as the tokens chart), agentic runs started, and reasoning
                 steps.

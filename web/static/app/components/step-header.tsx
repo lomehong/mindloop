@@ -61,7 +61,7 @@ export function StepHeader({ step }: { step: NormalizedStep }) {
           {step.source}
         </Chip>
       ) : (
-        <Chip className="text-muted-foreground/60" title="shellm machinery step">
+        <Chip className="text-muted-foreground/60" title="机械步骤（运行框架自身产生）">
           <Cog className="h-2.5 w-2.5" />
         </Chip>
       )}

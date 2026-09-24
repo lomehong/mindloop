@@ -191,7 +191,7 @@ function ImportIdentityForm() {
         onChange={(event) => setName(event.target.value)}
         placeholder="重命名（可选）"
         pattern="[a-z0-9][a-z0-9-]*"
-        title="lowercase alphanumeric + hyphens; only for single-identity archives"
+        title="小写字母数字与连字符；仅用于单身份归档"
         className="h-8 w-40 font-mono text-xs"
       />
       <Button type="submit" size="sm" disabled={mutation.isPending || !file}>
@@ -234,7 +234,7 @@ function KillAllButton() {
       variant="destructive"
       size="sm"
       disabled={mutation.isPending}
-      title="Kill every Headlong process on this machine (dispatchers, agents, thinker steps)"
+      title="停止本机全部 mindloop 进程（调度器、agent、思考者步骤）"
       onClick={() => mutation.mutate(true)}
     >
       <Skull className="size-3" />

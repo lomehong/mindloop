@@ -173,7 +173,7 @@ export default function IdentityPage() {
     return (
       <Empty>
         <EmptyHeader>
-          <EmptyTitle>No mind log</EmptyTitle>
+          <EmptyTitle>暂无思维日志</EmptyTitle>
           <EmptyDescription>No trajectory found for {identityId}.</EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -199,9 +199,9 @@ export default function IdentityPage() {
         <div className="mb-3 flex items-center gap-3">
           <span className="text-sm text-muted-foreground">
             {hiddenOlder > 0
-              ? `last ${mindlog.steps.length} of ${mindlog.step_count} steps`
-              : `${mindlog.step_count} steps`}{" "}
-            · {mindlog.runs.length} runs
+              ? `最近 ${mindlog.steps.length} / 共 ${mindlog.step_count} 步`
+              : `${mindlog.step_count} 步`}{" "}
+            · {mindlog.runs.length} 次运行
           </span>
           <div className="ml-auto">
             <Button
@@ -212,11 +212,11 @@ export default function IdentityPage() {
             >
               {expandAll ? (
                 <>
-                  <FoldVertical className="h-3.5 w-3.5" /> Collapse all
+                  <FoldVertical className="h-3.5 w-3.5" /> 收起全部
                 </>
               ) : (
                 <>
-                  <UnfoldVertical className="h-3.5 w-3.5" /> Expand all
+                  <UnfoldVertical className="h-3.5 w-3.5" /> 展开全部
                 </>
               )}
             </Button>

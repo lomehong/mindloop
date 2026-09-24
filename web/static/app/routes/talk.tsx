@@ -35,7 +35,7 @@ function NamePrompt({ onDone }: { onDone: (name: string) => void }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8">
       <img src="/icons/icon-192.png" alt="" className="h-16 w-16 rounded-2xl" />
-      <h1 className="text-lg font-semibold">Who's talking?</h1>
+      <h1 className="text-lg font-semibold">你是谁？</h1>
       <p className="text-center text-sm text-muted-foreground">
         Messages you send are signed with this name, so the identity knows who
         it's talking to.
@@ -51,7 +51,7 @@ function NamePrompt({ onDone }: { onDone: (name: string) => void }) {
           autoFocus
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="your first name"
+          placeholder="你的名字"
           autoCapitalize="none"
           autoCorrect="off"
           className="h-10 flex-1"
@@ -104,10 +104,10 @@ export default function TalkHome() {
   return (
     <div className="mx-auto flex w-full max-w-lg flex-1 flex-col px-4 pt-[env(safe-area-inset-top)]">
       <header className="flex items-center justify-between py-4">
-        <h1 className="text-lg font-semibold">Talk to…</h1>
+        <h1 className="text-lg font-semibold">选择对话对象…</h1>
         <button
           className="font-mono text-xs text-muted-foreground"
-          title="Change your name"
+          title="更换名字"
           onClick={() => {
             setName(null);
           }}

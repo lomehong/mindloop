@@ -206,7 +206,7 @@ function LlmHealthChip() {
                   size="sm"
                   className="w-full"
                   disabled={probing}
-                  title="Fires one tiny real LLM call (fractions of a cent)"
+                  title="发起一次真实的 LLM 调用（成本几分钱）"
                   onClick={runProbe}
                 >
                   <Activity className={`size-3 ${probing ? "animate-pulse" : ""}`} />
@@ -258,7 +258,7 @@ function BuildMenu({ config }: { config: Config }) {
     <div className="relative">
       <button
         className="inline-flex h-8 items-center font-mono text-[11px] leading-none text-muted-foreground hover:text-foreground"
-        title="Build info"
+        title="构建信息"
         onClick={() => setOpen(!open)}
       >
         {config.git_commit}

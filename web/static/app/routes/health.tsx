@@ -12,7 +12,16 @@ export function meta() {
   return [{ title: "Headlong · health" }];
 }
 
-const STATE_TEXT: Record<ActivityState, string> = {
+const STATE_LABELS: Record<string, string> = {
+  working: "工作中",
+  stalled: "停滞",
+  idle: "空闲",
+  asleep: "休眠",
+  replied: "已回复",
+  declined: "已拒绝",
+};
+
+const STATE_TEXT = {
   working: "text-green-600 dark:text-green-400",
   stalled: "text-amber-600 dark:text-amber-400",
   idle: "text-muted-foreground",
@@ -95,7 +104,7 @@ export default function HealthPage() {
           <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
             <Stat
               label="状态"
-              value={activity.state}
+              value={STATE_LABELS[activity.state] ?? activity.state}
               className={STATE_TEXT[activity.state]}
             />
             <Stat
@@ -107,14 +116,14 @@ export default function HealthPage() {
               }
             />
             <Stat
-              label="current run"
+              label="当前运行"
               value={fmtDuration(activity.run_seconds) ?? "—"}
             />
             <Stat
-              label="last mind-log write"
+              label="最近写入思维日志"
               value={
                 activity.last_step_age_s !== null
-                  ? `${fmtDuration(activity.last_step_age_s)} ago`
+                  ? `${fmtDuration(activity.last_step_age_s)} 前`
                   : "—"
               }
               className={
@@ -124,11 +133,11 @@ export default function HealthPage() {
               }
             />
             <Stat
-              label="step cadence"
+              label="步调节奏"
               value={fmtDuration(activity.cadence_s) ?? "—"}
             />
             <Stat
-              label="stall threshold"
+              label="停滞阈值"
               value={fmtDuration(activity.stall_after_s) ?? "—"}
             />
           </div>
@@ -142,11 +151,11 @@ export default function HealthPage() {
         </Section>
 
         <Section
-          title={`Message queue (${activity.queued_messages.length} waiting · ${activity.pending_total} pending triggers)`}
+          title={`消息队列（${activity.queued_messages.length} 条等待 · ${activity.pending_total} 个触发待发）`}
         >
           {activity.queued_messages.length === 0 ? (
             <div className="text-sm text-muted-foreground">
-              Empty — no one is waiting on a reply.
+              空——没有人在等待回复。
             </div>
           ) : (
             <div className="space-y-1.5">
@@ -171,10 +180,10 @@ export default function HealthPage() {
         </Section>
 
         <Section
-          title={`Responses · last ${responses?.window_days ?? 7} days`}
+          title={`回复 · 最近 ${responses?.window_days ?? 7} 天`}
         >
           {!responses ? (
-            <div className="text-sm text-muted-foreground">No mind log.</div>
+            <div className="text-sm text-muted-foreground">暂无思维日志</div>
           ) : (
             <>
               <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
@@ -182,7 +191,7 @@ export default function HealthPage() {
                 <Stat label="已拒绝" value={String(responses.declined)} />
                 <Stat label="待处理" value={String(responses.undecided)} />
                 <Stat
-                  label="duplicates"
+                  label="重复回复"
                   value={String(responses.duplicates ?? 0)}
                   className={
                     responses.duplicates
@@ -191,11 +200,11 @@ export default function HealthPage() {
                   }
                 />
                 <Stat
-                  label="median response"
+                  label="中位响应耗时"
                   value={fmtDuration(responses.median_s) ?? "—"}
                 />
                 <Stat
-                  label="p90"
+                  label="p90 响应"
                   value={fmtDuration(responses.p90_s) ?? "—"}
                 />
                 <Stat
@@ -211,10 +220,10 @@ export default function HealthPage() {
                 <table className="mt-3 w-full text-left text-xs">
                   <thead className="text-muted-foreground">
                     <tr>
-                      <th className="py-1 pr-4 font-normal">when</th>
-                      <th className="py-1 pr-4 font-normal">from</th>
-                      <th className="py-1 pr-4 font-normal">outcome</th>
-                      <th className="py-1 font-normal">response time</th>
+                      <th className="py-1 pr-4 font-normal">时间</th>
+                      <th className="py-1 pr-4 font-normal">来自</th>
+                      <th className="py-1 pr-4 font-normal">结果</th>
+                      <th className="py-1 font-normal">响应耗时</th>
                     </tr>
                   </thead>
                   <tbody className="font-mono">
@@ -232,7 +241,7 @@ export default function HealthPage() {
                                 : undefined
                             }
                           >
-                            {event.outcome}
+                            {STATE_LABELS[event.outcome] ?? event.outcome}
                           </span>
                           {event.path && (
                             <span className="ml-1 text-muted-foreground">
@@ -253,19 +262,19 @@ export default function HealthPage() {
         </Section>
 
         <Section
-          title={`Mid-run injections (${responses?.injections?.length ?? 0})`}
+          title={`运行中插入消息（${responses?.injections?.length ?? 0}）`}
         >
           {!responses?.injections?.length ? (
             <div className="text-sm text-muted-foreground">
-              No message has queued behind a busy run in the window.
+              窗口期内没有消息在忙碌运行后排队。
             </div>
           ) : (
             <>
               <table className="w-full text-left text-xs">
                 <thead className="text-muted-foreground">
                   <tr>
-                    <th className="py-1 pr-4 font-normal">when</th>
-                    <th className="py-1 pr-4 font-normal">from</th>
+                    <th className="py-1 pr-4 font-normal">时间</th>
+                    <th className="py-1 pr-4 font-normal">来自</th>
                     <th className="py-1 pr-4 font-normal">reply via</th>
                     <th className="py-1 pr-4 font-normal">total</th>
                     <th className="py-1 pr-4 font-normal">note written</th>
@@ -311,34 +320,34 @@ export default function HealthPage() {
           )}
         </Section>
 
-        <Section title="Model calls">
+        <Section title="模型调用">
           {!responses?.model?.calls ? (
             <div className="text-sm text-muted-foreground">
-              No stamped model calls in the window yet (llm_s lands with the
+              窗口期内还没有打章的模型调用 (llm_s lands with the
               observability deploy).
             </div>
           ) : (
             <>
               <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
-                <Stat label="calls" value={String(responses.model.calls)} />
+                <Stat label="调用次数" value={String(responses.model.calls)} />
                 <Stat
-                  label="median call"
+                  label="中位调用耗时"
                   value={fmtDuration(responses.model.llm_p50_s) ?? "—"}
                 />
                 <Stat
-                  label="p90 call"
+                  label="p90 调用耗时"
                   value={fmtDuration(responses.model.llm_p90_s) ?? "—"}
                 />
                 <Stat
-                  label="input tok"
+                  label="输入 Token"
                   value={responses.model.in_tok.toLocaleString()}
                 />
                 <Stat
-                  label="output tok"
+                  label="输出 Token"
                   value={responses.model.out_tok.toLocaleString()}
                 />
                 <Stat
-                  label="thinking tok"
+                  label="思考 Token"
                   value={responses.model.think_tok.toLocaleString()}
                 />
               </div>

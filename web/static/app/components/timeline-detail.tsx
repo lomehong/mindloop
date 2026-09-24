@@ -72,7 +72,7 @@ function CopyLinkButton() {
     <button
       type="button"
       aria-label="Copy link"
-      title="Copy link to this item"
+      title="复制此条目的链接"
       className="absolute right-10 top-3 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
       onClick={copy}
     >
@@ -98,7 +98,7 @@ function SubstepLink({ stepId }: { stepId: string }) {
     <button
       type="button"
       aria-label="Copy link to this step"
-      title="Copy link to this step"
+      title="复制此步骤的链接"
       className="absolute right-1 top-1.5 z-10 rounded-md p-1 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/substep:opacity-100"
       onClick={copy}
     >

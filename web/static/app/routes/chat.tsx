@@ -213,7 +213,7 @@ export default function ChatPage() {
               setMyName(event.target.value);
               window.localStorage.setItem(MY_NAME_KEY, event.target.value);
             }}
-            title="Your name (the from field on messages)"
+            title="你的名字（消息的 from 字段）"
             className="h-9 w-24 shrink-0 font-mono text-xs"
           />
           <Textarea
