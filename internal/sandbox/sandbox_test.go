@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -168,8 +169,13 @@ func TestRunContextCancel(t *testing.T) {
 // TestRunKillsProcessTree 是 Job Object 的关键断言：脚本后台拉起
 // 的子进程（甚至脱离脚本的孤儿）必须随脚本一起死。用产物文件
 // 证明：子进程每秒续写一个文件，杀树后文件必须停止增长。
+// 仅 Windows：杀树由 Job Object 提供（README 的平台对照表）——
+// Linux/macOS 的沙箱降级为进程级终止，孤儿语义不做保证。
 func TestRunKillsProcessTree(t *testing.T) {
 	requireBash(t)
+	if runtime.GOOS != "windows" {
+		t.Skip("杀树语义依赖 Job Object，仅 Windows 保证（非 Windows 降级为进程级终止）")
+	}
 	dir := newWorkDir(t)
 	marker := filepath.Join(dir, "heartbeat")
 	res, err := Run(context.Background(), Request{

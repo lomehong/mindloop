@@ -107,7 +107,7 @@ func (c *CLI) newRootCmd() *cobra.Command {
      ada> 我是 ada ……`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		Version:       "0.6.0",
+		Version:       Version,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -129,12 +129,16 @@ func (c *CLI) newRootCmd() *cobra.Command {
 	return root
 }
 
+// Version 是 CLI 的单一版本号来源——root 命令的 --version 与
+// version 子命令共用，避免双处硬编码漂移。
+const Version = "0.6.0"
+
 func (c *CLI) newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "打印版本",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(c.stdout, "mindloop v0.6.0（日志/渲染/运行循环/心智/记忆/recap/观测）")
+			fmt.Fprintf(c.stdout, "mindloop v%s（日志/渲染/运行循环/心智/记忆/recap/观测）\n", Version)
 			return nil
 		},
 	}
