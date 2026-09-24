@@ -7,17 +7,19 @@ import (
 // BackoffPolicy 是闲置回退的纯函数化——Headlong
 // design/monolith_backoff.md 的对应物：
 //
-//	level 0            → 0（刚做完可见工作或被外部事件触发：立即继续）
-//	level n ≥ 1        → min(Base·2^(n-1), Max)
+//	首档             → Base（第一次闲置立即降到第一档，不空转）
+//	level n ≥ 1      → min(Base·2^(n-1), Max)
 //	thought-only 唤醒  → 额外封顶在 ThoughtCap（思考不算产出，但也
 //	                     不该被罚到和彻底闲置一样深）
+//	驻留             → 每级停留 Hold 次空唤醒再加深（dwell）
 //
 // 纯函数 + 可注入参数，让升级曲线可以被穷举测试。
 type BackoffPolicy struct {
 	Base        time.Duration // level 1 的延迟
 	Max         time.Duration // 封顶（Headlong 默认 5 分钟）
 	ThoughtCap  time.Duration // 思考型唤醒的额外封顶（默认 60 秒）
-	MinInterval time.Duration // 任意 delay 的下限——IDLE 也得等这点（默认 5 秒）
+	MinInterval time.Duration // 思考型 delay 的下限（默认 5 秒）
+	Hold        int // 每级驻留的空唤醒次数（默认 3）——Headlong 的 dwell
 }
 
 func (p BackoffPolicy) normalized() BackoffPolicy {
@@ -38,6 +40,9 @@ func (p BackoffPolicy) normalized() BackoffPolicy {
 	if p.MinInterval < 0 {
 		p.MinInterval = 5 * time.Second
 	}
+	if p.Hold <= 0 {
+		p.Hold = 3
+	}
 	return p
 }
 
@@ -45,7 +50,9 @@ func (p BackoffPolicy) normalized() BackoffPolicy {
 func (p BackoffPolicy) Delay(level int, thoughtOnly bool) time.Duration {
 	p = p.normalized()
 	raw := delayForLevel(p, level, thoughtOnly)
-	if p.MinInterval > 0 && raw < p.MinInterval {
+	// 地板只夹思考型：主动型（人类消息等外部触发）必须保持 0——
+	// 人类消息不能等 5 秒才回（TestMinIntervalPreventsIdleZeroLoop）。
+	if thoughtOnly && p.MinInterval > 0 && raw < p.MinInterval {
 		return p.MinInterval
 	}
 	return raw
@@ -90,12 +97,45 @@ const (
 	ClassIdle
 )
 
-// Escalate 根据本次分类推进回退层级，返回新层级。
-// 可见工作归零；其余加深一层。triggerReactive 表示本次唤醒由外部
-// 事件触发（如人类消息）——无论产出如何都归零，外部交互优先。
-func (p BackoffPolicy) Escalate(level int, class WakeClass, triggerReactive bool) int {
+// Escalate 根据本次分类推进回退状态（层级 + 驻留计数），返回新
+// 状态。可见工作或外部触发整体归零；闲置唤醒的节奏（Headlong
+// 的 dwell，2026-08-24 修订）：首次闲置立即落到第一档（Base），
+// 之后每级驻留 Hold 次空唤醒、驻留期满才加深一级——节奏是
+// base×H, base×H, 2·base×H, 4·base×H…直到封顶后永驻。
+//
+// 与 Headlong 原版的一处有意差异：原版曲线开头是 `0,0,0`（三次
+// 零延迟空转），mindloop 的 MinInterval 安全网（"IDLE 紧密循环"
+// 事故）禁止零延迟空唤醒，所以首档直接落在 Base。
+func (p BackoffPolicy) Advance(level, ticks int, class WakeClass, triggerReactive bool) (int, int) {
 	if triggerReactive || class == ClassWork {
-		return 0
+		return 0, 0
 	}
-	return level + 1
+	if level <= 0 {
+		return 1, 1
+	}
+	ticks++
+	if ticks > p.normalized().Hold {
+		// 驻留期满：加深一级；已到封顶（再深延迟不变）则原地驻留。
+		ticks = 1
+		if p.ladder(level+1) > p.ladder(level) {
+			level++
+		}
+	}
+	return level, ticks
+}
+
+// ladder 是无思考封顶的纯指数曲线（截到 Max）——Advance 的加深
+// 判据用它比较"再深一级是否还有意义"。
+func (p BackoffPolicy) ladder(level int) time.Duration {
+	d := p.normalized().Base
+	for i := 1; i < level; i++ {
+		d *= 2
+		if d >= p.Max {
+			return p.Max
+		}
+	}
+	if d > p.Max {
+		return p.Max
+	}
+	return d
 }

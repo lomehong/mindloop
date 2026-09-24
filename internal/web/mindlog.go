@@ -1,7 +1,6 @@
 package web
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/url"
 	"sort"
@@ -380,4 +379,4 @@ func (s *Server) handleRunCommand(w http.ResponseWriter, r *http.Request, id *id
 	writeError(w, 404, "未找到该 run 的 prompt")
 }
 
-var _ = json.Marshal
+

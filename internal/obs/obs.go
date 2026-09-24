@@ -18,10 +18,19 @@ import (
 
 // UsageRecorder 返回接在 llm.Client.OnDone 上的回调：追加用量台账
 // 并刷新健康标记。model/provider 随调用闭包捕获（OnDone 只带 Usage）。
-func UsageRecorder(dir, model, provider string) func(llm.Usage, error) {
+// logf 非空时落盘失败会喊出来——观测面写失败等于"账本缺一行"，
+// 静默吞掉就是掩盖；调用方没有合适日志通道时传 nil 保持安静。
+func UsageRecorder(dir, model, provider string, logf func(format string, args ...any)) func(llm.Usage, error) {
+	fail := func(format string, args ...any) {
+		if logf != nil {
+			logf("obs: "+format, args...)
+		}
+	}
 	return func(u llm.Usage, err error) {
 		usageDir := filepath.Join(dir, "usage")
-		_ = os.MkdirAll(usageDir, 0o755)
+		if merr := os.MkdirAll(usageDir, 0o755); merr != nil {
+			fail("创建用量目录失败: %v", merr)
+		}
 
 		rec := struct {
 			TS               string `json:"ts"`
@@ -43,10 +52,16 @@ func UsageRecorder(dir, model, provider string) func(llm.Usage, error) {
 		if line, jerr := json.Marshal(rec); jerr == nil {
 			f, ferr := os.OpenFile(filepath.Join(usageDir, "llm-usage.jsonl"),
 				os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-			if ferr == nil {
-				_, _ = f.Write(append(line, '\n'))
+			if ferr != nil {
+				fail("打开用量台账失败: %v", ferr)
+			} else if _, werr := f.Write(append(line, '\n')); werr != nil {
+				fail("写用量台账失败: %v", werr)
+				f.Close()
+			} else {
 				f.Close()
 			}
+		} else {
+			fail("序列化用量记录失败: %v", jerr)
 		}
 
 		healthPath := filepath.Join(dir, "llm-health.json")
@@ -64,9 +79,13 @@ func UsageRecorder(dir, model, provider string) func(llm.Usage, error) {
 		health.LastCheck = now
 		if data, jerr := json.MarshalIndent(health, "", "  "); jerr == nil {
 			tmp := healthPath + ".tmp"
-			if os.WriteFile(tmp, data, 0o644) == nil {
-				_ = os.Rename(tmp, healthPath)
+			if werr := os.WriteFile(tmp, data, 0o644); werr != nil {
+				fail("写健康标记失败: %v", werr)
+			} else if rerr := os.Rename(tmp, healthPath); rerr != nil {
+				fail("健康标记原子改名失败: %v", rerr)
 			}
+		} else {
+			fail("序列化健康标记失败: %v", jerr)
 		}
 	}
 }

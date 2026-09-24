@@ -2,7 +2,6 @@ package mind
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -74,7 +73,7 @@ func DispatchLogPath(tlDir string) string {
 	return filepath.Join(tlDir, "run", "dispatcher.log")
 }
 
-var _ = context.Background // 保持 context 引用一致性
+
 
 // NewDispatchLogForTest 暴露给测试构造事件写入器（生产路径由
 // NewDispatcher 内部创建）。

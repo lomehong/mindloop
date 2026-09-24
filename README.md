@@ -18,21 +18,32 @@ Job Object 而非 Docker，锁与文件身份按 NTFS 语义设计；Linux/macOS
 ```
 cmd/mindloop/          入口薄壳（~20 行）：Ctrl+C → ctx，其余交给 cli
 internal/cli/          命令行层：子命令调度、旗标解析、输出格式化
-internal/mind/         持久心智：调度器（feeder/背压/watchdog）+ monolith
+internal/mind/         持久心智：调度器（feeder/背压/watchdog）+
+                       monolith/responder 思考者、控制面、运行锁
 internal/identity/     身份目录布局：persona + 元数据 + 根轨迹
 internal/runner/       运行循环：渲染 → 思考 → 提取 → 执行 → 记录 → FINAL
 internal/llm/          模型客户端：openai-compatible / anthropic / echo
 internal/sandbox/      Job Object 沙箱：整树管辖、三类超时、FINAL 协议
 internal/prompt/       上下文渲染器：轨迹 → LLM 消息序列
+internal/recap/        分层上下文：情节摘要缓存 + 人生分集渲染
+internal/mem/          记忆库：markdown + frontmatter、BM25 检索
+internal/obs/          观测面落盘：用量台账（llm-usage.jsonl）、健康标记
+internal/config/       持久配置：MINDLOOP_HOME/.env 读取
 internal/traj/         日志层：追加式 JSONL 轨迹、目录锁、cursor、查询
 internal/ids/          UUID v4 与短前缀
+internal/web/          仪表盘后端：net/http API + 同源守卫（viewer 的
+                       构建产物放 web/static，`mindloop web` 服务）
 ```
 
-依赖方向单向：`cmd → cli → {mind → runner, identity} → {llm, prompt,
-sandbox} → traj → ids`。库不打印日志、不读环境变量（`traj.Home()`、
-`llm.FromEnv()`、`identity.Home()` 除外）、不启动 goroutine；阻塞
-操作都接受 `context.Context`。`runner.Thinker` 与 `mind.Thinker`
-两个接口把"模型是谁""思考者是谁"与调度解耦——测试用脚本化假实现。
+依赖方向单向：`cmd → cli → {web, mind → runner, identity} →
+{llm, prompt, sandbox, recap, mem, obs} → traj → ids`。库不打印
+日志、几乎不读环境变量（`traj.Home()`、`llm.FromEnv()`、
+`identity.Home()` 除外；sandbox 读 `ProgramFiles`/`USERPROFILE`
+定位 bash）、不启动 goroutine（web 服务与 mind 调度器除外——
+它们本身就是并发边界）；阻塞操作都接受 `context.Context`
+（traj 的读路径 `Steps`/`Tail` 等小文件读取例外）。
+`runner.Thinker` 与 `mind.Thinker` 两个接口把"模型是谁""思考者
+是谁"与调度解耦——测试用脚本化假实现。
 
 ## 持久心智（第 4 步的核心设计）
 
@@ -40,10 +51,16 @@ sandbox} → traj → ids`。库不打印日志、不读环境变量（`traj.Hom
   丢最旧）；其余类型 last-wins 合并——自循环思考者永远不在积压的
   过期自我唤醒里打转，而空闲槽位永远先给人。
 - **活性由调度器保证**：watchdog 周期性合成唤醒治愈任何断链；
-  自发性是思考者向调度器**预约**的（`Outcome.WantWake`），不是
-  自己起定时器——定时器会随思考者一起死。
-- **回退策略纯函数化**：可见工作或外部触发归零；闲置每级 ×2 封顶
+  窗口度量的是"空闲且安静"的时长——忙碌或还有排队工作的思考者
+  时钟持续刷新，长任务结束的瞬间不会触发补偿性唤醒。自发性是
+  思考者向调度器**预约**的（`Outcome.WantWake`），不是自己起
+  定时器——定时器会随思考者一起死。
+- **回退策略纯函数化**：可见工作或外部触发归零；闲置先落第一档，
+  之后每级驻留 `Hold`（默认 3）次空唤醒再加深、逐级 ×2 封顶
   5 分钟；思考型封顶 1 分钟。升级曲线被穷举测试。
+- **双模型分层**（可选）：自发空唤醒走 `MINDLOOP_MODEL` 思考档，
+  反应式唤醒走 `MINDLOOP_REQUEST_MODEL` 请求档——Headlong 实测
+  安静日开销降 70-80%；未设或请求档不可用时自动全部走思考档。
 - **双重防回路**：订阅面排除自己会产出的全部类型（测试钉死）+
   `launched_by` 作者章守卫。
 - **冷启动不重放**：调度器的 cursor 从 EOF 起步——Headlong 的
@@ -146,7 +163,18 @@ mindloop mem list --identity ada -n 5
 mindloop mem forget --identity ada <记忆id>
 
 mindloop tailf <id>                            # 实时跟踪
+
+# 仪表盘：身份/时间线/思考者控制/记忆/对话/recap/用量/配置
+mindloop web                                   # 默认 http://127.0.0.1:8080
+mindloop web --host 0.0.0.0 --token <秘密>      # 局域网暴露必须配 Token
 ```
+
+仪表盘安全模型：默认只绑 127.0.0.1；`/api/*` 经同源守卫（跨源
+Origin、回环部署下的非回环 Host 一律 403，防 CSRF 与 DNS
+rebinding）；写端点全部方法路由（GET 一律 405）；绑定非回环地址
+必须显式 `--token`（所有请求带 `Authorization: Bearer <token>`）。
+"沙箱"是进程树管辖（Job Object：杀树/超时/输出上限），不是能力
+隔离——模型生成的脚本以当前用户全权限运行，别把不可信任务交给它。
 
 ### 持久配置（<home>/.env，完整模板见 `.env.example`）
 
@@ -188,7 +216,9 @@ openai-compatible（`glm-*` 自动落到智谱端点并套用思考型预算分�
    （粗层）+ 原文尾窗（细层）。
 8. **[x] 观测面**——用量台账（usage/llm-usage.jsonl）、健康标记
    （llm-health.json，连续错误计数）、`mind chat` 对话视图。
-9. [ ] Windows 服务 + 仪表盘——mind run 的服务化形态（暂缓）。
+9. **[x] 仪表盘**——`mindloop web`：身份/时间线/思考者控制/记忆/
+   对话/recap/用量/配置 11 个页面，写端点方法路由 + 同源守卫 +
+   非回环绑定强制 Token（见 web 包注释）。
 
 ## Windows 说明（踩过的坑，测试钉死）
 

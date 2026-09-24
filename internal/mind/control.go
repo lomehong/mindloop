@@ -1,7 +1,7 @@
 package mind
 
 import (
-	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +13,28 @@ import (
 
 // controlDir 返回 <轨迹目录>/run（控制文件都放这里）。
 func controlDir(tlDir string) string { return filepath.Join(tlDir, "run") }
+
+// RunLockDir 返回心智运行锁目录——web 监控面与 mind 共用同一
+// 判据，不再各自硬编码路径。
+func RunLockDir(tlDir string) string {
+	return filepath.Join(controlDir(tlDir), "dispatcher.lock")
+}
+
+// validThinkerName 是 thinker 名白名单：wake.<name> 直接拼控制面
+// 文件名，而名字来自 URL/web 控制面——必须拒绝穿越段与分隔符
+// （Windows 下 \ 也是路径分隔符，HTTP mux 的 cleanPath 不消化它）。
+func validThinkerName(name string) bool {
+	if name == "" || len(name) > 64 || strings.Contains(name, "..") {
+		return false
+	}
+	for _, r := range name {
+		if !(r >= 'a' && r <= 'z') && !(r >= 'A' && r <= 'Z') &&
+			!(r >= '0' && r <= '9') && r != '-' && r != '_' && r != '.' {
+			return false
+		}
+	}
+	return true
+}
 
 // disabledPath 是 thinker 禁用名单：每行一个 thinker 名。
 func disabledPath(tlDir string) string {
@@ -26,6 +48,9 @@ func wakePath(tlDir, thinker string) string {
 
 // SetThinkerEnabled 写/删禁用名单条目（web/CLI 控制面调用）。
 func SetThinkerEnabled(tlDir, thinker string, enabled bool) error {
+	if !validThinkerName(thinker) {
+		return fmt.Errorf("mind: 非法 thinker 名 %q", thinker)
+	}
 	if err := os.MkdirAll(controlDir(tlDir), 0o755); err != nil {
 		return err
 	}
@@ -48,6 +73,9 @@ func SetThinkerEnabled(tlDir, thinker string, enabled bool) error {
 
 // SignalWake 写入手动唤醒信号文件（调度器下个心跳消费并删除）。
 func SignalWake(tlDir, thinker string) error {
+	if !validThinkerName(thinker) {
+		return fmt.Errorf("mind: 非法 thinker 名 %q", thinker)
+	}
 	if err := os.MkdirAll(controlDir(tlDir), 0o755); err != nil {
 		return err
 	}
@@ -100,5 +128,3 @@ func collectWakeSignals(tlDir string) []string {
 	}
 	return out
 }
-
-var _ = bufio.NewReader // 留作后续流式消费

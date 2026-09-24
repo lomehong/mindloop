@@ -1,0 +1,38 @@
+# 最小质量门禁：vet + 测试全绿才允许合并。viewer 前端同样上锁——
+# typecheck + vitest（2026-09 起，此前套件红了没人拦）。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  go:
+    strategy:
+      matrix:
+        # Windows 是一等公民（Job Object 沙箱只有 Windows 能测到），
+        # ubuntu 保证跨平台可编译可运行。
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+
+  viewer:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web/static
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npx react-router typegen && npx tsc --noEmit
+      - run: npm test

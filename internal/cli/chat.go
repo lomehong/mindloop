@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"mindloop/internal/config"
 	"mindloop/internal/llm"
 	"mindloop/internal/mind"
 	"mindloop/internal/obs"
@@ -200,6 +202,11 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 	if err != nil {
 		return c.fail(err)
 	}
+	// 身份级 .env：模型等配置按身份覆盖（显式环境变量 > 身份
+	// .env > 全局 .env，LoadEnv 不覆盖已存在的进程环境变量）。
+	if err := config.LoadEnv(filepath.Join(id.Dir, ".env")); err != nil {
+		fmt.Fprintf(c.stderr, "⚠ 身份 .env 加载失败: %v\n", err)
+	}
 	term := newPromptWriter(c.stderr, promptYou)
 
 	// 调度器的流水账（收到唤醒/已回复/启动停机）在交互对话里是
@@ -221,28 +228,38 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 
 	if owned {
 		client := c.newChatClient()
-		client.OnDone = obs.UsageRecorder(id.Dir, client.Model, client.Provider)
+		client.OnDone = obs.UsageRecorder(id.Dir, client.Model, client.Provider, c.mindLog)
+		requestClient := requestTierClient(client, id.Dir, c.mindLog)
 		dispatchCtx, cancelDispatch := context.WithCancel(c.ctx)
-		defer cancelDispatch()
 		dispatcher := mind.NewDispatcher(id.Timeline, 200*time.Millisecond)
 		dispatcher.SetLogger(chatLogger)
 		persona, _ := id.Persona()
 		dispatcher.Register(mind.NewMonolith(mind.MonolithOptions{
-			Timeline:    id.Timeline,
-			Thinker:     llmThinker{c: client},
-			Persona:     persona,
-			MemDir:      id.Dir + "/memories",
-			EnableRecap: true,
-			Watchdog:    watchdog,
-			SetLogger:   chatLogger,
+			Timeline:       id.Timeline,
+			Thinker:        mind.LLMThinker{Client: client},
+			RequestThinker: mind.LLMThinker{Client: requestClient},
+			Persona:        persona,
+			MemDir:         id.Dir + "/memories",
+			EnableRecap:    true,
+			Watchdog:       watchdog,
+			SetLogger:      chatLogger,
 		}))
 		dispatcher.Register(mind.NewResponder(mind.ResponderOptions{
 			Timeline: id.Timeline,
-			Thinker:  llmThinker{c: client},
+			Thinker:  mind.LLMThinker{Client: client},
 			SelfName: id.Name,
 			Persona:  persona,
 		}))
 		go dispatcher.Run(dispatchCtx)
+		// 优雅停机：输入循环退出后先停心跳，再等在途思考收尾——
+		// 声明在 defer lock.Release() 之后，LIFO 保证 join 先于
+		// 释放运行锁，跑一半的 bash 与落盘不被腰斩。
+		defer func() {
+			cancelDispatch()
+			if !dispatcher.WaitIdle(10 * time.Second) {
+				term.Plainf("⚠ 10 秒内思考未全部收尾，放弃等待直接停机")
+			}
+		}()
 		term.Plainf("心智 %s 已启动（本窗口接管；exit 或 Ctrl+C 退出并停机）", id.Name)
 	} else {
 		term.Plainf("心智 %s 已在运行，本窗口接入对话（停机请用 mind stop）", id.Name)

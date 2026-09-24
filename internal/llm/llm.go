@@ -16,6 +16,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -39,7 +40,9 @@ type Usage struct {
 	CompletionTokens int `json:"completion_tokens"`
 }
 
-// Client 是一个可并发使用的模型客户端。
+// Client 是可并发使用的模型客户端：实例无状态（monolith 与
+// responder 共用同一个 client 是常态），Complete 之间互不干扰；
+// OnDone 回调被串行化调用，回调实现无需自行加锁。
 type Client struct {
 	Provider   string
 	BaseURL    string // openai-compatible: 含 /v1；anthropic: 站点根
@@ -53,7 +56,7 @@ type Client struct {
 	// CLI 用它接用量台账与健康标记；库自身不做 IO。
 	OnDone func(u Usage, err error)
 
-	lastUsage Usage
+	onDoneMu sync.Mutex
 }
 
 // ErrNoProvider 配置不足以构造客户端。
@@ -66,9 +69,16 @@ var ErrNoProvider = errors.New("llm: 缺少模型配置（设置 MINDLOOP_MODEL�
 // GLM 系模型套用思考型输出预算（Headlong 的事故：GLM 的 thinking
 // 吃光 16384 预算后返回零可见字符——finish=length、content 为空、
 // 只有 reasoning_content。这里在两层防御：预算分层 + 拆包识别）。
-func FromEnv() (*Client, error) {
+func FromEnv() (*Client, error) { return fromEnv(os.Getenv("MINDLOOP_MODEL")) }
+
+// FromEnvModel 用显式模型名构造客户端，其余配置同 FromEnv——
+// 双模型分层的入口：思考档走 MINDLOOP_MODEL，请求档走
+// MINDLOOP_REQUEST_MODEL（按请求档模型名重新推断供应商与预算）。
+func FromEnvModel(model string) (*Client, error) { return fromEnv(model) }
+
+func fromEnv(model string) (*Client, error) {
+	model = strings.TrimSpace(model)
 	provider := strings.TrimSpace(os.Getenv("MINDLOOP_PROVIDER"))
-	model := strings.TrimSpace(os.Getenv("MINDLOOP_MODEL"))
 	if provider == "" {
 		switch {
 		case model == "":
@@ -152,22 +162,28 @@ func firstNonEmpty(vals ...string) string {
 
 // Complete 发送一次非流式补全。system 作为系统提示注入；瞬时
 // 错误（网络失败、408/429/5xx）线性退避重试，确定性 4xx 不重试。
+// usage 是本次调用的局部值——绝不存在"回调读到上一次调用用量"
+// 的串报（共享 lastUsage 的真实事故）。
 func (c *Client) Complete(ctx context.Context, system string, msgs []Message) (text string, err error) {
+	var usage Usage
 	defer func() {
 		if c.OnDone != nil {
-			c.OnDone(c.lastUsage, err)
+			c.onDoneMu.Lock()
+			c.OnDone(usage, err)
+			c.onDoneMu.Unlock()
 		}
 	}()
 	switch c.Provider {
 	case ProviderEcho:
 		return echoResponse, nil
 	case ProviderAnthropic:
-		return c.completeAnthropic(ctx, system, msgs)
+		text, usage, err = c.completeAnthropic(ctx, system, msgs)
 	case ProviderOpenAICompat:
-		return c.completeOpenAI(ctx, system, msgs)
+		text, usage, err = c.completeOpenAI(ctx, system, msgs)
 	default:
 		return "", fmt.Errorf("llm: 未知供应商 %q", c.Provider)
 	}
+	return text, err
 }
 
 // echoResponse 是 echo 供应商的固定产出：一段能立刻完成运行循环
@@ -177,28 +193,28 @@ const echoResponse = "```bash\n" +
 	"FINAL=\"echo ok\"\n" +
 	"```"
 
-func (c *Client) do(ctx context.Context, method, url string, headers map[string]string, body any, extract func([]byte) (string, Usage, error)) (string, error) {
+func (c *Client) do(ctx context.Context, method, url string, headers map[string]string, body any, extract func([]byte) (string, Usage, error)) (string, Usage, error) {
 	var lastErr error
+	var lastUsage Usage
 	for attempt := 0; attempt <= c.MaxRetries; attempt++ {
 		if attempt > 0 && c.Backoff > 0 {
 			select {
 			case <-ctx.Done():
-				return "", ctx.Err()
+				return "", lastUsage, ctx.Err()
 			case <-time.After(c.Backoff * time.Duration(attempt)):
 			}
 		}
 		text, usage, retryable, err := c.attempt(ctx, method, url, headers, body, extract)
+		lastUsage = usage
 		if err == nil {
-			c.lastUsage = usage
-			return text, nil
+			return text, usage, nil
 		}
-		c.lastUsage = usage
 		lastErr = err
 		if !retryable {
-			return "", err
+			return "", usage, err
 		}
 	}
-	return "", fmt.Errorf("llm: 重试 %d 次后仍失败: %w", c.MaxRetries, lastErr)
+	return "", lastUsage, fmt.Errorf("llm: 重试 %d 次后仍失败: %w", c.MaxRetries, lastErr)
 }
 
 // attempt 返回 (文本, 用量, 是否可重试, 错误)。
@@ -267,7 +283,7 @@ func snippet(b []byte) string {
 	return s
 }
 
-func (c *Client) completeOpenAI(ctx context.Context, system string, msgs []Message) (string, error) {
+func (c *Client) completeOpenAI(ctx context.Context, system string, msgs []Message) (string, Usage, error) {
 	payload := map[string]any{
 		"model":      c.Model,
 		"messages":   append([]Message{{Role: "system", Content: system}}, msgs...),
@@ -317,7 +333,7 @@ func (c *Client) completeOpenAI(ctx context.Context, system string, msgs []Messa
 	})
 }
 
-func (c *Client) completeAnthropic(ctx context.Context, system string, msgs []Message) (string, error) {
+func (c *Client) completeAnthropic(ctx context.Context, system string, msgs []Message) (string, Usage, error) {
 	payload := map[string]any{
 		"model":      c.Model,
 		"max_tokens": c.MaxTokens,

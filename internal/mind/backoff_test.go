@@ -23,19 +23,51 @@ func TestBackoffEscalationAndReset(t *testing.T) {
 		t.Fatalf("thought-only 应封顶在 60s，得到 %v", d)
 	}
 
-	level := 0
-	level = p.Escalate(level, ClassIdle, false)
-	level = p.Escalate(level, ClassIdle, false)
-	if level != 2 {
-		t.Fatalf("闲置应加深层级，得到 %d", level)
+	// Advance 的驻留节奏（Hold=2）：1,1 → 2,2 → 4,4——每级停留
+	// 2 次空唤醒才加深（Headlong dwell 的 mindloop 适配版，无
+	// 开头的零延迟段，见 Advance 注释）。
+	p2 := BackoffPolicy{Base: time.Second, Max: time.Minute, ThoughtCap: 30 * time.Second, Hold: 2}
+	level, ticks := 0, 0
+	type state struct {
+		level, ticks int
+		delay        time.Duration
 	}
-	level = p.Escalate(level, ClassWork, false)
-	if level != 0 {
-		t.Fatalf("可见工作应归零，得到 %d", level)
+	var got []state
+	for i := 0; i < 5; i++ {
+		level, ticks = p2.Advance(level, ticks, ClassIdle, false)
+		got = append(got, state{level, ticks, p2.Delay(level, false)})
 	}
-	level = p.Escalate(level, ClassIdle, true)
-	if level != 0 {
-		t.Fatalf("外部触发应归零，得到 %d", level)
+	want := []state{
+		{1, 1, time.Second},
+		{1, 2, time.Second},
+		{2, 1, 2 * time.Second},
+		{2, 2, 2 * time.Second},
+		{3, 1, 4 * time.Second},
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("驻留序列第 %d 步 = %v，应为 %v；全序列 %v", i+1, got[i], want[i], got)
+		}
+	}
+
+	// 可见工作整体归零；外部触发同样归零（即使产出是 IDLE）。
+	level, ticks = p2.Advance(level, ticks, ClassWork, false)
+	if level != 0 || ticks != 0 {
+		t.Fatalf("可见工作应整体归零，得到 (%d,%d)", level, ticks)
+	}
+	level, ticks = p2.Advance(level, ticks, ClassIdle, true)
+	if level != 0 || ticks != 0 {
+		t.Fatalf("外部触发应整体归零，得到 (%d,%d)", level, ticks)
+	}
+
+	// 封顶后原地永驻：再深一级延迟不再变化就不再加深。
+	p3 := BackoffPolicy{Base: 5 * time.Second, Max: 10 * time.Second, ThoughtCap: 60 * time.Second, Hold: 1}
+	level, ticks = 0, 0
+	for i := 0; i < 6; i++ {
+		level, ticks = p3.Advance(level, ticks, ClassIdle, false)
+	}
+	if level != 2 || ticks != 1 {
+		t.Fatalf("封顶后应永驻 (2,1)，得到 (%d,%d)", level, ticks)
 	}
 }
 

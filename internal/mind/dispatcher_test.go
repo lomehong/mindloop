@@ -238,36 +238,3 @@ func tl0(t *testing.T, d *Dispatcher) *traj.Timeline {
 	return d.tl
 }
 
-func TestBackoffEscalationResetLegacy(t *testing.T) {
-	p := BackoffPolicy{Base: 5 * time.Second, Max: 5 * time.Minute, ThoughtCap: 60 * time.Second}
-	if d := p.Delay(0, false); d != 0 {
-		t.Fatalf("level 0 应为 0，得到 %v", d)
-	}
-	if d := p.Delay(1, false); d != 5*time.Second {
-		t.Fatalf("level 1 应为 base，得到 %v", d)
-	}
-	if d := p.Delay(3, false); d != 20*time.Second {
-		t.Fatalf("level 3 应为 20s，得到 %v", d)
-	}
-	if d := p.Delay(10, false); d != 5*time.Minute {
-		t.Fatalf("封顶应为 max，得到 %v", d)
-	}
-	if d := p.Delay(10, true); d != 60*time.Second {
-		t.Fatalf("thought-only 应封顶在 60s，得到 %v", d)
-	}
-
-	level := 0
-	level = p.Escalate(level, ClassIdle, false)
-	level = p.Escalate(level, ClassIdle, false)
-	if level != 2 {
-		t.Fatalf("闲置应加深层级，得到 %d", level)
-	}
-	level = p.Escalate(level, ClassWork, false)
-	if level != 0 {
-		t.Fatalf("可见工作应归零，得到 %d", level)
-	}
-	level = p.Escalate(level, ClassIdle, true)
-	if level != 0 {
-		t.Fatalf("外部触发应归零，得到 %d", level)
-	}
-}
