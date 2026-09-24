@@ -127,6 +127,8 @@ type Dispatcher struct {
 	tl     *traj.Timeline
 	cursor *traj.Cursor
 	poll   time.Duration
+	evlog  *dispatchLogEvents
+	tlDir  string
 	logger func(format string, args ...any)
 
 	mu      sync.Mutex
@@ -142,6 +144,8 @@ func NewDispatcher(tl *traj.Timeline, poll time.Duration) *Dispatcher {
 		tl:     tl,
 		cursor: traj.NewCursorAtEnd(tl.Path),
 		poll:   poll,
+		evlog:  newDispatchLog(tl.Dir),
+		tlDir:  tl.Dir,
 	}
 }
 
@@ -198,6 +202,22 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 
 // step 是一次心跳：feeder → watchdog/自发性 → 投递。
 func (d *Dispatcher) step(ctx context.Context) error {
+	// 0. 控制面：消费 web/CLI 发来的手动唤醒信号（读完即删）。
+	for _, name := range collectWakeSignals(d.tlDir) {
+		d.mu.Lock()
+		var target *worker
+		for _, w := range d.workers {
+			if w.t.Name() == name {
+				target = w
+				break
+			}
+		}
+		d.mu.Unlock()
+		if target != nil {
+			d.deliver(ctx, target, Wake{Step: syntheticStep("manual-wake"), Kind: WakeScheduled})
+		}
+	}
+
 	// 1. feeder：新步骤路由给订阅者。
 	steps, err := d.cursor.ReadNew()
 	if err != nil {
@@ -268,6 +288,22 @@ func (d *Dispatcher) route(step traj.Step) {
 				continue
 			}
 		}
+		if IsThinkerDisabled(d.tlDir, w.t.Name()) {
+			if d.evlog != nil {
+				d.evlog.Append(map[string]any{
+					"kind": "other", "type": step.Type, "thinker": w.t.Name(),
+					"reason": "disabled", "ts": traj.NowString(),
+				})
+			}
+			continue
+		}
+		if d.evlog != nil {
+			src, _ := step.Field("launched_by")
+			d.evlog.Append(map[string]any{
+				"kind": "dispatch", "type": step.Type, "thinker": w.t.Name(),
+				"source": src, "step_id": step.StepID, "ts": step.TS,
+			})
+		}
 		w.enqueue(step)
 	}
 }
@@ -281,6 +317,16 @@ func (d *Dispatcher) deliver(ctx context.Context, w *worker, wake Wake) {
 	w.mu.Unlock()
 	d.logf("→ %s 收到 %s 唤醒（%s）", name, wake.Kind, wake.Step.Type)
 
+	if d.evlog != nil {
+		kind := "dispatch"
+		if wake.Kind != WakeStep {
+			kind = "step"
+		}
+		d.evlog.Append(map[string]any{
+			"kind": kind, "type": wake.Step.Type, "thinker": name,
+			"synthetic": bool(wake.Kind != WakeStep), "ts": traj.NowString(),
+		})
+	}
 	go func() {
 		outcome := w.t.Wake(ctx, wake)
 		w.mu.Lock()

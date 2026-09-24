@@ -19,6 +19,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/identities", s.withAuth(s.handleIdentities))
 	s.mux.HandleFunc("/api/identities/", s.withAuth(s.routeIdentity)) // /api/identities/{name}/...
 	s.mux.HandleFunc("/api/health", s.withAuth(s.handleHealth))
+	// 导入是字面路径（比 /api/identities/ 子树更具体，mux 择优）。
+	s.mux.HandleFunc("/api/export", s.withAuth(s.handleExport))
+	s.mux.HandleFunc("/api/identities/import", s.withAuth(s.handleImport))
 
 	// 全局端点
 	s.mux.HandleFunc("/api/llm-health", s.withAuth(s.handleLlmHealthGlobal))

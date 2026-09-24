@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"mindloop/internal/llm"
+	"mindloop/internal/obs"
 	"mindloop/internal/runner"
 	"mindloop/internal/sandbox"
 	"mindloop/internal/traj"
@@ -56,7 +57,7 @@ func (c *CLI) newRunCmd() *cobra.Command {
 			if err != nil {
 				return c.fail(err)
 			}
-			client.OnDone = usageRecorder(t.Dir)
+			client.OnDone = obs.UsageRecorder(t.Dir, client.Model, client.Provider)
 			fmt.Fprintf(c.stderr, "供应商=%s 模型=%s\n", client.Provider, client.Model)
 			res, err := runner.Run(c.ctx, runner.Options{
 				Timeline:       t,

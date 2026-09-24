@@ -14,6 +14,7 @@ import (
 
 	"mindloop/internal/llm"
 	"mindloop/internal/mind"
+	"mindloop/internal/obs"
 	"mindloop/internal/traj"
 )
 
@@ -220,7 +221,7 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 
 	if owned {
 		client := c.newChatClient()
-		client.OnDone = usageRecorder(id.Dir)
+		client.OnDone = obs.UsageRecorder(id.Dir, client.Model, client.Provider)
 		dispatchCtx, cancelDispatch := context.WithCancel(c.ctx)
 		defer cancelDispatch()
 		dispatcher := mind.NewDispatcher(id.Timeline, 200*time.Millisecond)
