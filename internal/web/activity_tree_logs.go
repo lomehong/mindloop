@@ -67,7 +67,8 @@ func (s *Server) handleActivity(w http.ResponseWriter, _ *http.Request, id *iden
 func (s *Server) handleTree(w http.ResponseWriter, r *http.Request, id *identity.Identity, _ []string) {
 	depth := 1
 	if d := r.URL.Query().Get("depth"); d != "" {
-		if n, err := strconv.Atoi(d); err == nil && n > 0 {
+		// 0 是合法值（仅当前节点），只拒绝负数与非数字。
+		if n, err := strconv.Atoi(d); err == nil && n >= 0 {
 			depth = n
 		}
 	}
