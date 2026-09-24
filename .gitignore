@@ -1,0 +1,19 @@
+# Go 构建产物
+mindloop.exe
+*.test
+*.out
+
+# 本地演示/调试状态
+.demo-home/
+.cli-demo/
+*.log
+
+# 运行时配置（含 API key，绝不入库）
+.env
+
+# viewer 前端
+web/static/node_modules/
+web/static/build/
+
+# 临时文件
+.tmp_*

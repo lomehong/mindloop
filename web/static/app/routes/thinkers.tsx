@@ -1,0 +1,608 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { DownloadCloud, Zap } from "lucide-react";
+import { useState } from "react";
+import { useParams } from "react-router";
+import { toast } from "sonner";
+
+import { IdentityTabs } from "~/components/identity-tabs";
+import {
+  StartStopButtons,
+  useControlsEnabled,
+  useThinkerMutation,
+} from "~/components/thinker-controls";
+import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "~/components/ui/empty";
+import { LoadingDots } from "~/components/ui/loading-dots";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "~/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
+import {
+  fetchDispatch,
+  fetchIdentityStatus,
+  fetchLog,
+  fetchLogs,
+  fetchThinkers,
+  fetchThinkerSync,
+  pollWhileLive,
+  pullThinkerSync,
+  setThinkerEnabled,
+} from "~/lib/api";
+import type {
+  ThinkerInfo,
+  ThinkerState,
+  ThinkerSyncEntry,
+} from "~/lib/types";
+import { cn } from "~/lib/utils";
+
+export function meta() {
+  return [{ title: "Headlong · thinkers" }];
+}
+
+function kb(bytes: number): string {
+  return bytes >= 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes} B`;
+}
+
+function relativeTime(iso: string | null): string {
+  if (!iso) return "—";
+  const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+const STATE_STYLES: Record<ThinkerState, string> = {
+  stopped: "bg-muted text-muted-foreground",
+  idle: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
+  active: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
+  running:
+    "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300",
+  draining:
+    "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  disabled: "border border-dashed bg-transparent text-muted-foreground",
+};
+
+function StateBadge({ thinker }: { thinker: ThinkerInfo }) {
+  let label: string = thinker.state;
+  if (thinker.state === "active") label = `active (${thinker.steps_in_flight})`;
+  if (thinker.state === "draining")
+    label = `draining (${thinker.steps_in_flight})`;
+  if (thinker.state === "running" && thinker.pid != null)
+    label = `running (PID ${thinker.pid})`;
+  return <Badge className={STATE_STYLES[thinker.state]}>{label}</Badge>;
+}
+
+/** Pull bundled thinker code into the identity (thinker-sync POST). */
+function usePullMutation(identityId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (names: string[]) => pullThinkerSync(identityId, names),
+    onSuccess: (result) => {
+      const changed = result.results.filter((r) => r.action !== "unchanged");
+      if (changed.length === 0) {
+        toast.success("Already up to date");
+      } else {
+        toast.success(
+          changed.map((r) => `${r.action} ${r.name}`).join(", "),
+          { description: "Restart thinkers to pick up the new code." }
+        );
+      }
+      queryClient.invalidateQueries({ queryKey: ["thinker-sync", identityId] });
+      queryClient.invalidateQueries({ queryKey: ["thinkers", identityId] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+}
+
+function VersionCell({
+  identityId,
+  sync,
+}: {
+  identityId: string;
+  sync: ThinkerSyncEntry | undefined;
+}) {
+  const controlsEnabled = useControlsEnabled();
+  const pull = usePullMutation(identityId);
+  if (!sync) return <TableCell />;
+  return (
+    <TableCell>
+      <div className="flex items-center gap-1.5">
+        {sync.bundled_version && (
+          <span className="font-mono text-[10px] text-muted-foreground">
+            {sync.bundled_version}
+          </span>
+        )}
+        {sync.status === "outdated" && (
+          <>
+            <Badge
+              className="bg-amber-100 text-[10px] text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+              title={`Differs from the bundled copy: ${sync.changed_files.join(", ")}`}
+            >
+              update available
+            </Badge>
+            {controlsEnabled && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-1.5 text-[11px]"
+                disabled={pull.isPending}
+                title={`Pull bundled ${sync.name} (${sync.changed_files.join(", ")}); subscriptions and disabled marker are kept`}
+                onClick={() => pull.mutate([sync.name])}
+              >
+                <DownloadCloud className="size-3" />
+                pull
+              </Button>
+            )}
+          </>
+        )}
+        {sync.status === "local_only" && (
+          <Badge variant="outline" className="text-[10px]" title="No bundled counterpart — never touched by pull">
+            local only
+          </Badge>
+        )}
+      </div>
+    </TableCell>
+  );
+}
+
+function ThinkerRow({
+  identityId,
+  thinker,
+  dispatcherRunning,
+  sync,
+}: {
+  identityId: string;
+  thinker: ThinkerInfo;
+  dispatcherRunning: boolean;
+  sync: ThinkerSyncEntry | undefined;
+}) {
+  const controlsEnabled = useControlsEnabled();
+  const mutation = useThinkerMutation(identityId);
+  const queryClient = useQueryClient();
+  const toggleMutation = useMutation({
+    mutationFn: (enabled: boolean) =>
+      setThinkerEnabled(identityId, thinker.name, enabled),
+    onSuccess: (result) => {
+      if (result.disabled) {
+        toast.success(`Disabled ${result.name} — "Start all" will skip it`);
+      } else if (result.needs_restart) {
+        toast.success(`Enabled ${result.name}`, {
+          description:
+            "The running dispatcher won't see its subscriptions — stop and start thinkers to pick it up.",
+        });
+      } else {
+        toast.success(`Enabled ${result.name}`);
+      }
+      queryClient.invalidateQueries({ queryKey: ["thinkers", identityId] });
+      queryClient.invalidateQueries({ queryKey: ["identities"] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+  const disabled = thinker.state === "disabled";
+  const stopped = thinker.state === "stopped";
+  return (
+    <TableRow className={disabled ? "opacity-60" : undefined}>
+      <TableCell className="font-mono font-medium">{thinker.name}</TableCell>
+      <TableCell>
+        <StateBadge thinker={thinker} />
+      </TableCell>
+      <TableCell>
+        <div className="flex flex-wrap gap-1">
+          {thinker.types.map((type) => (
+            <Badge key={type} variant="outline" className="text-[10px]">
+              {type}
+            </Badge>
+          ))}
+        </div>
+      </TableCell>
+      <TableCell>
+        {thinker.pending.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {thinker.pending.map((type) => (
+              <Badge
+                key={type}
+                className="bg-amber-100 text-[10px] text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+              >
+                {type}
+              </Badge>
+            ))}
+          </div>
+        )}
+      </TableCell>
+      <TableCell className="font-mono text-[11px] text-muted-foreground">
+        {thinker.log_bytes != null
+          ? `${kb(thinker.log_bytes)} · ${relativeTime(thinker.log_mtime)}`
+          : "—"}
+      </TableCell>
+      <VersionCell identityId={identityId} sync={sync} />
+      <TableCell className="text-right">
+        {controlsEnabled && (
+          <div className="flex justify-end gap-1">
+            {!disabled && (
+              <>
+                <StartStopButtons
+                  identityId={identityId}
+                  names={[thinker.name]}
+                  running={!stopped && dispatcherRunning}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  title="Fire this thinker's step once (manual trigger)"
+                  disabled={mutation.isPending}
+                  onClick={() =>
+                    mutation.mutate({ action: "step", names: [thinker.name] })
+                  }
+                >
+                  <Zap className="size-3" />
+                  step
+                </Button>
+              </>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              title={
+                disabled
+                  ? `Enable ${thinker.name}`
+                  : `Disable ${thinker.name} — "Start all" and the dispatcher will skip it`
+              }
+              disabled={toggleMutation.isPending}
+              onClick={() => toggleMutation.mutate(disabled)}
+            >
+              {disabled ? "Enable" : "Disable"}
+            </Button>
+          </div>
+        )}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function StatusPanel({ identityId }: { identityId: string }) {
+  const controlsEnabled = useControlsEnabled();
+  const pull = usePullMutation(identityId);
+  const { data: status } = useQuery({
+    queryKey: ["thinkers", identityId],
+    queryFn: () => fetchThinkers(identityId),
+    refetchInterval: 2000,
+  });
+  const { data: syncStatus } = useQuery({
+    queryKey: ["thinker-sync", identityId],
+    queryFn: () => fetchThinkerSync(identityId),
+    staleTime: 30_000,
+  });
+  const syncByName = new Map(
+    (syncStatus?.thinkers ?? []).map((entry) => [entry.name, entry])
+  );
+  const outdated = (syncStatus?.thinkers ?? []).filter(
+    (entry) => entry.status === "outdated"
+  );
+  // _lib and bundled thinkers with no identity dir have no table row —
+  // surface them in the footer strip below the table.
+  const stripEntries = (syncStatus?.thinkers ?? []).filter(
+    (entry) =>
+      entry.name.startsWith("_") ||
+      (entry.status === "not_installed" && !entry.name.startsWith("_"))
+  );
+
+  if (!status) {
+    return (
+      <div className="flex justify-center py-10">
+        <LoadingDots />
+      </div>
+    );
+  }
+
+  const dispatcherRunning = status.dispatcher.running;
+  return (
+    <div className="mb-6 space-y-3">
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card px-4 py-3">
+        <span className="text-sm font-medium">Dispatcher</span>
+        {dispatcherRunning ? (
+          <Badge className={STATE_STYLES.active}>
+            running (PID {status.dispatcher.pid})
+          </Badge>
+        ) : (
+          <Badge className={STATE_STYLES.stopped}>stopped</Badge>
+        )}
+        <span className="font-mono text-xs text-muted-foreground">
+          {status.active_thinkers}/{status.thinkers_total} thinkers active ·{" "}
+          {status.steps_in_flight} step(s) in flight
+          {status.pending_total > 0 && ` · ${status.pending_total} pending`}
+          {status.thinkers_disabled > 0 && ` · ${status.thinkers_disabled} disabled`}
+        </span>
+        <div className="ml-auto">
+          <StartStopButtons
+            identityId={identityId}
+            names={[]}
+            running={dispatcherRunning}
+            startDisabled={dispatcherRunning}
+            startDisabledReason="Dispatcher already running — start thinkers individually or stop first"
+          />
+        </div>
+      </div>
+      {status.thinkers.length === 0 ? (
+        <div className="py-4 text-center text-sm text-muted-foreground">
+          No thinkers installed for this identity.
+        </div>
+      ) : (
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Thinker</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead>Subscribes to</TableHead>
+                <TableHead>Pending</TableHead>
+                <TableHead>Log</TableHead>
+                <TableHead>Version</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {status.thinkers.map((thinker) => (
+                <ThinkerRow
+                  key={thinker.name}
+                  identityId={identityId}
+                  thinker={thinker}
+                  dispatcherRunning={dispatcherRunning}
+                  sync={syncByName.get(thinker.name)}
+                />
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+      {(stripEntries.length > 0 || outdated.length > 1) && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border px-4 py-2 text-xs text-muted-foreground">
+          {stripEntries.map((entry) => (
+            <span key={entry.name} className="flex items-center gap-1.5">
+              <span className="font-mono">{entry.name}</span>
+              {entry.bundled_version && (
+                <span className="font-mono text-[10px]">{entry.bundled_version}</span>
+              )}
+              {entry.status === "in_sync" && (
+                <Badge variant="outline" className="text-[10px]">
+                  up to date
+                </Badge>
+              )}
+              {entry.status === "outdated" && (
+                <Badge className="bg-amber-100 text-[10px] text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                  update available
+                </Badge>
+              )}
+              {entry.status === "not_installed" && (
+                <Badge variant="outline" className="text-[10px]">
+                  not installed
+                </Badge>
+              )}
+              {controlsEnabled &&
+                (entry.status === "outdated" ||
+                  entry.status === "not_installed") && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-1.5 text-[11px]"
+                    disabled={pull.isPending}
+                    onClick={() => pull.mutate([entry.name])}
+                  >
+                    <DownloadCloud className="size-3" />
+                    {entry.status === "not_installed" ? "install" : "pull"}
+                  </Button>
+                )}
+            </span>
+          ))}
+          {controlsEnabled && outdated.length > 1 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto h-6 px-2 text-[11px]"
+              disabled={pull.isPending}
+              title={`Pull ${outdated.map((entry) => entry.name).join(", ")}`}
+              onClick={() => pull.mutate(outdated.map((entry) => entry.name))}
+            >
+              <DownloadCloud className="size-3" />
+              Pull all updates
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LogView({
+  identityId,
+  name,
+  live,
+}: {
+  identityId: string;
+  name: string;
+  live: boolean;
+}) {
+  const [tailBytes, setTailBytes] = useState(65536);
+  const { data: log } = useQuery({
+    queryKey: ["log", identityId, name, tailBytes],
+    queryFn: () => fetchLog(identityId, name, tailBytes),
+    refetchInterval: pollWhileLive(live),
+  });
+
+  if (!log) {
+    return (
+      <div className="flex justify-center py-10">
+        <LoadingDots />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+        <span>{kb(log.total_bytes)} total</span>
+        {log.truncated && (
+          <button
+            type="button"
+            onClick={() => setTailBytes((n) => n * 4)}
+            className="hover:underline"
+          >
+            showing last {kb(tailBytes)} — load more
+          </button>
+        )}
+      </div>
+      <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-card p-3 font-mono text-[11px]">
+        {log.content || "(empty)"}
+      </pre>
+    </div>
+  );
+}
+
+function DispatchView({
+  identityId,
+  live,
+}: {
+  identityId: string;
+  live: boolean;
+}) {
+  const { data: events } = useQuery({
+    queryKey: ["dispatch", identityId],
+    queryFn: () => fetchDispatch(identityId),
+    refetchInterval: pollWhileLive(live),
+  });
+
+  if (!events) {
+    return (
+      <div className="flex justify-center py-10">
+        <LoadingDots />
+      </div>
+    );
+  }
+  if (events.length === 0) {
+    return (
+      <div className="py-10 text-center text-sm text-muted-foreground">
+        No dispatcher.log found.
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-h-[70vh] overflow-auto rounded-lg border bg-card">
+      {events.map((event, idx) => (
+        <div
+          key={idx}
+          className={cn(
+            "flex items-center gap-2 border-b px-3 py-1 font-mono text-[11px] last:border-b-0",
+            event.kind === "dispatch" && "bg-blue-50/50 dark:bg-blue-950/20"
+          )}
+        >
+          {event.kind === "step" && (
+            <>
+              <span className="text-muted-foreground">step</span>
+              <Badge variant="outline" className="text-[10px]">
+                {event.type}
+              </Badge>
+              {event.source && (
+                <span className="text-muted-foreground">from {event.source}</span>
+              )}
+            </>
+          )}
+          {event.kind === "dispatch" && (
+            <>
+              <span className="font-medium text-blue-700 dark:text-blue-300">
+                dispatch → {event.thinker}
+              </span>
+              {event.active != null && (
+                <span className="text-muted-foreground">active={event.active}</span>
+              )}
+            </>
+          )}
+          {event.kind === "other" && (
+            <span className="text-muted-foreground">{event.raw}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function ThinkersPage() {
+  const { identityId = "" } = useParams();
+
+  const { data: status } = useQuery({
+    queryKey: ["status", identityId],
+    queryFn: () => fetchIdentityStatus(identityId),
+    refetchInterval: 2000,
+  });
+  const live = status?.live ?? false;
+
+  const { data: logs, isLoading } = useQuery({
+    queryKey: ["logs", identityId],
+    queryFn: () => fetchLogs(identityId),
+    refetchInterval: pollWhileLive(live),
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-20">
+        <LoadingDots />
+      </div>
+    );
+  }
+
+  const logNames = (logs ?? [])
+    .map((l) => l.name)
+    .filter((name) => name !== "dispatcher.log");
+
+  return (
+    <div className="mx-auto w-full max-w-7xl px-4">
+      <IdentityTabs identityId={identityId} live={live} active="thinkers" />
+      <StatusPanel identityId={identityId} />
+      {!logs || logs.length === 0 ? (
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>No thinker logs</EmptyTitle>
+            <EmptyDescription>
+              No run/logs/*.log files found for this identity.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      ) : (
+        <Tabs defaultValue="dispatch">
+          <TabsList>
+            <TabsTrigger value="dispatch" className="font-mono text-xs">
+              dispatch
+            </TabsTrigger>
+            {logNames.map((name) => (
+              <TabsTrigger key={name} value={name} className="font-mono text-xs">
+                {name.replace(/\.log$/, "")}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          <TabsContent value="dispatch">
+            <DispatchView identityId={identityId} live={live} />
+          </TabsContent>
+          {logNames.map((name) => (
+            <TabsContent key={name} value={name}>
+              <LogView identityId={identityId} name={name} live={live} />
+            </TabsContent>
+          ))}
+        </Tabs>
+      )}
+    </div>
+  );
+}
