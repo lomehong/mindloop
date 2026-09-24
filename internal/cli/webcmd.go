@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -69,21 +71,13 @@ func (c *CLI) runWeb(cfg *webCfg) error {
 	if root == "" {
 		root = identity.Home()
 	}
-	viewerDir := cfg.viewerDir
-	if viewerDir == "" {
-		// <项目>/web/static 已作为 viewer 静态文件根；与可执行
-		// 文件同级。优先用 MINDLOOP_VIEWER_DIR 显式覆盖。
-		if env := os.Getenv("MINDLOOP_VIEWER_DIR"); env != "" {
-			viewerDir = env
-		} else {
-			viewerDir = filepath.Join(projectRoot(), "web", "static")
-		}
-	}
-	if !cfg.noBuild {
-		if err := ensureViewerBuilt(viewerDir); err != nil {
-			fmt.Fprintln(c.stderr, "⚠ viewer 构建/检查失败:", err)
-			fmt.Fprintln(c.stderr, "  （首启会要求安装 bun 与运行构建；用 --no-build 跳过）")
-		}
+	viewerDir, viewerOK := resolveViewerDir(cfg.viewerDir)
+	if cfg.viewerDir == "" && !viewerOK {
+		// 未显式指定也找不到构建产物：API 仍可用（curl/集成），
+		// 但不开浏览器——开一个 404 页面毫无意义。
+		fmt.Fprintln(c.stderr, "⚠ 未找到 viewer 构建产物（web/static/build/client/index.html）")
+		fmt.Fprintln(c.stderr, "  构建方法: cd web/static && bun install && bun run build")
+		fmt.Fprintln(c.stderr, "  或用 --viewer-dir 指向已构建目录。API 仍将正常服务。")
 	}
 
 	srv, err := web.New(web.Config{
@@ -97,47 +91,94 @@ func (c *CLI) runWeb(cfg *webCfg) error {
 	}
 	fmt.Fprintf(c.stderr, "mindloop 仪表盘：%s  → http://%s/\n", srv.Addr(), srv.Addr())
 	fmt.Fprintf(c.stderr, "  身份根: %s\n", root)
-	fmt.Fprintf(c.stderr, "  viewer: %s\n", viewerDir)
+	fmt.Fprintf(c.stderr, "  viewer: %s（就绪=%v）\n", viewerDir, viewerOK)
 	if cfg.token != "" {
 		fmt.Fprintf(c.stderr, "  鉴权:   Bearer token 已启用\n")
 	}
 	fmt.Fprintln(c.stderr, "  Ctrl+C 停机")
+
+	// 自动打开浏览器（headlong `ada dash` 的同款体验），但仅在
+	// viewer 就绪时——开一个 404 页毫无意义。等一小会确保端口
+	// 已绑定；失败静默——用户可手动开。
+	url := fmt.Sprintf("http://%s/", srv.Addr())
+	if viewerOK {
+		go func() {
+			time.Sleep(600 * time.Millisecond)
+			_ = openBrowser(url)
+		}()
+	}
+
 	ctx, cancel := context.WithCancel(c.ctx)
 	defer cancel()
 	return srv.Serve(ctx)
 }
 
-// projectRoot 尽力推断项目根：从可执行路径向上找。
-func projectRoot() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return "."
+// resolveViewerDir 按 旗标 > MINDLOOP_VIEWER_DIR > 从 CWD 与 exe
+// 位置向上探测 的顺序解析 viewer 构建产物目录。第二个返回值表示
+// 是否真的找到了 index.html。
+func resolveViewerDir(flagValue string) (string, bool) {
+	if flagValue != "" {
+		ok := viewerReady(flagValue)
+		return flagValue, ok
 	}
-	dir := filepath.Dir(exe)
-	for i := 0; i < 6; i++ {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
+	if env := os.Getenv("MINDLOOP_VIEWER_DIR"); env != "" {
+		return env, viewerReady(env)
 	}
-	return "."
+	// 候选根（按优先级）：
+	//  1. 编译期源码路径——go install 装到 go/bin 后，从任何目录
+	//     运行都能找到它出生的项目（跨盘也有效；换机器则自然失效）。
+	//  2. CWD 及其向上 4 级——项目目录里运行。
+	//  3. exe 所在目录。
+	var roots []string
+	if _, sourceFile, _, ok := runtime.Caller(0); ok {
+		roots = append(roots, filepath.Dir(filepath.Dir(filepath.Dir(sourceFile))))
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		roots = append(roots, cwd)
+		d := cwd
+		for i := 0; i < 4; i++ {
+			parent := filepath.Dir(d)
+			if parent == d {
+				break
+			}
+			d = parent
+			roots = append(roots, d)
+		}
+	}
+	if exe, err := os.Executable(); err == nil {
+		roots = append(roots, filepath.Dir(exe))
+	}
+	rel := filepath.Join("web", "static", "build", "client")
+	for _, r := range roots {
+		candidate := filepath.Join(r, rel)
+		if viewerReady(candidate) {
+			return candidate, true
+		}
+		// 兼容"直接指向源码目录"的旧用法：源码根没有 index.html，
+		// 不算就绪。
+	}
+	return "", false
 }
 
-// ensureViewerBuilt 简单探测 viewer 静态目录是否"准备好了"。
-// 生产：viewer/dist 下应有 assets/index.js 等。本轮不强制构建——
-// 跳过 build 链让 mindloop 保持零 npm/bun 依赖；用户用 --dev
-// 或外部 npm run build 自行处理。探测到 404 时 SPA fallback 会给
-// 出 hint，但仍能用于 API 测试。
-func ensureViewerBuilt(viewerDir string) error {
-	indexPath := filepath.Join(viewerDir, "index.html")
-	if _, err := os.Stat(indexPath); err != nil {
-		return fmt.Errorf("找不到 viewer index.html（%s）—— 跑一次 `cd web/static && bun install && bun run build` 或 --no-build 跳过", indexPath)
+// viewerReady 报告目录里有没有构建产物入口 index.html。
+func viewerReady(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, "index.html"))
+	return err == nil
+}
+
+// openBrowser 用系统默认浏览器打开 URL。Windows 走 rundll32（无
+// 外部依赖）；其他平台退化为 xdg-open/open，失败静默。
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
 	}
-	return nil
+	return cmd.Start()
 }
 
 // ensureCancel 是被 c.ctx 启用的退场钩子——web.Serve 是阻塞调用，

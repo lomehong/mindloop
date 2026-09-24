@@ -15,20 +15,32 @@ import (
 	"mindloop/internal/traj"
 )
 
-// IdentityInfo 是 viewer Identity 形态的子集（viewer 需要 root_trajectory
-// 与 mindlog_path）；dashboard 真正要的全部字段这里。
+// IdentityInfo 是 viewer 首页 Identity 契约的 Go 形态——字段名与
+// web/static/app/lib/types.ts 的 Identity 接口一一对齐。home.tsx
+// 直接读取 dispatcher/group/thinkers_* 渲染表格，缺一个字段就崩
+// 进错误边界（首版发布的真实事故：缺 group 导致首页 "Oops!"）。
 type IdentityInfo struct {
-	Name            string   `json:"name"`
-	Dir             string   `json:"dir"`
-	RootTrajectory  string   `json:"root_trajectory"`
-	MindlogPath     string   `json:"mindlog_path"`
-	PersonaPath     string   `json:"persona_path"`
-	StepCount       int      `json:"step_count"`
-	Live            bool     `json:"live"`
-	LastModified    string   `json:"last_modified"`
-	LastStepSummary string   `json:"last_step_summary"`
-	LiveBadge       string   `json:"live_badge"`
-	Routes          []string `json:"routes"`
+	ID             string         `json:"id"`
+	Name           string         `json:"name"`
+	PathRel        string         `json:"path_rel"`
+	Created        *string        `json:"created"`
+	RootTrajectory *string        `json:"root_trajectory"`
+	Group          string         `json:"group"`
+	Live           bool           `json:"live"`
+	LastActivityTS *string        `json:"last_activity_ts"`
+	StepCount      int            `json:"step_count"`
+	Dispatcher     dispatcherInfo `json:"dispatcher"`
+	ThinkersTotal  int            `json:"thinkers_total"`
+	ThinkersActive int            `json:"thinkers_active"`
+	StepsInFlight  int            `json:"steps_in_flight"`
+	MindlogPath    string         `json:"mindlog_path"`
+	PersonaPath    string         `json:"persona_path"`
+	LiveBadge      string         `json:"live_badge"`
+}
+
+type dispatcherInfo struct {
+	Running bool `json:"running"`
+	PID     *int `json:"pid"`
 }
 
 // handleConfig 返回 viewer 期望的 Config 形态——viewer 类型要求
@@ -46,27 +58,19 @@ func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// handleIdentities 扫描 cfg.Root 下的身份目录，返回列表。
+// handleIdentities 返回身份列表——viewer 首页契约是 **裸数组**，
+// 每项带 Identity 接口的全部字段（group/dispatcher/thinkers_* 等，
+// home.tsx 渲染表格列时直接读取，缺了就崩进错误边界）。
 func (s *Server) handleIdentities(w http.ResponseWriter, _ *http.Request) {
 	infos, err := scanIdentities(s.cfg.Root)
-	if infos == nil {
-		infos = []IdentityInfo{}
-	}
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}
-	for i := range infos {
-		infos[i].Routes = []string{
-			"/i/" + infos[i].Name,
-			"/i/" + infos[i].Name + "/mindlog",
-			"/i/" + infos[i].Name + "/chat",
-			"/i/" + infos[i].Name + "/memories",
-			"/i/" + infos[i].Name + "/thinkers",
-			"/i/" + infos[i].Name + "/health",
-		}
+	if infos == nil {
+		infos = []IdentityInfo{}
 	}
-	writeJSON(w, 200, map[string]any{"identities": infos})
+	writeJSON(w, 200, infos)
 }
 
 // routeIdentity 把 /api/identities/{name}/{sub,...} 路由到具体 handler。
@@ -87,7 +91,7 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 	switch sub {
 	case "":
-		writeJSON(w, 200, identitySummary(id))
+		writeJSON(w, 200, identitySummary(s.cfg.Root, id))
 	case "mindlog":
 		if len(rest) > 0 && rest[0] == "search" {
 			s.handleMindlogSearch(w, r, id, rest[1:])
@@ -107,7 +111,9 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 	case "thinkers":
 		s.handleThinkers(w, r, id)
 	case "health":
-		s.handleIdentityHealth(w, r, id)
+		s.handleLlmHealth(w, r, id, rest)
+	case "recap":
+		s.handleRecap(w, r, id, rest)
 	default:
 		writeError(w, 404, "未知子路径: "+sub)
 	}
@@ -220,60 +226,64 @@ func scanIdentities(root string) ([]IdentityInfo, error) {
 		if !isSafeIdentName(name) || isBadIdentSegment(name) {
 			continue
 		}
-		dir := filepath.Join(root, name)
 		id, err := identity.Load(name)
 		if err != nil {
 			continue
 		}
-		out = append(out, summarizeIdentity(id, dir))
+		out = append(out, summarizeIdentity(id, root))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
 
-// summarizeIdentity 收集 viewer IdentityInfo 全部字段。
-func summarizeIdentity(id *identity.Identity, dir string) IdentityInfo {
+// summarizeIdentity 收集 viewer Identity 契约的全部字段。
+func summarizeIdentity(id *identity.Identity, root string) IdentityInfo {
+	dir := id.Dir
 	info := IdentityInfo{
+		ID:          id.Name,
 		Name:        id.Name,
-		Dir:         dir,
+		PathRel:     relTrajDir(root, dir),
 		PersonaPath: filepath.Join(dir, "persona.md"),
-		Routes:      []string{},
+		Group:       "local", // 单根部署：全部身份归入 local 组
 	}
-	if rt := id.Timeline.Path; rt != "" {
-		info.RootTrajectory = id.Timeline.ID
-		info.MindlogPath = rt
+	info.RootTrajectory = &id.Timeline.ID
+	if info.MindlogPath == "" {
+		info.MindlogPath = id.Timeline.Path
 	}
 	if info.MindlogPath != "" {
 		if fi, err := os.Stat(info.MindlogPath); err == nil {
-			info.LastModified = fi.ModTime().UTC().Format(traj.TimeFormat)
+			t := fi.ModTime().UTC().Format(traj.TimeFormat)
+			info.LastActivityTS = &t
 		}
 		if steps, err := id.Timeline.Steps(); err == nil {
 			info.StepCount = len(steps)
-			if n := len(steps); n > 0 {
-				last := steps[n-1]
-				if c, ok := last.Field("content"); ok && c != "" {
-					info.LastStepSummary = truncate(c, 30)
-				} else {
-					info.LastStepSummary = truncate(last.String(), 30)
-				}
+		}
+	}
+	// thinker 统计：从轨迹的 launched_by 字段提炼（去重计数）。
+	thinkers := map[string]bool{}
+	if steps, err := id.Timeline.Steps(); err == nil {
+		for _, s := range steps {
+			if by, ok := s.Field("launched_by"); ok && by != "" && !thinkers[by] {
+				thinkers[by] = true
 			}
 		}
 	}
-	info.Live = isIdentityLive(id.Timeline.Dir)
-	info.LiveBadge = "idle"
-	if info.Live {
-		info.LiveBadge = "live"
-	} else if info.StepCount == 0 {
-		info.LiveBadge = "never"
+	info.ThinkersTotal = len(thinkers)
+	// 运行中的 thinker 数需要调度器内存态，仪表盘侧不可知——
+	// 活跃数以 live 近似：心智在跑则认为其 thinker 全部活跃。
+	if info.Live = isIdentityLive(dir); info.Live {
+		info.ThinkersActive = len(thinkers)
 	}
+	info.Dispatcher = dispatcherInfo{Running: info.Live}
 	return info
 }
 
 // identitySummary 是单个身份概览。
-func identitySummary(id *identity.Identity) map[string]any {
+func identitySummary(root string, id *identity.Identity) map[string]any {
 	return map[string]any{
+		"id":              id.Name,
 		"name":            id.Name,
-		"dir":             id.Dir,
+		"path_rel":        relTrajDir(root, id.Dir),
 		"root_trajectory": id.Timeline.ID,
 		"mindlog_path":    id.Timeline.Path,
 		"persona_path":    filepath.Join(id.Dir, "persona.md"),

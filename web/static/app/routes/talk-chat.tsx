@@ -433,7 +433,7 @@ export default function TalkChat() {
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             enterKeyHint="enter"
-            placeholder={`Message ${identityName}…`}
+            placeholder={`给 ${identityName} 发消息…`}
             className="max-h-40 min-h-10 flex-1 rounded-3xl px-4 py-2.5"
             autoComplete="off"
           />
@@ -442,7 +442,7 @@ export default function TalkChat() {
             size="icon"
             className="h-10 w-10 shrink-0 rounded-full"
             disabled={sendMutation.isPending || !draft.trim()}
-            aria-label="Send"
+            aria-label="发送"
           >
             <SendHorizontal className="size-4" />
           </Button>

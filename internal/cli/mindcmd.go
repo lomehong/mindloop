@@ -29,7 +29,7 @@ monolith 负责自主行动；闲置时指数回退，活性由调度器的 watc
   mindloop mind run ada --idle-base 10s --idle-max 2m`,
 		Args: exactArgs(1, "用法: mindloop mind run <身份名> [flags]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := identity.Load(args[0])
+			id, err := c.loadIdentity(args[0])
 			if err != nil {
 				return c.fail(err)
 			}
@@ -107,7 +107,7 @@ func (c *CLI) newMindSayCmd() *cobra.Command {
   mindloop mind say ada "不用回" --no-wait`,
 		Args: exactArgs(2, `用法: mindloop mind say <身份名> "内容" [--wait 90s|--no-wait]`),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := identity.Load(args[0])
+			id, err := c.loadIdentity(args[0])
 			if err != nil {
 				return c.fail(err)
 			}
@@ -183,7 +183,7 @@ func (c *CLI) newMindStopCmd() *cobra.Command {
 		Short: "优雅停机正在运行的心智",
 		Args:  exactArgs(1, "用法: mindloop mind stop <身份名>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := identity.Load(args[0])
+			id, err := c.loadIdentity(args[0])
 			if err != nil {
 				return c.fail(err)
 			}
@@ -217,7 +217,7 @@ func (c *CLI) newMindHistoryCmd() *cobra.Command {
 		Short: "查看身份的对话记录",
 		Args:  exactArgs(1, "用法: mindloop mind history <身份名> [--person P] [-n N]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := identity.Load(args[0])
+			id, err := c.loadIdentity(args[0])
 			if err != nil {
 				return c.fail(err)
 			}
@@ -288,7 +288,7 @@ func (c *CLI) newMindStatusCmd() *cobra.Command {
 		Short: "身份与最近活动的概览",
 		Args:  exactArgs(1, "用法: mindloop mind status <身份名>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := identity.Load(args[0])
+			id, err := c.loadIdentity(args[0])
 			if err != nil {
 				return c.fail(err)
 			}

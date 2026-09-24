@@ -23,7 +23,7 @@ const queryClient = new QueryClient();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="zh" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta
@@ -62,8 +62,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  // The /talk* routes are the phone-first PWA: no dash navbar, no page
-  // padding — each screen owns the full viewport.
+  // /talk* 路由是手机优先的 PWA：无导航栏、无页面留白。
   const talkMode = location.pathname.startsWith("/talk");
 
   useEffect(() => {
@@ -72,24 +71,10 @@ export default function App() {
         .register("/sw.js", { updateViaCache: "none" })
         .then((reg) => reg.update())
         .catch(() => {
-          // Not installable (e.g. dev over http) — the app works fine without.
+          // 不可安装（如 http 下）——不影响功能。
         });
     }
   }, []);
-
-  // The messaging hostname lands on /talk instead of the dash. It is
-  // chat.<domain> for the first persona box and <name>-chat.<domain> for
-  // later ones (harris-chat.headlong.ai): Cloudflare's free certificate
-  // covers one label, so a per-persona chat host cannot be chat.<name>.
-  useEffect(() => {
-    const label = window.location.hostname.split(".")[0];
-    if (
-      (label === "chat" || label.endsWith("-chat")) &&
-      location.pathname === "/"
-    ) {
-      navigate("/talk", { replace: true });
-    }
-  }, [location.pathname, navigate]);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -100,8 +85,8 @@ export default function App() {
             <main
               className={
                 talkMode
-                  ? "flex flex-1 min-h-0 flex-col"
-                  : "flex flex-1 min-h-0 flex-col px-0 pt-4 pb-10 sm:px-4"
+                  ? "flex flex-1 min-h-screen flex-col"
+                  : "flex flex-1 min-h-screen flex-col px-4 pt-4 pb-8 sm:px-4"
               }
             >
               <Outlet />
@@ -115,15 +100,15 @@ export default function App() {
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
-  let message = "Oops!";
-  let details = "An unexpected error occurred.";
+  let message = "出错了";
+  let details = "发生了意外错误。";
   let stack: string | undefined;
 
   if (isRouteErrorResponse(error)) {
-    message = error.status === 404 ? "404" : "Error";
+    message = error.status === 404 ? "404" : "错误";
     details =
       error.status === 404
-        ? "The requested page could not be found."
+        ? "请求的页面不存在。"
         : error.statusText || details;
   } else if (import.meta.env.DEV && error && error instanceof Error) {
     details = error.message;
@@ -131,8 +116,8 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
   }
 
   return (
-    <main className="px-0 pt-4 pb-10 sm:px-4">
-      <h1>{message}</h1>
+    <main className="px-4 pt-4 pb-8 sm:px-4">
+      <h1 className="mb-4 text-2xl font-bold">{message}</h1>
       <p>{details}</p>
       {stack && (
         <pre className="w-full p-4 overflow-x-auto">

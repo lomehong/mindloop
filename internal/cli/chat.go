@@ -12,7 +12,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/identity"
 	"mindloop/internal/llm"
 	"mindloop/internal/mind"
 	"mindloop/internal/traj"
@@ -196,7 +195,7 @@ func (p *promptWriter) Pending() bool {
 
 // runChat 交互对话主循环。
 func (c *CLI) runChat(name string, watchdog time.Duration) error {
-	id, err := identity.Load(name)
+	id, err := c.loadIdentity(name)
 	if err != nil {
 		return c.fail(err)
 	}

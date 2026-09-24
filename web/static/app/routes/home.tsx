@@ -69,7 +69,7 @@ function DispatcherCell({ identity }: { identity: Identity }) {
       </span>
     );
   }
-  return <span className="text-xs text-muted-foreground">stopped</span>;
+  return <span className="text-xs text-muted-foreground">已停止</span>;
 }
 
 function NewIdentityForm() {
@@ -293,10 +293,10 @@ export default function Home() {
       {!identities || identities.length === 0 ? (
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>No identities found</EmptyTitle>
+            <EmptyTitle>未发现身份</EmptyTitle>
             <EmptyDescription>
-              No directories with an info.txt containing root_trajectory= were
-              found under the serve root.
+              在服务根目录下没有找到含 info.txt（root_trajectory=）
+              的身份目录。
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -310,14 +310,14 @@ export default function Home() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Identity</TableHead>
-                    <TableHead>Dispatcher</TableHead>
-                    <TableHead>Thinkers</TableHead>
-                    <TableHead className="text-right">In flight</TableHead>
-                    <TableHead>Last activity</TableHead>
-                    <TableHead className="text-right">Steps</TableHead>
+                    <TableHead>身份</TableHead>
+                    <TableHead>调度器</TableHead>
+                    <TableHead>思考者</TableHead>
+                    <TableHead className="text-right">进行中</TableHead>
+                    <TableHead>最近活动</TableHead>
+                    <TableHead className="text-right">步骤</TableHead>
                     {controlsEnabled && (
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
                     )}
                   </TableRow>
                 </TableHeader>

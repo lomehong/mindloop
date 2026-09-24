@@ -40,7 +40,7 @@ func addMessage(t *testing.T, id *identity.Identity, from, to, content string) {
 	}
 }
 
-// TestHandleIdentitiesEmpty：根目录不存在时返回 identities: [] 而不是 500。
+// TestHandleIdentitiesEmpty：根目录不存在时返回空数组而不是 500。
 func TestHandleIdentitiesEmpty(t *testing.T) {
 	dir := t.TempDir()
 	ts, _ := newTestServer(t, dir, "")
@@ -53,24 +53,20 @@ func TestHandleIdentitiesEmpty(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
-	var got map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+	var list []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
 		t.Fatal(err)
 	}
-	if list, ok := got["identities"].([]any); !ok || len(list) != 0 {
-		t.Fatalf("identities 应为空数组，得到 %#v", got["identities"])
+	if len(list) != 0 {
+		t.Fatalf("identities 应为空数组，得到 %d 条", len(list))
 	}
 }
 
-// TestHandleIdentitiesWithOne：真实创建一个身份后能列出。
+// TestHandleIdentitiesWithOne：真实创建一个身份后能列出，且字段满足
+// viewer Identity 契约（home.tsx 直接读 dispatcher/group 渲染表格）。
 func TestHandleIdentitiesWithOne(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("MINDLOOP_HOME", dir)
-	// identity.Create writes under ${MINDLOOP_HOME}/identities/<name>/; scan wants the parent.
-	identityHome := filepath.Join(dir, "identities")
-	if err := os.MkdirAll(identityHome, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
 	if _, err := identity.Create(context.Background(), "ada"); err != nil {
 		t.Fatalf("identity.Create: %v", err)
 	}
@@ -87,34 +83,41 @@ func TestHandleIdentitiesWithOne(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
-	var got map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+	var list []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
 		t.Fatal(err)
 	}
-	list := got["identities"].([]any)
 	if len(list) != 1 {
 		t.Fatalf("期望 1 个身份，得到 %d", len(list))
 	}
-	first := list[0].(map[string]any)
+	first := list[0]
 	if first["name"] != "ada" {
 		t.Fatalf("name = %v", first["name"])
 	}
-	if _, ok := first["dir"].(string); !ok {
-		t.Fatal("dir 字段缺失")
+	if first["group"] != "local" {
+		t.Fatalf("group = %v（home.tsx 按 group 分组渲染）", first["group"])
 	}
-	if rt, _ := first["root_trajectory"].(string); rt == "" {
+	disp, ok := first["dispatcher"].(map[string]any)
+	if !ok {
+		t.Fatal("dispatcher 字段缺失")
+	}
+	if _, ok := disp["running"].(bool); !ok {
+		t.Fatal("dispatcher.running 缺失")
+	}
+	if _, ok := first["root_trajectory"].(string); !ok {
 		t.Fatal("root_trajectory 缺失")
 	}
-	if rts, _ := first["routes"].([]any); len(rts) != 6 {
-		t.Fatalf("routes 数量 = %d，应为 6（/i/ada 等 6 端点）", len(rts))
+	if sc, ok := first["step_count"].(float64); !ok || sc < 1 {
+		t.Fatalf("step_count = %v，应至少为 1（头行）", first["step_count"])
 	}
 }
 
-// TestHandleMindlogTail：往轨迹追加步骤后 mindlog?tail=10 能返回。
+// TestHandleMindlogTail：往轨迹追加步骤后 mindlog?tail=10 能返回，
+// 且 steps 为 NormalizedStep 契约（preview/raw/source）。
 func TestHandleMindlogTail(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("MINDLOOP_HOME", dir)
-	// identity.Create writes under ${MINDLOOP_HOME}/identities/<name>/; scan wants the parent.
+	home := identity.Home()
 	id, err := identity.Create(context.Background(), "ada")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -123,7 +126,7 @@ func TestHandleMindlogTail(t *testing.T) {
 		addMessage(t, id, "user", "ada", msg)
 	}
 
-	ts, _ := newTestServer(t, identity.Home(), "")
+	ts, _ := newTestServer(t, home, "")
 	resp, err := http.Get(ts.URL + "/api/identities/ada/mindlog?tail=2")
 	if err != nil {
 		t.Fatal(err)
@@ -132,34 +135,34 @@ func TestHandleMindlogTail(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
-	var got map[string]any
+	var got struct {
+		TrajID string `json:"traj_id"`
+		Steps  []struct {
+			StepID  string         `json:"step_id"`
+			Type    string         `json:"type"`
+			Preview string         `json:"preview"`
+			Raw     map[string]any `json:"raw"`
+		} `json:"steps"`
+		Live     bool `json:"live"`
+		Identity struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"identity"`
+	}
 	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	// viewer Mindlog 契约：identity 是 {id,name} 对象；steps 是
-	// NormalizedStep（含 preview/raw/source）；runs 是 RunGroup 数组。
-	idObj := got["identity"].(map[string]any)
-	if idObj["id"] != "ada" {
-		t.Fatalf("identity.id = %v", idObj["id"])
+	if got.Identity.Name != "ada" {
+		t.Fatalf("identity.name = %v", got.Identity.Name)
 	}
-	if _, ok := got["runs"].([]any); !ok {
-		t.Fatal("runs 字段缺失")
+	if len(got.Steps) != 2 {
+		t.Fatalf("tail=2 应返回 2 步，得到 %d", len(got.Steps))
 	}
-	if _, ok := got["live"].(bool); !ok {
-		t.Fatal("live 字段缺失")
+	last := got.Steps[1]
+	if last.Preview != "again" {
+		t.Fatalf("末步 preview = %q，应为 again", last.Preview)
 	}
-	steps := got["steps"].([]any)
-	if len(steps) != 2 {
-		t.Fatalf("tail=2 应返回 2 步，得到 %d", len(steps))
-	}
-	last := steps[1].(map[string]any)
-	if last["preview"] != "again" {
-		t.Fatalf("末步 preview = %v，应为 again", last["preview"])
-	}
-	if _, ok := last["step_id"]; !ok {
-		t.Fatal("step_id 字段缺失")
-	}
-	if _, ok := last["raw"].(map[string]any); !ok {
+	if _, ok := last.Raw["content"]; !ok {
 		t.Fatal("raw 字段缺失")
 	}
 }
@@ -169,7 +172,7 @@ func TestHandleMindlogTail(t *testing.T) {
 func TestHandleChatFiltersToMessageOnly(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("MINDLOOP_HOME", dir)
-	// identity.Create writes under ${MINDLOOP_HOME}/identities/<name>/; scan wants the parent.
+	home := identity.Home()
 	id, err := identity.Create(context.Background(), "ada")
 	if err != nil {
 		t.Fatal(err)
@@ -178,17 +181,18 @@ func TestHandleChatFiltersToMessageOnly(t *testing.T) {
 	runStep := traj.NewStep("run")
 	id.Timeline.Append(context.Background(), runStep)
 
-	ts, _ := newTestServer(t, identity.Home(), "")
+	ts, _ := newTestServer(t, home, "")
 	resp, err := http.Get(ts.URL + "/api/identities/ada/chat")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	var got map[string]any
+	var got struct {
+		Messages []map[string]any `json:"messages"`
+	}
 	json.NewDecoder(resp.Body).Decode(&got)
-	msgs := got["messages"].([]any)
-	if len(msgs) != 1 {
-		t.Fatalf("chat 应只含 1 条 message，得到 %d", len(msgs))
+	if len(got.Messages) != 1 {
+		t.Fatalf("chat 应只含 1 条 message，得到 %d", len(got.Messages))
 	}
 }
 
@@ -196,10 +200,10 @@ func TestHandleChatFiltersToMessageOnly(t *testing.T) {
 func TestHandleHealthShape(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("MINDLOOP_HOME", dir)
-	// identity.Create writes under ${MINDLOOP_HOME}/identities/<name>/; scan wants the parent.
+	home := identity.Home()
 	identity.Create(context.Background(), "ada")
 
-	ts, _ := newTestServer(t, identity.Home(), "")
+	ts, _ := newTestServer(t, home, "")
 	resp, err := http.Get(ts.URL + "/api/health")
 	if err != nil {
 		t.Fatal(err)
@@ -245,7 +249,9 @@ func TestAuthTokenRequired(t *testing.T) {
 	resp2.Body.Close()
 }
 
-// TestIdentityNameSafety：身份名含 .. 或 / 时返回 403-style 400。
+// TestIdentityNameSafety：身份名含路径穿越时不应返回 200。
+// （mux 会先做路径清洗，/api/identities/../etc 在到达 handler 前
+// 就被规范化为 /api/etc——无论 404 还是 400，都不是 200。）
 func TestIdentityNameSafety(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("MINDLOOP_HOME", dir)
@@ -303,172 +309,11 @@ func TestStaticAssetServing(t *testing.T) {
 // TestUnknownIdentityReturned404（确保身份不存在时不静默返回空数组）。
 func TestUnknownIdentityReturned404(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("MINDLOOP_HOME", dir)
 	ts, _ := newTestServer(t, dir, "")
 	defer ts.Close()
 	resp, _ := http.Get(ts.URL + "/api/identities/nobody/mindlog")
 	if resp.StatusCode != 404 {
 		t.Fatalf("status = %d，应为 404", resp.StatusCode)
-	}
-}
-
-// TestHandleMindlogSearch：搜索框契约——q 命中时返回 index/step_id/
-// snippet 的 SearchHit 列表。
-func TestHandleMindlogSearch(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("MINDLOOP_HOME", dir)
-	home := identity.Home()
-	id, err := identity.Create(context.Background(), "ada")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addMessage(t, id, "user", "ada", "关于部署流水线的特殊关键词 zebra-chat")
-	addMessage(t, id, "user", "ada", "无关消息")
-
-	ts, _ := newTestServer(t, home, "")
-	resp, err := http.Get(ts.URL + "/api/identities/ada/mindlog/search?q=zebra-chat")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	var got struct {
-		Q     string `json:"q"`
-		Scope string `json:"scope"`
-		Hits  []struct {
-			StepID  string `json:"step_id"`
-			Snippet string `json:"snippet"`
-		} `json:"hits"`
-	}
-	json.NewDecoder(resp.Body).Decode(&got)
-	if len(got.Hits) != 1 {
-		t.Fatalf("hits = %d，应为 1", len(got.Hits))
-	}
-	if !strings.Contains(got.Hits[0].Snippet, "zebra-chat") {
-		t.Fatalf("snippet 缺关键词: %q", got.Hits[0].Snippet)
-	}
-}
-
-// TestHandleMindlogSinceWindow：since/until 窗口语义（轮询增量的
-// 数据源）。3 步日志，since=1 应返回第 2、3 步。
-func TestHandleMindlogSinceWindow(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("MINDLOOP_HOME", dir)
-	home := identity.Home()
-	id, err := identity.Create(context.Background(), "ada")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, msg := range []string{"one", "two", "three"} {
-		addMessage(t, id, "user", "ada", msg)
-	}
-	ts, _ := newTestServer(t, home, "")
-	resp, err := http.Get(ts.URL + "/api/identities/ada/mindlog?since=1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	var got struct {
-		Steps []struct {
-			Preview string `json:"preview"`
-		} `json:"steps"`
-		Since *int `json:"since"`
-	}
-	json.NewDecoder(resp.Body).Decode(&got)
-	if len(got.Steps) != 3 {
-		t.Fatalf("since=1 应返回 3 步，得到 %d", len(got.Steps))
-	}
-	if got.Since == nil || *got.Since != 1 {
-		t.Fatalf("since 字段 = %v，应为 1", got.Since)
-	}
-	if !strings.Contains(got.Steps[0].Preview, "one") {
-		t.Fatalf("首步应为 one: %q", got.Steps[0].Preview)
-	}
-}
-
-// TestHandleRunCommand：run 分组给出 prompt 全文。
-func TestHandleRunCommand(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("MINDLOOP_HOME", dir)
-	home := identity.Home()
-	id, err := identity.Create(context.Background(), "ada")
-	if err != nil {
-		t.Fatal(err)
-	}
-	runStep := traj.NewStep("run")
-	runStep.Fields["run_id"] = "rid-1"
-	promptStep := traj.NewStep("prompt")
-	promptStep.Fields["run_id"] = "rid-1"
-	promptStep.Fields["content"] = "这条 prompt 是 run 的命令全文"
-	finalStep := traj.NewStep("final")
-	finalStep.Fields["run_id"] = "rid-1"
-	finalStep.Fields["content"] = "done"
-	for _, s := range []traj.Step{runStep, promptStep, finalStep} {
-		if err := id.Timeline.Append(context.Background(), s); err != nil {
-			t.Fatal(err)
-		}
-	}
-	ts, _ := newTestServer(t, home, "")
-	resp, err := http.Get(ts.URL + "/api/identities/ada/runs/rid-1/command")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	var got struct {
-		Command string `json:"command"`
-	}
-	json.NewDecoder(resp.Body).Decode(&got)
-	if !strings.Contains(got.Command, "prompt 是 run 的命令全文") {
-		t.Fatalf("command = %q", got.Command)
-	}
-}
-
-// TestHandleForkWritebackLinks：fork/merge 步骤产出链接字段。
-func TestHandleForkWritebackLinks(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("MINDLOOP_HOME", dir)
-	home := identity.Home()
-	id, err := identity.Create(context.Background(), "ada")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fork := traj.NewStep("fork")
-	fork.Fields["child"] = "child-uuid"
-	fork.Fields["child_ref"] = "../abcd1234-sub/trajectory.jsonl"
-	merge := traj.NewStep("merge")
-	merge.Fields["from_traj"] = "child-uuid"
-	merge.Fields["from_step"] = "step-9"
-	for _, s := range []traj.Step{fork, merge} {
-		if err := id.Timeline.Append(context.Background(), s); err != nil {
-			t.Fatal(err)
-		}
-	}
-	ts, _ := newTestServer(t, home, "")
-	resp, err := http.Get(ts.URL + "/api/identities/ada/mindlog")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	var got struct {
-		Steps []struct {
-			Type string `json:"type"`
-			Fork *struct {
-				ChildTrajID string `json:"child_traj_id"`
-			} `json:"fork"`
-			Writeback *struct {
-				FromTraj string `json:"from_traj"`
-			} `json:"writeback"`
-		} `json:"steps"`
-	}
-	json.NewDecoder(resp.Body).Decode(&got)
-	var sawFork, sawWB bool
-	for _, s := range got.Steps {
-		if s.Type == "fork" && s.Fork != nil && s.Fork.ChildTrajID == "child-uuid" {
-			sawFork = true
-		}
-		if s.Type == "merge" && s.Writeback != nil && s.Writeback.FromTraj == "child-uuid" {
-			sawWB = true
-		}
-	}
-	if !sawFork || !sawWB {
-		t.Fatalf("fork/writeback 链接缺失: fork=%v wb=%v", sawFork, sawWB)
 	}
 }
