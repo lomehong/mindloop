@@ -1,0 +1,307 @@
+import { useQuery } from "@tanstack/react-query";
+import { FoldVertical, UnfoldVertical } from "lucide-react";
+import { parseAsString, useQueryState } from "nuqs";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router";
+
+import { FollowPin } from "~/components/follow-pin";
+import { ForkTree } from "~/components/fork-tree";
+import { IdentityTabs } from "~/components/identity-tabs";
+import { MindlogSearch } from "~/components/mindlog-search";
+import { assembleStream, StreamItems } from "~/components/stream";
+import { TimelineBar } from "~/components/timeline-bar";
+import { Button } from "~/components/ui/button";
+import { Checkbox } from "~/components/ui/checkbox";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "~/components/ui/empty";
+import { LoadingDots } from "~/components/ui/loading-dots";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
+import { fetchIdentityStatus } from "~/lib/api";
+import { TrajContext } from "~/lib/traj-context";
+import { useMindlog } from "~/lib/use-mindlog";
+import type { NormalizedStep } from "~/lib/types";
+
+export function meta() {
+  return [{ title: "Headlong · mind log" }];
+}
+
+export function scrollToStep(step: {
+  step_id: string | null;
+  run_id?: string | null;
+}) {
+  const el =
+    document.getElementById(`step-${step.step_id}`) ??
+    (step.run_id ? document.getElementById(`step-${step.run_id}`) : null);
+  el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (el) {
+    // Loud on purpose: after a jump from search the reader needs to spot
+    // one step among hundreds.
+    const flash = [
+      "ring-2",
+      "ring-amber-400",
+      "bg-amber-100",
+      "dark:bg-amber-950/40",
+    ];
+    el.classList.add(...flash);
+    setTimeout(() => el.classList.remove(...flash), 3000);
+  }
+}
+
+export default function IdentityPage() {
+  const { identityId = "" } = useParams();
+  const [hideParam, setHideParam] = useQueryState("hide", parseAsString.withDefault(""));
+  const [sourceFilter, setSourceFilter] = useQueryState(
+    "source",
+    parseAsString.withDefault("all")
+  );
+  // Deep link (?step=<id or prefix>) from recap step references and elsewhere
+  const [stepParam] = useQueryState("step", parseAsString.withDefault(""));
+  const [expandAll, setExpandAll] = useState(false);
+
+  const { data: status } = useQuery({
+    queryKey: ["status", identityId],
+    queryFn: () => fetchIdentityStatus(identityId),
+    refetchInterval: 2000,
+  });
+  const live = status?.live ?? false;
+
+  const { data: mindlog, isLoading, loadOlder, loadingOlder, hiddenOlder } =
+    useMindlog(identityId, live);
+
+  const hidden = useMemo(
+    () => new Set(hideParam.split(",").filter(Boolean)),
+    [hideParam]
+  );
+
+  const stream = useMemo(
+    () => (mindlog ? assembleStream(mindlog.steps, mindlog.runs) : []),
+    [mindlog]
+  );
+
+  useEffect(() => {
+    if (!stepParam || !mindlog) return;
+    const target = mindlog.steps.find((step) =>
+      step.step_id?.startsWith(stepParam)
+    );
+    if (!target) return;
+    // The step may render as its own card, inside a run group, or — for
+    // action steps that triggered a run — as the run group's header.
+    const triggeredRun = mindlog.runs.find(
+      (run) => run.trigger_step_id === target.step_id
+    );
+    const candidates = [target.step_id, target.run_id, triggeredRun?.run_id]
+      .filter(Boolean)
+      .map((id) => `step-${id}`);
+    // A large mind log takes a while to render — retry until an element
+    // exists, then scroll + highlight (same flash as scrollToStep).
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const attempt = () => {
+      const el = candidates
+        .map((id) => document.getElementById(id))
+        .find(Boolean);
+      if (el) {
+        // Instant, not smooth: late layout shifts on a large log cancel the
+        // smooth animation. Re-assert once after things settle.
+        el.scrollIntoView({ block: "center" });
+        el.classList.add("bg-primary/10");
+        setTimeout(() => el.scrollIntoView({ block: "center" }), 600);
+        setTimeout(() => el.classList.remove("bg-primary/10"), 2000);
+        return;
+      }
+      if (tries++ < 40) timer = setTimeout(attempt, 250);
+    };
+    timer = setTimeout(attempt, 100);
+    return () => clearTimeout(timer);
+    // scroll once per navigation, not on live-poll refreshes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepParam, mindlog?.traj_id]);
+
+  const typeCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const step of mindlog?.steps ?? []) {
+      counts.set(step.type, (counts.get(step.type) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [mindlog]);
+
+  const sources = useMemo(() => {
+    const set = new Set<string>();
+    for (const step of mindlog?.steps ?? []) {
+      if (step.source) set.add(step.source);
+    }
+    return [...set].sort();
+  }, [mindlog]);
+
+  const visible = useMemo(() => {
+    const sourceOk = (step: NormalizedStep) =>
+      sourceFilter === "all" || step.source === sourceFilter;
+    return stream.filter((item) => {
+      if (item.kind === "run") return !hidden.has("shellm-run");
+      if (item.kind === "idle")
+        return !hidden.has("idle") && (sourceFilter === "all" || item.steps.some(sourceOk));
+      return !hidden.has(item.step.type) && sourceOk(item.step);
+    });
+  }, [stream, hidden, sourceFilter]);
+
+  const toggleType = (type: string) => {
+    const next = new Set(hidden);
+    if (next.has(type)) next.delete(type);
+    else next.add(type);
+    setHideParam([...next].join(",") || null);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-20">
+        <LoadingDots />
+      </div>
+    );
+  }
+
+  if (!mindlog) {
+    return (
+      <Empty>
+        <EmptyHeader>
+          <EmptyTitle>No mind log</EmptyTitle>
+          <EmptyDescription>No trajectory found for {identityId}.</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
+
+  return (
+    <TrajContext.Provider value={{ identityId, trajId: mindlog.traj_id }}>
+      <div className="mx-auto w-full max-w-7xl px-4">
+        <IdentityTabs
+          identityId={identityId}
+          live={live}
+          active="mindlog"
+          name={mindlog.identity.name}
+          actions={
+            <MindlogSearch
+              identityId={identityId}
+              windowStart={hiddenOlder}
+              onJump={scrollToStep}
+            />
+          }
+        />
+        <div className="mb-3 flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">
+            {hiddenOlder > 0
+              ? `last ${mindlog.steps.length} of ${mindlog.step_count} steps`
+              : `${mindlog.step_count} steps`}{" "}
+            · {mindlog.runs.length} runs
+          </span>
+          <div className="ml-auto">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setExpandAll((v) => !v)}
+              className="gap-1.5 text-xs"
+            >
+              {expandAll ? (
+                <>
+                  <FoldVertical className="h-3.5 w-3.5" /> Collapse all
+                </>
+              ) : (
+                <>
+                  <UnfoldVertical className="h-3.5 w-3.5" /> Expand all
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <TimelineBar steps={mindlog.steps} onStepClick={scrollToStep} />
+        </div>
+
+        <div className="flex gap-4">
+          <aside className="hidden w-52 shrink-0 md:block">
+            <div className="sticky top-28 max-h-[calc(100vh-8rem)] space-y-4 overflow-y-auto pb-4">
+              <div>
+                <h3 className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Step types
+                </h3>
+                <div className="space-y-1">
+                  {typeCounts.map(([type, count]) => (
+                    <label
+                      key={type}
+                      className="flex cursor-pointer items-center gap-2 font-mono text-xs"
+                    >
+                      <Checkbox
+                        checked={!hidden.has(type)}
+                        onCheckedChange={() => toggleType(type)}
+                      />
+                      <span className="min-w-0 flex-1 truncate">{type}</span>
+                      <span className="tabular-nums text-muted-foreground">{count}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              {sources.length > 0 && (
+                <div>
+                  <h3 className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                    Source
+                  </h3>
+                  <Select
+                    value={sourceFilter}
+                    onValueChange={(v) => setSourceFilter(v === "all" ? null : v)}
+                  >
+                    <SelectTrigger className="h-8 w-full font-mono text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">all sources</SelectItem>
+                      {sources.map((source) => (
+                        <SelectItem key={source} value={source} className="font-mono text-xs">
+                          {source}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <ForkTree
+                identityId={identityId}
+                currentTrajId={mindlog.traj_id}
+                live={live}
+              />
+            </div>
+          </aside>
+
+          <div className="min-w-0 flex-1 rounded-lg border bg-card px-2 py-2">
+            {hiddenOlder > 0 && (
+              <div className="flex justify-center py-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs"
+                  disabled={loadingOlder}
+                  onClick={() => void loadOlder()}
+                >
+                  {loadingOlder
+                    ? "loading…"
+                    : `load older (${hiddenOlder} earlier steps)`}
+                </Button>
+              </div>
+            )}
+            <StreamItems items={visible} expandAll={expandAll} live={live} />
+          </div>
+        </div>
+        <FollowPin live={live} stepCount={mindlog.step_count} />
+      </div>
+    </TrajContext.Provider>
+  );
+}
