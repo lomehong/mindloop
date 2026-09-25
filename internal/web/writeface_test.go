@@ -321,8 +321,8 @@ func TestDispatchLogWriteAndRead(t *testing.T) {
 
 	// 模拟调度器写事件
 	evlog := mind.NewDispatchLogForTest(tl)
-	evlog.Append(map[string]any{"kind": "dispatch", "type": "message", "thinker": "monolith", "ts": traj.NowString()})
-	evlog.Append(map[string]any{"kind": "step", "type": "monolith-wake", "thinker": "monolith", "synthetic": true, "ts": traj.NowString()})
+	evlog.Append(mind.DispatchEvent{Kind: "dispatch", Type: "message", Thinker: "monolith", TS: traj.NowString()})
+	evlog.Append(mind.DispatchEvent{Kind: "step", Type: "monolith-wake", Thinker: "monolith", Synthetic: true, TS: traj.NowString()})
 
 	events, err := mind.ReadEvents(mind.DispatchLogPath(tl))
 	if err != nil {
@@ -331,7 +331,7 @@ func TestDispatchLogWriteAndRead(t *testing.T) {
 	if len(events) != 2 {
 		t.Fatalf("events = %d，应为 2", len(events))
 	}
-	if events[0]["kind"] != "dispatch" || events[1]["thinker"] != "monolith" {
+	if events[0].Kind != "dispatch" || events[1].Thinker != "monolith" {
 		t.Fatalf("事件内容错位: %+v", events)
 	}
 }

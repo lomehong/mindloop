@@ -327,18 +327,18 @@ func (d *Dispatcher) route(step traj.Step) {
 		name := w.t.Name()
 		if isDisabled(name) {
 			if d.evlog != nil {
-				d.evlog.Append(map[string]any{
-					"kind": "other", "type": step.Type, "thinker": name,
-					"reason": "disabled", "ts": traj.NowString(),
+				d.evlog.Append(DispatchEvent{
+					Kind: "other", Type: step.Type, Thinker: name,
+					Reason: "disabled", TS: traj.NowString(),
 				})
 			}
 			continue
 		}
 		if d.evlog != nil {
 			src, _ := step.Field("launched_by")
-			d.evlog.Append(map[string]any{
-				"kind": "dispatch", "type": step.Type, "thinker": name,
-				"source": src, "step_id": step.StepID, "ts": step.TS,
+			d.evlog.Append(DispatchEvent{
+				Kind: "dispatch", Type: step.Type, Thinker: name,
+				Source: src, StepID: step.StepID, TS: step.TS,
 			})
 		}
 		w.enqueue(step)
@@ -359,9 +359,9 @@ func (d *Dispatcher) deliver(ctx context.Context, w *worker, wake Wake) {
 		if wake.Kind != WakeStep {
 			kind = "step"
 		}
-		d.evlog.Append(map[string]any{
-			"kind": kind, "type": wake.Step.Type, "thinker": name,
-			"synthetic": bool(wake.Kind != WakeStep), "ts": traj.NowString(),
+		d.evlog.Append(DispatchEvent{
+			Kind: kind, Type: wake.Step.Type, Thinker: name,
+			Synthetic: wake.Kind != WakeStep, TS: traj.NowString(),
 		})
 	}
 	d.wg.Add(1)
@@ -373,9 +373,9 @@ func (d *Dispatcher) deliver(ctx context.Context, w *worker, wake Wake) {
 			if r := recover(); r != nil {
 				d.logf("!! %s 的 Wake panic（已恢复，工作槽位释放）: %v", name, r)
 				if d.evlog != nil {
-					d.evlog.Append(map[string]any{
-						"kind": "other", "type": wake.Step.Type, "thinker": name,
-						"reason": fmt.Sprintf("panic: %v", r), "ts": traj.NowString(),
+					d.evlog.Append(DispatchEvent{
+						Kind: "other", Type: wake.Step.Type, Thinker: name,
+						Reason: fmt.Sprintf("panic: %v", r), TS: traj.NowString(),
 					})
 				}
 			}
