@@ -16,7 +16,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"mindloop/internal/traj"
@@ -33,6 +35,11 @@ const (
 	// WakeScheduled：思考者请求的未来唤醒到点（自发性）。
 	WakeScheduled WakeKind = "scheduled"
 )
+
+// monolithWakeType 是调度器合成唤醒（watchdog/自发性）的步骤类型
+// 名——只在内存构造（syntheticStep），不落盘；monolith 的订阅面引
+// 用同一个常量，两处字面量漂移会让合成唤醒永远投不进去。
+const monolithWakeType = "monolith-wake"
 
 // Wake 是交给思考者的一次唤醒。
 type Wake struct {
@@ -79,6 +86,7 @@ type worker struct {
 
 	mu        sync.Mutex
 	busy      bool
+	gen       uint64          // 工作槽位的代际号：期限强制释放会推进它
 	fifo      []Wake          // message 类：FIFO，保序投递
 	coalesced map[string]Wake // 其余类型：last-wins 合并
 	wakeAt    time.Time       // 思考者预约的自发性唤醒时刻
@@ -89,7 +97,7 @@ func (w *worker) enqueue(step traj.Step) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	wake := Wake{Step: step, Kind: WakeStep}
-	if step.Type == "message" {
+	if step.Type == traj.TypeMessage {
 		// 人类消息：FIFO 保序、有界、丢最旧——排序是礼貌，上限是
 		// 自保（Headlong 的 pending 目录同款参数）。
 		const fifoCap = 16
@@ -131,9 +139,26 @@ type Dispatcher struct {
 	tlDir  string
 	logger func(format string, args ...any)
 
-	mu      sync.Mutex
-	workers []*worker
-	wg      sync.WaitGroup // 在途思考计数：优雅停机时 join（WaitIdle）
+	// WakeTimeout 是单次唤醒的调度器侧硬上限：到点即取消该次唤醒
+	// 的 ctx、强制释放工作槽位并打警告。没有它，一个忽略 ctx 取消
+	// 的思考者（bug 或卡死的网络调用）会永久占住 busy——watchdog
+	// 明确跳过 busy，活性兜底救不了"假忙"的思考者，该思考者从此
+	// 无人再投递、对话永久沉默。0 取默认（30 分钟）；负数禁用限制
+	// （测试与已知长任务）。
+	// 强制释放后迟归的 Wake 被代际号拦下，不再触碰槽位状态；真正
+	// 挂死的 Wake goroutine 仍会存活到进程退出——强杀不是超能力，
+	// 只是止损。
+	WakeTimeout time.Duration
+
+	mu       sync.Mutex
+	workers  []*worker
+	inflight atomic.Int64 // 在途思考计数：WaitIdle 轮询它，不孵化监视 goroutine
+
+	// working 投影：忙集的文件化（<RunLockDir>/working）。记账点在
+	// deliver（入集）与两个 busy 释放点（出集），转换处重写/删除
+	// 状态文件——文件存在 ⇔ 有思考者正在工作。
+	workingMu   sync.Mutex
+	workingBusy []workingEntry
 }
 
 // NewDispatcher 构造一个调度器。poll 是轨迹轮询间隔（默认 200ms）。
@@ -177,6 +202,10 @@ func (d *Dispatcher) Register(t Thinker) {
 // Run 运行调度器直到 ctx 取消、收到停机标志或 feeder 出错。
 // 主循环只有非阻塞操作——心跳永不停摆。
 func (d *Dispatcher) Run(ctx context.Context) error {
+	// 启动清场：调用方持运行锁才会走到这里，此刻无调度器在跑，
+	// stream/ 旁路与 replying 状态的残留必为崩溃垃圾（与
+	// ClearStopFlag 的启动清理同模式）。
+	gcTransients(d.tl.Dir)
 	d.logf("调度器启动，跟踪 %s", d.tl.Path)
 	tick := time.NewTicker(d.poll)
 	defer tick.Stop()
@@ -260,14 +289,14 @@ func (d *Dispatcher) step(ctx context.Context) error {
 			w.mu.Lock()
 			w.wakeAt = time.Time{}
 			w.mu.Unlock()
-			d.deliver(ctx, w, Wake{Step: syntheticStep("monolith-wake"), Kind: WakeScheduled})
+			d.deliver(ctx, w, Wake{Step: syntheticStep(monolithWakeType), Kind: WakeScheduled})
 			continue
 		}
 		if idle {
 			w.mu.Lock()
 			w.lastUsed = now
 			w.mu.Unlock()
-			d.deliver(ctx, w, Wake{Step: syntheticStep("monolith-wake"), Kind: WakeWatchdog})
+			d.deliver(ctx, w, Wake{Step: syntheticStep(monolithWakeType), Kind: WakeWatchdog})
 		}
 	}
 	d.mu.Unlock()
@@ -350,9 +379,11 @@ func (d *Dispatcher) deliver(ctx context.Context, w *worker, wake Wake) {
 	w.mu.Lock()
 	w.busy = true
 	w.lastUsed = time.Now()
+	gen := w.gen // 代际号：期限强制释放会推进它，迟归的旧 Wake 靠它识别自己已过期
 	name := w.t.Name()
 	w.mu.Unlock()
 	d.logf("→ %s 收到 %s 唤醒（%s）", name, wake.Kind, wake.Step.Type)
+	d.workingMark(name, true, wake.Kind)
 
 	if d.evlog != nil {
 		kind := "dispatch"
@@ -364,8 +395,40 @@ func (d *Dispatcher) deliver(ctx context.Context, w *worker, wake Wake) {
 			Synthetic: wake.Kind != WakeStep, TS: traj.NowString(),
 		})
 	}
-	d.wg.Add(1)
+	d.inflight.Add(1)
 	go func() {
+		defer d.inflight.Add(-1)
+
+		// 调度器侧硬期限：wakeCtx 到点取消（尊重 ctx 的思考者自己
+		// 退场）；期限看门狗负责强制释放槽位——思考者不体面退场
+		// 时，调度器也不能被它永久占住。
+		wakeCtx := ctx
+		if timeout := d.wakeTimeout(); timeout > 0 {
+			var cancel context.CancelFunc
+			wakeCtx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
+			timer := time.AfterFunc(timeout, func() {
+				w.mu.Lock()
+				forced := w.busy && w.gen == gen
+				if forced {
+					w.busy = false
+					w.gen++
+				}
+				w.mu.Unlock()
+				if forced {
+					d.logf("!! %s 的唤醒超过 %v 仍未返回——工作槽位被强制释放（思考者可能没有尊重 ctx 取消）", name, timeout)
+					d.workingMark(name, false, "")
+					if d.evlog != nil {
+						d.evlog.Append(DispatchEvent{
+							Kind: "other", Type: wake.Step.Type, Thinker: name,
+							Reason: fmt.Sprintf("wake-timeout(%v)", timeout), TS: traj.NowString(),
+						})
+					}
+				}
+			})
+			defer timer.Stop()
+		}
+
 		// panic 防护：思考者的 panic 绝不能带走调度器进程，也绝不能
 		// 把 busy 永久卡死（否则该思考者再也不被投递）。
 		var outcome Outcome
@@ -380,38 +443,104 @@ func (d *Dispatcher) deliver(ctx context.Context, w *worker, wake Wake) {
 				}
 			}
 			w.mu.Lock()
-			w.busy = false
-			if outcome.WantWake {
-				delay := outcome.NextWakeIn
-				const minGap = time.Second // 防紧密自旋的最小间隔
-				if delay < minGap {
-					delay = minGap
+			current := w.gen
+			if current == gen {
+				// 常规收尾：槽位仍属于本轮，正常释放并预约下次。
+				w.busy = false
+				if outcome.WantWake {
+					delay := outcome.NextWakeIn
+					const minGap = time.Second // 防紧密自旋的最小间隔
+					if delay < minGap {
+						delay = minGap
+					}
+					w.wakeAt = time.Now().Add(delay)
 				}
-				w.wakeAt = time.Now().Add(delay)
 			}
 			w.mu.Unlock()
-			if outcome.Note != "" {
+			if current == gen {
+				d.workingMark(name, false, "") // 常规释放：同步摘除忙集投影
+			}
+			if outcome.Note != "" && current == gen {
 				d.logf("← %s: %s", name, outcome.Note)
 			}
-			d.wg.Done()
+			// current != gen：槽位已被期限看门狗强制释放并推进代际。
+			// 迟归的 Wake 一律放弃 outcome——它的预约若被采纳，会与
+			// 强制释放后已经开跑的新一轮唤醒打架。
 		}()
-		outcome = w.t.Wake(ctx, wake)
+		outcome = w.t.Wake(wakeCtx, wake)
 	}()
+}
+
+// wakeTimeout 把 WakeTimeout 字段折算成生效期限：0 取默认 30 分钟，
+// 负数禁用（返回 0 = 不设期限）。
+func (d *Dispatcher) wakeTimeout() time.Duration {
+	switch {
+	case d.WakeTimeout < 0:
+		return 0
+	case d.WakeTimeout == 0:
+		return 30 * time.Minute
+	default:
+		return d.WakeTimeout
+	}
+}
+
+// workingMark 把忙碌变化投影进 <RunLockDir>/working：on=true 把
+// thinker 记入忙集并重写文件；on=false 摘除——忙集变空即删除文件，
+// 语义是"文件存在 ⇔ 有思考者正在工作"。投影写失败容忍：控制面
+// 信号不值得打断调度，读方最多少看一轮状态。
+//
+// 调用点即 busy 记账点：deliver（入集）、常规释放与期限强制释放
+// （出集）。代际号保证迟归的旧 Wake 不会误摘新一轮的同名条目。
+func (d *Dispatcher) workingMark(name string, on bool, wake WakeKind) {
+	d.workingMu.Lock()
+	defer d.workingMu.Unlock()
+	if on {
+		for _, e := range d.workingBusy {
+			if e.Thinker == name {
+				return // 已在忙集：同思考者至多一次在途唤醒（防御）
+			}
+		}
+		d.workingBusy = append(d.workingBusy, workingEntry{
+			Thinker: name,
+			Wake:    string(wake),
+			Since:   time.Now().UTC().Format(time.RFC3339),
+		})
+	} else {
+		for i, e := range d.workingBusy {
+			if e.Thinker == name {
+				d.workingBusy = append(d.workingBusy[:i], d.workingBusy[i+1:]...)
+				break
+			}
+		}
+	}
+	if len(d.workingBusy) == 0 {
+		_ = os.Remove(workingPath(d.tl.Dir))
+		return
+	}
+	writeWorkingFile(d.tl.Dir, d.workingBusy)
 }
 
 // WaitIdle 等待全部在途思考收尾（优雅停机的最后一步）。超过
 // timeout 返回 false——调用方决定是否放弃。Run 返回后调用。
+//
+// 轮询在途计数而不是孵化一个 wg.Wait() goroutine：旧实现超时返回
+// 后，监视 goroutine 仍吊在 WaitGroup 上——若某个 Wake 永不返回，
+// 它与进程同寿，且每次 WaitIdle 都可能新增一个泄漏。
+// 计数是原子的，5ms 轮询对停机路径毫无感知差异，也没有东西可泄漏。
 func (d *Dispatcher) WaitIdle(timeout time.Duration) bool {
-	done := make(chan struct{})
-	go func() {
-		d.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return true
-	case <-time.After(timeout):
-		return false
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	tick := time.NewTicker(5 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if d.inflight.Load() == 0 {
+			return true
+		}
+		select {
+		case <-deadline.C:
+			return false
+		case <-tick.C:
+		}
 	}
 }
 

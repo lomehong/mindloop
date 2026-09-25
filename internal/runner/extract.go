@@ -6,10 +6,13 @@ import (
 
 // extraction 是从模型回复中提取可执行代码的结果。Notice 是给模型
 // 的教学反馈，会在下一轮以用户消息回灌——Headlong 的 self-teaching
-// stderr 提示思路：第一次犯错不受罚，但要被教会。
+// stderr 提示思路：第一次犯错不受罚，但要被教会。Final 非空表示
+// 回复里没有任何代码块、但存在裸文本 FINAL= 声明——按完成语义
+// 直接采为终局（见 bareFinal），不再进入执行路径。
 type extraction struct {
 	Code   string
 	Notice string
+	Final  string
 }
 
 // heredoc 前缀匹配：`<<EOF` / `<<-EOF` / `<< 'EOF'` 等。fence 行
@@ -25,7 +28,15 @@ func extractCode(text string) extraction {
 
 	flush := func() extraction {
 		if len(code) == 0 {
-			// 无 fence：整段当命令执行（Headlong 同款兜底），
+			// 无块：先看是不是裸文本 FINAL= 声明。实测事故（轨迹
+			// 5518efef）：模型完成任务后把 FINAL="…" 写成裸文本，
+			// 旧路径把整段拿去当命令执行 → 必然报错 → 轮次耗尽，
+			// 已完成的成果从未回发对话。模型清楚表达了"任务完成
+			// +答案"，按完成语义提取，不走教学纠偏。
+			if v, ok := bareFinal(text); ok {
+				return extraction{Final: v}
+			}
+			// 无块且无声明：整段当命令执行（Headlong 同款兜底），
 			// 但要教会模型正确的格式。
 			return extraction{
 				Code:   strings.TrimSpace(text),
@@ -80,6 +91,32 @@ func extractCode(text string) extraction {
 		}
 	}
 	return flush()
+}
+
+// bareFinal 在无代码块的回复里识别裸文本 FINAL= 声明，返回其值。
+// 值允许双/单引号包裹（与 shell 赋值同形）；空值不算声明。只认
+// 单行——多行值回退教学纠偏路径，模型下一轮自会改用正规块声明。
+// 有代码块时本函数根本不会被调用：正规块内声明路径永远优先。
+func bareFinal(text string) (string, bool) {
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if !strings.HasPrefix(line, "FINAL=") {
+			continue
+		}
+		v := strings.TrimSpace(strings.TrimPrefix(line, "FINAL="))
+		if len(v) >= 2 {
+			if q := v[0]; q == '"' || q == '\'' {
+				if v[len(v)-1] == q {
+					v = strings.TrimSpace(v[1 : len(v)-1])
+				}
+			}
+		}
+		if v == "" {
+			continue
+		}
+		return v, true
+	}
+	return "", false
 }
 
 // heredocOpener 检测一行里的 heredoc 开始，返回终止标记。

@@ -45,15 +45,12 @@ vi.mock("~/lib/api", async (importOriginal) => {
       async (): Promise<IdentityActivity> => ({
         state: "idle",
         dispatcher_running: true,
-        steps_in_flight: 0,
-        pending_total: 0,
         busy_thinkers: [],
         last_step_ts: null,
         last_step_age_s: null,
         run_seconds: null,
         stall_after_s: 60,
         cadence_s: null,
-        queued_messages: [],
       })
     ),
     fetchChat: vi.fn(
@@ -71,8 +68,6 @@ vi.mock("~/lib/api", async (importOriginal) => {
         active_thinkers: 0,
         thinkers_total: 0,
         thinkers_disabled: 0,
-        steps_in_flight: 0,
-        pending_total: 0,
         thinkers: [],
       })
     ),

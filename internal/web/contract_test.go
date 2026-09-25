@@ -200,7 +200,7 @@ func TestKillallDryRun(t *testing.T) {
 	if s, _ := out["stdout"].(string); !strings.Contains(s, "ada") {
 		t.Fatalf("dry_run 摘要应列出将停的心智，得到 %q", out["stdout"])
 	}
-	if _, err := os.Stat(filepath.Join(id.Dir, "run", "stop")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(id.Timeline.Dir, "run", "stop")); !os.IsNotExist(err) {
 		t.Fatal("dry_run 绝不能写停机标志")
 	}
 
@@ -208,7 +208,9 @@ func TestKillallDryRun(t *testing.T) {
 	if resp.StatusCode != 200 || out["dry_run"] != false {
 		t.Fatalf("真停: %d %v", resp.StatusCode, out)
 	}
-	if _, err := os.Stat(filepath.Join(id.Dir, "run", "stop")); err != nil {
+	// stop 标志写轨迹目录层级（调度器 checkStop 消费 <tl>/run/stop）——
+	// 此前写到身份目录层级，调度器永远收不到。
+	if _, err := os.Stat(filepath.Join(id.Timeline.Dir, "run", "stop")); err != nil {
 		t.Fatalf("停机标志未写入: %v", err)
 	}
 }

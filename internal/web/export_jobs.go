@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"mindloop/internal/ids"
 	"mindloop/internal/identity"
+	"mindloop/internal/ids"
 )
 
 // exportJob 是单身份导出任务的内存态（viewer ExportJob 契约）。
@@ -226,9 +226,31 @@ func (s *Server) handleIdentityExport(w http.ResponseWriter, r *http.Request, id
 	_ = writeIdentityArchive(w, id, soulOnly, false)
 }
 
+// archiveExcluded 报告归档相对路径是否属于永不导出的条目：
+//   - .env——密钥不进任何可携带归档（单身份导出与全量导出共用同一条
+//     铁律；此前"导出全部"漏掉这条规则，把每个身份的 API key 原样
+//     打包进了下载产物——归档一旦被共享或备份即密钥泄露）；
+//   - run/——运行控制面（运行锁、停机标志、wake 信号）。
+//
+// rel 必须是 slash 分隔的相对路径；top 是身份目录在 rel 中的层号：
+// 单身份导出为 0（rel 形如 ".env"、"run/x"），全量导出为 1（第 0 层
+// 是身份名，rel 形如 "ada/.env"、"ada/run/x"）。.env 按任意层匹配
+// （保守排除）。
+func archiveExcluded(rel string, top int) bool {
+	parts := strings.Split(rel, "/")
+	if top < len(parts) && parts[top] == "run" {
+		return true
+	}
+	for _, part := range parts {
+		if part == ".env" {
+			return true
+		}
+	}
+	return false
+}
+
 // writeIdentityArchive 把身份目录按选择条件打包为 tar.gz。
-//   - run/ 控制面（运行锁、停机标志、wake 信号）永远排除；
-//   - .env 永远排除——密钥不进任何可携带归档；
+//   - run/ 控制面与 .env 永远排除（archiveExcluded，两条导出路径共用）；
 //   - slim：排除 runs/ 工作现场；
 //   - soul_only：只要 persona.md、identity.txt、memories/。
 func writeIdentityArchive(out io.Writer, id *identity.Identity, soulOnly, slim bool) error {
@@ -238,10 +260,10 @@ func writeIdentityArchive(out io.Writer, id *identity.Identity, soulOnly, slim b
 	defer tw.Close()
 
 	include := func(rel string, fi os.FileInfo) bool {
-		switch rel {
-		case "run", ".env":
+		if archiveExcluded(rel, 0) {
 			return false
-		case "runs":
+		}
+		if rel == "runs" {
 			return !slim && !soulOnly
 		}
 		if soulOnly {

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,9 +12,14 @@ import (
 	"sync"
 )
 
+// ErrInvalidArguments 是工具 Handler 报告"调用方参数不合法"的
+// 哨兵：serve 循环以 errors.Is 识别它并回 JSON-RPC -32602，其余
+// 错误仍按工具执行失败（isError 内容块）回给客户端。
+var ErrInvalidArguments = errors.New("mcp: 参数不合法")
+
 // ServerTool 是本服务器暴露的一个工具：标准 inputSchema + 处理器。
 // 处理器返回 text 内容；返回错误时以 isError 内容块回给客户端
-//（错误文本原样保留——调用方仍能展示诊断）。
+// （错误文本原样保留——调用方仍能展示诊断）。
 type ServerTool struct {
 	Name        string
 	Description string
@@ -108,6 +114,16 @@ func serve(ctx context.Context, r io.Reader, w io.Writer, serverName, version st
 				continue
 			}
 			text, err := tool.Handler(ctx, raw.Params.Arguments)
+			if errors.Is(err, ErrInvalidArguments) {
+				// 参数不合法是调用方协议错误——按 JSON-RPC 语义回
+				// -32602，而不是把它伪装成工具执行失败。
+				message := err.Error()
+				if text != "" {
+					message = text + "\n" + message
+				}
+				rpcErr(msg.ID, -32602, message)
+				continue
+			}
 			isErr := false
 			if err != nil {
 				isErr = true

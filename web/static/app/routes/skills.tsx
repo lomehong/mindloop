@@ -6,11 +6,16 @@ import { toast } from "sonner";
 
 import { IdentityTabs } from "~/components/identity-tabs";
 import { useControlsEnabled } from "~/components/thinker-controls";
+import { ConfirmDialog } from "~/components/confirm-dialog";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { LoadingDots } from "~/components/ui/loading-dots";
 import { fetchIdentityStatus, fetchSkills, installSkill, removeSkill } from "~/lib/api";
+import {
+  SKILLS_POLL_MS,
+  STATUS_BACKGROUND_POLL_MS,
+} from "~/lib/polling";
 
 export function meta() {
   return [{ title: "mindloop · 技能" }];
@@ -27,17 +32,19 @@ export default function SkillsPage() {
   const controlsEnabled = useControlsEnabled();
   const queryClient = useQueryClient();
   const [source, setSource] = useState("");
+  // 待确认删除的技能名；null = 对话框关闭。
+  const [skillToRemove, setSkillToRemove] = useState<string | null>(null);
 
   const { data: status } = useQuery({
     queryKey: ["status", identityId],
     queryFn: () => fetchIdentityStatus(identityId),
-    refetchInterval: 5000,
+    refetchInterval: STATUS_BACKGROUND_POLL_MS,
   });
 
   const { data: view, isLoading } = useQuery({
     queryKey: ["skills", identityId],
     queryFn: () => fetchSkills(identityId),
-    refetchInterval: 10000,
+    refetchInterval: SKILLS_POLL_MS,
   });
 
   const install = useMutation({
@@ -68,7 +75,7 @@ export default function SkillsPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4">
+    <div className="mx-auto w-full max-w-7xl">
       <IdentityTabs
         identityId={identityId}
         live={status?.live ?? false}
@@ -156,11 +163,9 @@ export default function SkillsPage() {
                       size="icon-sm"
                       className="ml-auto"
                       title={`删除 ${skill.name}`}
+                      aria-label={`删除 ${skill.name}`}
                       disabled={remove.isPending}
-                      onClick={() => {
-                        if (window.confirm(`删除技能 ${skill.name}？`))
-                          remove.mutate(skill.name);
-                      }}
+                      onClick={() => setSkillToRemove(skill.name)}
                     >
                       <Trash2 className="size-3" />
                     </Button>
@@ -177,6 +182,19 @@ export default function SkillsPage() {
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={skillToRemove !== null}
+        onOpenChange={(open) => {
+          if (!open) setSkillToRemove(null);
+        }}
+        tone="danger"
+        title={skillToRemove ? `删除技能 ${skillToRemove}？` : "删除技能？"}
+        description="将从该身份的技能目录中删除此技能。"
+        confirmText="删除"
+        onConfirm={() => {
+          if (skillToRemove) remove.mutate(skillToRemove);
+        }}
+      />
     </div>
   );
 }

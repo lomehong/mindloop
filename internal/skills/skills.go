@@ -203,7 +203,7 @@ func parseYAMLSubset(text string) (map[string]any, error) {
 			var list []any
 			nested := map[string]any{}
 			isList, isMap := false, false
-			for ; i+1 < len(lines); {
+			for i+1 < len(lines) {
 				next := strings.TrimSpace(lines[i+1])
 				if next == "" || strings.HasPrefix(next, "#") {
 					i++

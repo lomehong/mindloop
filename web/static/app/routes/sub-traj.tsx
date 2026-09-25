@@ -55,20 +55,22 @@ export default function SubTrajPage() {
 
   if (!traj) {
     return (
-      <Empty>
-        <EmptyHeader>
-          <EmptyTitle>未找到轨迹</EmptyTitle>
-          <EmptyDescription>
-            No trajectory {trajId} under {identityId}.
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <div className="mx-auto w-full max-w-7xl">
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>未找到轨迹</EmptyTitle>
+            <EmptyDescription>
+              No trajectory {trajId} under {identityId}.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </div>
     );
   }
 
   return (
     <TrajContext.Provider value={{ identityId, trajId: traj.traj_id }}>
-      <div className="mx-auto w-full max-w-7xl px-4">
+      <div className="mx-auto w-full max-w-7xl">
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <Link to="/" className="text-sm text-muted-foreground hover:underline">
             identities

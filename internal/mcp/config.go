@@ -11,21 +11,23 @@
 //
 // 协议是标准，实现是自己的：JSON-RPC 手写不过百行，核心库维持
 // 零第三方依赖。v1 传输层支持 stdio（生态中最普遍的本地传输）；
-// HTTP/SSE 传输在配置里出现时显式报错而非静默忽略。
+// stdio 传输之外，streamable HTTP（2025-03-26+ 规范）同样支持，
+// 按 ServerConfig.URL 的有无自动选择。
 package mcp
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 )
 
 // ServerConfig 是一台 MCP 服务器的接入配置。
 type ServerConfig struct {
 	Command string            `json:"command,omitempty"` // stdio：可执行文件
 	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"` // 追加到进程环境
-	URL     string            `json:"url,omitempty"` // streamable HTTP 传输
+	Env     map[string]string `json:"env,omitempty"`     // 追加到进程环境
+	URL     string            `json:"url,omitempty"`     // streamable HTTP 传输
 	Headers map[string]string `json:"headers,omitempty"` // HTTP 传输的额外请求头（鉴权等）
 }
 
@@ -64,10 +66,6 @@ func (c Config) Names() []string {
 	for n := range c.MCPServers {
 		names = append(names, n)
 	}
-	for i := 1; i < len(names); i++ {
-		for j := i; j > 0 && names[j] < names[j-1]; j-- {
-			names[j], names[j-1] = names[j-1], names[j]
-		}
-	}
+	sort.Strings(names)
 	return names
 }

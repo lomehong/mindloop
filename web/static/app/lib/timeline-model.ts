@@ -5,6 +5,7 @@
 // heights), so the SVG edge overlay needs no DOM measurement.
 
 import type { Mindlog, NormalizedStep, RunGroup } from "~/lib/types";
+import { formatSpan } from "~/lib/format";
 
 // --- geometry constants (px) ---
 export const GUTTER_W = 72; // wall-clock column
@@ -74,15 +75,6 @@ export interface TimelineLayout {
   totalWidth: number;
   /** hh:mm:ss gutter label per row ("" = same as previous row) */
   rowClock: string[];
-}
-
-function fmtGap(ms: number): string {
-  const s = Math.round(ms / 1000);
-  if (s < 90) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 90) return `${m}m ${s % 60}s`;
-  const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
 }
 
 // Local wall clock. Mind logs can mix timezone offsets (steps written from
@@ -233,7 +225,7 @@ export function buildTimeline(mindlog: Pick<Mindlog, "steps" | "runs">): Timelin
     if (prevMs && stepMs) {
       const delta = stepMs - prevMs;
       if (delta > GAP_THRESHOLD_MS) {
-        gaps.push({ row: pushRow(GAP_ROW_H, ""), label: fmtGap(delta) });
+        gaps.push({ row: pushRow(GAP_ROW_H, ""), label: formatSpan(delta) ?? "" });
       }
     }
     if (stepMs) prevMs = stepMs;
@@ -268,7 +260,7 @@ export function buildTimeline(mindlog: Pick<Mindlog, "steps" | "runs">): Timelin
       const chain = idleChain.get(step.step_id);
       if (chain) {
         cell.idleCount = chain.count;
-        cell.idleSpan = fmtGap(chain.spanMs);
+        cell.idleSpan = formatSpan(chain.spanMs) ?? "0s";
       }
       cells.push(cell);
       cellByStepId.set(step.step_id, cell);
@@ -281,6 +273,11 @@ export function buildTimeline(mindlog: Pick<Mindlog, "steps" | "runs">): Timelin
   // which keeps growing while live — so a legacy member-less header stays
   // a point block instead of stretching to the bottom of the log.
   const lastRow = rowH.length - 1;
+  // Dated-row indices (rowMs > 0): strictly ascending timestamps, so the
+  // per-block search below binary-searches this instead of every row —
+  // timestamp-less rows (gap dividers) can never be a block's end anyway.
+  const datedRows: number[] = [];
+  for (let r = 0; r <= lastRow; r++) if (rowMs[r] > 0) datedRows.push(r);
   for (const block of blocks) {
     let endMs = block.run.ended_ts ? epoch(block.run.ended_ts) : 0;
     if (!endMs) {
@@ -290,11 +287,19 @@ export function buildTimeline(mindlog: Pick<Mindlog, "steps" | "runs">): Timelin
       }
     }
     if (!endMs) continue;
-    let end = block.startRow;
-    for (let r = block.startRow + 1; r <= lastRow; r++) {
-      if (rowMs[r] && rowMs[r] <= endMs) end = r;
+    let lo = 0;
+    let hi = datedRows.length - 1;
+    let best = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (rowMs[datedRows[mid]] <= endMs) {
+        best = datedRows[mid];
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
     }
-    block.endRow = end;
+    block.endRow = best > block.startRow ? best : block.startRow;
   }
 
   // Mark cells sitting inside a same-lane block's span (steps the run wrote

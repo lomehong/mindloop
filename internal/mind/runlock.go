@@ -58,6 +58,24 @@ func RequestStopDir(tlDir string) error {
 	return nil
 }
 
+// ClearStopFlag 清除可能残留的停机标志。必须在 TryRunLock 返回
+// owned=true 之后、Dispatcher.Run 之前调用——运行锁的单实例语义
+// 保证此刻没有并发的标志消费者。事故场景：mind stop 写下标志时
+// 调度器已经死了，标志没有消费者删除，残留到下一次启动会让调度器
+// 在首个心跳"启动即优雅退出"，chat 接管模式下更是表象正常、心智
+// 已死。web 侧早已自己清理（handleThinkersAll），CLI 侧经此 API
+// 统一对齐。
+func ClearStopFlag(tl *traj.Timeline) error { return ClearStopFlagDir(tl.Dir) }
+
+// ClearStopFlagDir 是 ClearStopFlag 的目录形态——调用方手里只有
+// 身份目录时用同一套实现。文件不存在是正常状态，不算错误。
+func ClearStopFlagDir(tlDir string) error {
+	if err := os.Remove(filepath.Join(controlDir(tlDir), "stop")); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 func (d *Dispatcher) stopPath() string {
 	return filepath.Join(d.tl.Dir, "run", "stop")
 }

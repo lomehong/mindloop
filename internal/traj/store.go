@@ -92,7 +92,7 @@ func createAt(ctx context.Context, root, slug string, parent *Timeline) (*Timeli
 		return nil, fmt.Errorf("mindloop: mkdir %s: %w", dir, err)
 	}
 	t := &Timeline{ID: id, Slug: slug, Dir: dir, Path: filepath.Join(dir, fileName)}
-	header := Step{Type: "trajectory", StepID: id, TS: NowString(), Fields: map[string]any{"slug": slug}}
+	header := Step{Type: TypeTrajectory, StepID: id, TS: NowString(), Fields: map[string]any{"slug": slug}}
 
 	if parent == nil {
 		if err := t.writeStep(header); err != nil {
@@ -120,7 +120,7 @@ func createAt(ctx context.Context, root, slug string, parent *Timeline) (*Timeli
 		os.RemoveAll(dir)
 		return nil, err
 	}
-	fork := Step{Type: "fork", StepID: forkStep, TS: NowString(), Fields: map[string]any{
+	fork := Step{Type: TypeFork, StepID: forkStep, TS: NowString(), Fields: map[string]any{
 		"child":     t.ID,
 		"child_ref": down,
 	}}
@@ -144,8 +144,8 @@ func (t *Timeline) Header() (Step, error) {
 	if err != nil {
 		return Step{}, fmt.Errorf("mindloop: %s 头行: %w", t.Path, err)
 	}
-	if s.Type != "trajectory" {
-		return Step{}, fmt.Errorf("mindloop: %s 第一行类型是 %q，不是 trajectory", t.Path, s.Type)
+	if s.Type != TypeTrajectory {
+		return Step{}, fmt.Errorf("mindloop: %s 第一行类型是 %q，不是 %s", t.Path, s.Type, TypeTrajectory)
 	}
 	return s, nil
 }

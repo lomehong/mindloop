@@ -22,7 +22,6 @@ import type {
   Recap,
   Usage,
   SelfUpdateResult,
-  SkillEntry,
   SkillsView,
   StepDetail,
   SubTrajectory,
@@ -476,4 +475,182 @@ export const IN_PROGRESS_POLL_MS = 2000;
 
 export function pollWhileLive(live: boolean | undefined): number | false {
   return live ? IN_PROGRESS_POLL_MS : false;
+}
+
+// ---- 流式回复（SSE）：GET /api/identities/{id}/replies/stream ----
+
+/** 非回环 Token 部署的 Bearer 凭据：优先取 URL ?token=（取到即存入
+ * localStorage，刷新后仍有效），否则读 localStorage 的 mindloop-web-token。
+ * 常规回环部署没有 token——返回空串，行为与现状一致（不带 Authorization）。 */
+const WEB_TOKEN_KEY = "mindloop-web-token";
+
+export function webToken(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get("token");
+    if (fromUrl) {
+      window.localStorage.setItem(WEB_TOKEN_KEY, fromUrl);
+      return fromUrl;
+    }
+    return window.localStorage.getItem(WEB_TOKEN_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function authHeaders(): Record<string, string> {
+  const token = webToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export interface BusyThinker {
+  thinker: string;
+  wake: string;
+  since: string;
+}
+
+export type ReplyStreamEvent =
+  | { type: "status"; replying: boolean; reply_to: string }
+  | { type: "delta"; reply_to: string; text: string }
+  | { type: "done"; reply_to: string }
+  | { type: "working"; working: boolean; busy: BusyThinker[] }
+  | {
+      type: "step";
+      step_id: string;
+      /** 线上的步骤类型（reasoning/action/shell-output/…）；判别字段
+       * type 已被事件名占用，故改名 step_type 承载。 */
+      step_type: string;
+      ts: string;
+      excerpt: string;
+    };
+
+/** 解析一条 SSE 载荷为 ReplyStreamEvent；未知事件名或坏 JSON 返回 null——
+ * 协议演进（新增事件类型）不能让一个坏事件断开整条流。 */
+function parseReplyStreamEvent(
+  name: string,
+  data: string
+): ReplyStreamEvent | null {
+  try {
+    const payload = JSON.parse(data) as Record<string, unknown>;
+    if (name === "status") {
+      return {
+        type: "status",
+        replying: Boolean(payload.replying),
+        reply_to: String(payload.reply_to ?? ""),
+      };
+    }
+    if (name === "delta") {
+      return {
+        type: "delta",
+        reply_to: String(payload.reply_to ?? ""),
+        text: String(payload.text ?? ""),
+      };
+    }
+    if (name === "done") {
+      return { type: "done", reply_to: String(payload.reply_to ?? "") };
+    }
+    if (name === "working") {
+      const busy = Array.isArray(payload.busy) ? payload.busy : [];
+      return {
+        type: "working",
+        working: Boolean(payload.working),
+        busy: busy.map((entry) => {
+          const e = entry as Record<string, unknown>;
+          return {
+            thinker: String(e.thinker ?? ""),
+            wake: String(e.wake ?? ""),
+            since: String(e.since ?? ""),
+          };
+        }),
+      };
+    }
+    if (name === "step") {
+      return {
+        type: "step",
+        step_id: String(payload.step_id ?? ""),
+        step_type: String(payload.type ?? ""),
+        ts: String(payload.ts ?? ""),
+        excerpt: String(payload.excerpt ?? ""),
+      };
+    }
+  } catch {
+    // 坏 JSON：忽略该事件，流继续。
+  }
+  return null;
+}
+
+/** SSE 字段值：冒号后至多一个前导空格按规范剥掉，其余原样保留。 */
+function fieldValue(line: string, field: string): string {
+  const value = line.slice(field.length);
+  return value.startsWith(" ") ? value.slice(1) : value;
+}
+
+/** 打开回复流并逐事件回调，直到连接关闭、出错或 abort。按 SSE 规范解析
+ * event:/data: 行（多行 data 以 \n 连接）、忽略 `:` 注释行（15s ping 保
+ * 活）；事件以空行分界，流意外结束时也会派发已累积的未决事件。HTTP 非
+ * 2xx 抛错（404 = 旧后端无此端点，由调用方按重连/退化策略处理）。
+ * 用 fetch + ReadableStream 而非 EventSource：请求需带 Authorization 头
+ * 以支持非回环 Token 部署，EventSource 无法自定义请求头。 */
+export async function openReplyStream(
+  identityId: string,
+  onEvent: (event: ReplyStreamEvent) => void,
+  signal?: AbortSignal,
+  onOpen?: () => void
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/api/identities/${encodeURIComponent(identityId)}/replies/stream`,
+    { headers: { Accept: "text/event-stream", ...authHeaders() }, signal }
+  );
+  if (!response.ok) {
+    throw new Error(await errorMessage(response));
+  }
+  if (!response.body) {
+    throw new Error("流式响应没有可读体（response.body 为空）");
+  }
+  onOpen?.();
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let eventName = "";
+  const dataLines: string[] = [];
+  const dispatch = () => {
+    if (!eventName && dataLines.length === 0) return;
+    const event = parseReplyStreamEvent(eventName, dataLines.join("\n"));
+    eventName = "";
+    dataLines.length = 0;
+    if (event) onEvent(event);
+  };
+  const handleLine = (line: string) => {
+    if (line === "") {
+      dispatch();
+      return;
+    }
+    if (line.startsWith(":")) return; // 注释行（ping 保活）
+    if (line.startsWith("event:")) {
+      eventName = fieldValue(line, "event:");
+      return;
+    }
+    if (line.startsWith("data:")) {
+      dataLines.push(fieldValue(line, "data:"));
+      return;
+    }
+    // 其他 SSE 字段（id:/retry:）本协议未用，忽略。
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx: number;
+    // 兼容 \n 与 \r\n 两种行界。
+    while ((idx = buffer.indexOf("\n")) >= 0) {
+      let line = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 1);
+      if (line.endsWith("\r")) line = line.slice(0, -1);
+      handleLine(line);
+    }
+  }
+  // 流收尾：冲洗解码器残留的多字节序列与未换行的最后一行，再派发未决事件。
+  const tail = decoder.decode();
+  if (tail) handleLine(tail);
+  dispatch();
 }

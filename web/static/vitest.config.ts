@@ -2,8 +2,8 @@
 // (its vite plugin wants a full app context), so this config carries only
 // the path alias the app code relies on.
 //
-// Run with `bun run test`. The viewer CI job runs this before typecheck and
-// the production build.
+// Run with `npm run test`. The viewer CI job (npm ci) runs typecheck, this
+// suite, and the production build.
 import tsconfigPaths from "vite-tsconfig-paths";
 import { defineConfig } from "vitest/config";
 

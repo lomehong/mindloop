@@ -1,6 +1,7 @@
 package web
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"strings"
 
@@ -43,11 +44,28 @@ func (s *Server) routes() {
 
 	// /assets/* 与 /favicon.ico —— viewer 构建产物
 	if s.cfg.ViewerDir != "" {
-		s.mux.Handle("/assets/", http.StripPrefix("/assets/",
-			http.FileServer(http.Dir(s.cfg.ViewerDir+"/assets"))))
+		// 资产文件名带内容哈希，可永久缓存。
+		assets := http.StripPrefix("/assets/",
+			http.FileServer(http.Dir(s.cfg.ViewerDir+"/assets")))
+		s.mux.Handle("/assets/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			assets.ServeHTTP(w, r)
+		}))
 		s.mux.HandleFunc("/favicon.ico", s.favicon)
 		s.mux.HandleFunc("/fonts/", func(w http.ResponseWriter, r *http.Request) {
 			http.StripPrefix("/fonts/", http.FileServer(http.Dir(s.cfg.ViewerDir+"/fonts"))).ServeHTTP(w, r)
+		})
+		s.mux.Handle("/icons/", http.StripPrefix("/icons/",
+			http.FileServer(http.Dir(s.cfg.ViewerDir+"/icons"))))
+		// PWA 辅助文件必须直出真实内容——落到 SPA catch-all 会拿到
+		// index.html，service worker 注册静默失败。
+		s.mux.HandleFunc("/sw.js", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-cache")
+			http.ServeFile(w, r, s.cfg.ViewerDir+"/sw.js")
+		})
+		s.mux.HandleFunc("/manifest.webmanifest", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-cache")
+			http.ServeFile(w, r, s.cfg.ViewerDir+"/manifest.webmanifest")
 		})
 	}
 
@@ -59,6 +77,9 @@ func (s *Server) routes() {
 				http.NotFound(w, r)
 				return
 			}
+			// index.html 是部署的指针：永远重新校验，否则浏览器
+			// 启发式缓存会让旧构建在新部署后继续存活。
+			w.Header().Set("Cache-Control", "no-cache")
 			http.ServeFile(w, r, indexPath)
 		})
 	}
@@ -138,7 +159,8 @@ func validThinkerPathParam(w http.ResponseWriter, name string) bool {
 
 // withAuth 是 Token 鉴权中间件。Token 为空则放行（默认本机安全，
 // 且 New() 强制非回环绑定必须配 Token）；非空则所有 /api/* 必须带
-// Authorization: Bearer <token>。
+// Authorization: Bearer <token>。比较用 constant-time（先比长度）：
+// Token 是局域网暴露场景的唯一防线，不能给时序侧信道留缝。
 func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.Token == "" {
@@ -147,7 +169,9 @@ func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 		const prefix = "Bearer "
 		auth := r.Header.Get("Authorization")
-		if !strings.HasPrefix(auth, prefix) || auth[len(prefix):] != s.cfg.Token {
+		if !strings.HasPrefix(auth, prefix) ||
+			len(auth)-len(prefix) != len(s.cfg.Token) ||
+			subtle.ConstantTimeCompare([]byte(auth[len(prefix):]), []byte(s.cfg.Token)) != 1 {
 			writeError(w, http.StatusUnauthorized, "未认证（需要 Authorization: Bearer <token>）")
 			return
 		}

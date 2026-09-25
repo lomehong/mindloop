@@ -5,6 +5,7 @@ package sandbox
 import (
 	"errors"
 	"fmt"
+	"os/exec"
 	"syscall"
 	"unsafe"
 )
@@ -89,6 +90,11 @@ func newJob(memLimit uint64) (*job, error) {
 	}
 	return &job{handle: syscall.Handle(h)}, nil
 }
+
+// prepare 在进程启动前挂钩子。Windows 的 Job Object 在启动后
+// AssignProcessToJobObject 即可完成管辖，启动前无需准备
+// （POSIX 版在此挂 Setpgid）。
+func (j *job) prepare(_ *exec.Cmd) {}
 
 // assignPID 把进程纳入 job。不在启动前挂起再分配，存在子进程在
 // 分配前逃逸的理论窗口（极小）；杀树时另有兜底。

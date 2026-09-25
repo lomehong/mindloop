@@ -16,36 +16,48 @@
 // Lanes can be collapsed (narrow square-strip), hidden, and reordered; all
 // three are URL-persisted (?collapsed= / ?hidden= / ?laneorder=).
 
-import {
-  ArrowDownToLine,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeftRight,
-  ChevronsRightLeft,
-  EyeOff,
-  Pause,
-} from "lucide-react";
+import { EyeOff } from "lucide-react";
+import { useTheme } from "next-themes";
 import { parseAsString, useQueryState } from "nuqs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { StepModal } from "~/components/mindlog-search";
 import {
-  Modal,
-  TimelineDetailModal,
-  type TimelineSelection,
-} from "~/components/timeline-detail";
+  blockRoute,
+  blockTitle,
+  roundedPath,
+} from "~/components/timeline-geometry";
+import {
+  CELL,
+  CELL_PAD,
+  COLLAPSED_W,
+  DARK_PALETTE,
+  LANE_GAP,
+  LIGHT_PALETTE,
+  ROW_CLICK_H,
+  BLOCK_INSET,
+  NEST_PAD,
+} from "~/components/timeline-palette";
+import {
+  EdgeLayer,
+  FollowPill,
+  LaneHeader,
+  RunBlockButton,
+  RunChip,
+  StepCellButton,
+  TimelineModals,
+  useHoverGhost,
+} from "~/components/timeline-parts";
+import type { TimelineSelection } from "~/components/timeline-detail";
 import { useTrajContext } from "~/lib/traj-context";
-import { timelineColor } from "~/lib/step-colors";
+import { formatDuration } from "~/lib/format";
 import {
   GUTTER_W,
   HEADER_H,
   LANE_W,
   MID_ROW_H,
   MONO_LANE_W,
-  ROW_H,
   TALL_ROW_H,
   rowCenterY,
-  type EdgeKind,
   type TimelineBlock,
   type TimelineCell,
   type TimelineLane,
@@ -53,100 +65,6 @@ import {
 } from "~/lib/timeline-model";
 import type { NormalizedStep } from "~/lib/types";
 import { cn } from "~/lib/utils";
-
-const EDGE_STROKE: Record<EdgeKind, string> = {
-  trigger: "#f59e0b", // amber-500 — step that caused a run
-  dispatch: "#38bdf8", // sky-400 — step that woke a thinker
-  assoc: "#60a5fa", // blue-400 — run -> step it wrote
-  merge: "#e879f9", // fuchsia-400 — fork -> merge write-back
-};
-
-// Retro-future skin: the canvas is an always-dark neon panel (independent
-// of the app theme), so everything inside uses fixed colors, not theme
-// tokens. Deep-space base + laser grid + glows.
-const CANVAS_BG = "#0a0420";
-const CANVAS_GRID =
-  "linear-gradient(rgba(34,211,238,0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,0.055) 1px, transparent 1px)";
-
-const CELL = 12; // square size
-const ROW_CLICK_H = 20; // click target taller than the square
-const COLLAPSED_W = 40;
-const LANE_GAP = 24; // inter-lane gutter, reserved for edge routing
-const CELL_PAD = 8; // lane-edge padding for cells/blocks
-const BLOCK_INSET = CELL_PAD - 2; // block edge inset from the lane edge
-const NEST_PAD = 10; // nested steps align with the block's inner padding
-
-function durationOf(started: string, ended: string | null): string | null {
-  if (!started || !ended) return null;
-  const ms = new Date(ended).getTime() - new Date(started).getTime();
-  if (Number.isNaN(ms) || ms < 0) return null;
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
-  return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
-}
-
-function blockTitle(block: TimelineBlock): string {
-  if (block.run.tldr) return block.run.tldr;
-  const cmd = block.run.command;
-  const idx = cmd.lastIndexOf("ACTION:");
-  if (idx >= 0) return cmd.slice(idx + 7).replace(/\s+/g, " ").trim();
-  // The final response beats the prompt: reuse-traj runs (the monolith
-  // router) share one boilerplate prompt every wakeup, so the outcome is
-  // the only text that distinguishes one run from the next.
-  const final = block.members.filter((m) => m.type === "final").at(-1);
-  if (final?.preview) return final.preview;
-  const prompt = block.members.find((m) => m.type === "prompt");
-  if (prompt?.preview) return prompt.preview;
-  return cmd.replace(/\s+/g, " ").trim() || "shellm run";
-}
-
-/* What the run DID, from the steps it wrote back to the mind log — the
- * monolith's route choice (reply/act/think/idle) in one word. Priority
- * order: an outward message outranks a mere observation, etc. */
-const ROUTE_BY_WROTE: [string, string][] = [
-  ["message", "reply"],
-  ["observation", "act"],
-  ["thought", "think"],
-  ["idle", "idle"],
-];
-
-function blockRoute(
-  block: TimelineBlock,
-  cells: TimelineCell[]
-): string | null {
-  const wrote = new Set<string>();
-  for (const cell of cells) {
-    if (cell.step.raw.run_id === block.run.run_id) wrote.add(cell.step.type);
-  }
-  for (const [type, label] of ROUTE_BY_WROTE) {
-    if (wrote.has(type)) return label;
-  }
-  return null;
-}
-
-/** Orthogonal polyline with rounded corners. */
-function roundedPath(points: { x: number; y: number }[], r = 7): string {
-  if (points.length < 2) return "";
-  let d = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 1; i < points.length - 1; i++) {
-    const p = points[i - 1];
-    const c = points[i];
-    const n = points[i + 1];
-    const inLen = Math.hypot(c.x - p.x, c.y - p.y);
-    const outLen = Math.hypot(n.x - c.x, n.y - c.y);
-    const rr = Math.min(r, inLen / 2, outLen / 2);
-    if (rr < 0.5) {
-      d += ` L ${c.x} ${c.y}`;
-      continue;
-    }
-    const inU = { x: (c.x - p.x) / inLen, y: (c.y - p.y) / inLen };
-    const outU = { x: (n.x - c.x) / outLen, y: (n.y - c.y) / outLen };
-    d += ` L ${c.x - inU.x * rr} ${c.y - inU.y * rr}`;
-    d += ` Q ${c.x} ${c.y} ${c.x + outU.x * rr} ${c.y + outU.y * rr}`;
-  }
-  const last = points[points.length - 1];
-  d += ` L ${last.x} ${last.y}`;
-  return d;
-}
 
 export function TimelineView({
   layout,
@@ -160,7 +78,10 @@ export function TimelineView({
   openStep?: { step: NormalizedStep } | null;
 }) {
   const traj = useTrajContext();
-  const [hovered, setHovered] = useState<string | null>(null);
+  // SPA, no SSR: resolvedTheme starts undefined; render dark until mounted.
+  const { resolvedTheme } = useTheme();
+  const palette = resolvedTheme === "light" ? LIGHT_PALETTE : DARK_PALETTE;
+  const { hovered, setHover } = useHoverGhost();
   const [selected, setSelected] = useState<TimelineSelection | null>(null);
 
   // Deeplinks: ?step= / ?run= mirror the open detail modal, so the address
@@ -201,6 +122,28 @@ export function TimelineView({
     if (openStep) applySelection({ kind: "step", step: openStep.step });
   }, [openStep, applySelection]);
 
+  // Stable handlers for the memoized leaf parts: identical identities let
+  // React.memo skip untouched cells/blocks on hover flips and poll ticks.
+  const openStepDetail = useCallback(
+    (step: NormalizedStep) => applySelection({ kind: "step", step }),
+    [applySelection]
+  );
+  // openRun resolves the block through a ref (kept current further down,
+  // right after blockById is built) so the callback never needs the
+  // per-poll map in its deps.
+  const blockByIdRef = useRef<Map<string, TimelineBlock> | null>(null);
+  const openRun = useCallback((runId: string) => {
+    const block = blockByIdRef.current?.get(runId);
+    if (block) applySelection({ kind: "run", block });
+  }, [applySelection]);
+  const dismissMissing = useCallback(
+    (kind: "step" | "run") => {
+      setMissing(null);
+      void (kind === "step" ? setStepParam(null) : setRunParam(null));
+    },
+    [setStepParam, setRunParam]
+  );
+
   // Lane display state (all URL-persisted, comma-separated lane ids)
   const [collapsedParam, setCollapsedParam] = useQueryState(
     "collapsed",
@@ -223,15 +166,23 @@ export function TimelineView({
     [hiddenParam]
   );
 
-  const toggleLane = (id: string) => {
-    const next = new Set(collapsed);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setCollapsedParam([...next].join(",") || null);
-  };
-  const hideLane = (id: string) => {
-    setHiddenParam([...new Set([...hidden, id])].join(","));
-  };
+  // Lane header controls — memoized LaneHeader consumes these, so keep
+  // their identities stable across renders that don't touch lane state.
+  const toggleLane = useCallback(
+    (id: string) => {
+      const next = new Set(collapsed);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      setCollapsedParam([...next].join(",") || null);
+    },
+    [collapsed, setCollapsedParam]
+  );
+  const hideLane = useCallback(
+    (id: string) => {
+      setHiddenParam([...new Set([...hidden, id])].join(","));
+    },
+    [hidden, setHiddenParam]
+  );
   const unhideLane = (id: string) => {
     const next = new Set(hidden);
     next.delete(id);
@@ -255,14 +206,17 @@ export function TimelineView({
   const disp = (origLane: number): number | undefined =>
     dispIdxById.get(layout.lanes[origLane].id);
 
-  const moveLane = (id: string, dir: -1 | 1) => {
-    const ids = displayLanes.map((l) => l.id);
-    const i = ids.indexOf(id);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= ids.length) return;
-    [ids[i], ids[j]] = [ids[j], ids[i]];
-    setOrderParam(ids.join(","));
-  };
+  const moveLane = useCallback(
+    (id: string, dir: -1 | 1) => {
+      const ids = displayLanes.map((l) => l.id);
+      const i = ids.indexOf(id);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= ids.length) return;
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+      setOrderParam(ids.join(","));
+    },
+    [displayLanes, setOrderParam]
+  );
 
   // Lane x-geometry (display order): a routing gutter precedes every lane
   const { laneX, laneW, width } = useMemo(() => {
@@ -286,21 +240,24 @@ export function TimelineView({
   const bodyHeight = layout.totalHeight;
 
   // New arrivals pop in (a thought arriving). Track what we've already
-  // seen so the initial load doesn't animate everything at once.
+  // seen so the initial load doesn't animate everything at once. The
+  // memo stays pure — it only READS the ref; the ref is written back in
+  // an effect, so StrictMode's double render sees a consistent diff.
   const seenRef = useRef<Set<string> | null>(null);
-  const freshIds = useMemo(() => {
+  const seen = useMemo(() => {
     const ids = new Set<string>();
     for (const cell of layout.cells) ids.add(cell.step.step_id);
     for (const block of layout.blocks) ids.add(block.run.run_id);
-    if (seenRef.current === null) {
-      seenRef.current = ids;
-      return new Set<string>();
-    }
-    const prev = seenRef.current;
-    const fresh = new Set([...ids].filter((id) => !prev.has(id)));
-    seenRef.current = ids;
-    return fresh;
+    return ids;
   }, [layout]);
+  const freshIds = useMemo(() => {
+    const prev = seenRef.current;
+    if (prev === null) return new Set<string>();
+    return new Set([...seen].filter((id) => !prev.has(id)));
+  }, [seen]);
+  useEffect(() => {
+    seenRef.current = seen;
+  }, [seen]);
 
   // Follow mode: the timeline scrolls inside its own container (so the lane
   // header can stick); while pinned to the bottom, new rows scroll into view.
@@ -323,6 +280,10 @@ export function TimelineView({
     const el = scrollRef.current;
     if (el && pinned) el.scrollTop = el.scrollHeight;
   }, [bodyHeight, pinned]);
+  const resumeFollow = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, []);
 
   // --- geometry helpers (display coordinates; null when the lane is hidden) --
 
@@ -359,6 +320,19 @@ export function TimelineView({
     for (const block of layout.blocks) m.set(block.run.run_id, block);
     return m;
   }, [layout.blocks]);
+  useEffect(() => {
+    blockByIdRef.current = blockById;
+  }, [blockById]);
+
+  // Run route labels for the summary chips — one O(cells) pass per layout
+  // instead of per chip per render (was O(blocks × cells) each render).
+  const routeByRunId = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const block of layout.blocks) {
+      m.set(block.run.run_id, blockRoute(block, layout.cells));
+    }
+    return m;
+  }, [layout.blocks, layout.cells]);
 
   // Every step (cells + run members), for the modal's related-item lookups
   const stepById = useMemo(() => {
@@ -536,16 +510,6 @@ export function TimelineView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layout, cellById, blockById, laneX, laneW, collapsed, dispIdxById]);
 
-  // Tiered visibility: triggers always on; the rest ghost until hovered.
-  const edgeStyle = (edge: (typeof layout.edges)[number]) => {
-    const hot = hovered !== null && (edge.fromId === hovered || edge.toId === hovered);
-    if (hot) return { opacity: 1, width: 2.2, halo: true };
-    if (hovered !== null)
-      return { opacity: edge.kind === "trigger" ? 0.12 : 0.05, width: 1.25, halo: false };
-    if (edge.kind === "trigger") return { opacity: 0.7, width: 1.5, halo: true };
-    return { opacity: 0.14, width: 1.25, halo: false };
-  };
-
   return (
     <div className="relative">
       {hidden.size > 0 && (
@@ -567,101 +531,37 @@ export function TimelineView({
       )}
       <div
         ref={scrollRef}
-        className="overflow-auto rounded-lg border border-cyan-400/25 shadow-[0_0_24px_rgba(34,211,238,0.12)]"
-        style={{ maxHeight: "calc(100vh - 210px)", backgroundColor: CANVAS_BG }}
+        className={cn("overflow-auto rounded-lg border", palette.frame)}
+        style={{ maxHeight: "calc(100vh - 210px)", backgroundColor: palette.canvasBg }}
       >
         <div
           className="relative"
           style={{
             width,
             minWidth: "100%",
-            backgroundImage: CANVAS_GRID,
+            backgroundImage: palette.canvasGrid,
             backgroundSize: "28px 28px",
           }}
         >
           {/* sticky lane headers */}
           <div
-            className="sticky top-0 z-20 border-b border-cyan-400/25 backdrop-blur"
-            style={{ height: HEADER_H, width, backgroundColor: "rgba(13,5,38,0.92)" }}
+            className={cn("sticky top-0 z-20 border-b backdrop-blur", palette.headerBorder)}
+            style={{ height: HEADER_H, width, backgroundColor: palette.headerBg }}
           >
-            {displayLanes.map((lane, i) => {
-              const isCollapsed = collapsed.has(lane.id);
-              if (isCollapsed) {
-                return (
-                  <button
-                    key={lane.id}
-                    type="button"
-                    onClick={() => toggleLane(lane.id)}
-                    title={`expand ${lane.label}`}
-                    style={{ left: laneX[i], width: laneW[i], height: HEADER_H }}
-                    className="absolute top-0 flex items-center justify-center rounded-t bg-cyan-300/[0.06] hover:bg-cyan-300/[0.14]"
-                  >
-                    <ChevronsLeftRight className="h-3 w-3 shrink-0 text-cyan-400/70" />
-                  </button>
-                );
-              }
-              const neon =
-                lane.kind === "chat"
-                  ? "text-fuchsia-300"
-                  : lane.kind === "shellm"
-                    ? "text-purple-300/80"
-                    : "text-cyan-300";
-              const neonGlow =
-                lane.kind === "chat"
-                  ? "0 0 10px rgba(240,171,252,0.55)"
-                  : "0 0 10px rgba(103,232,249,0.55)";
-              return (
-                <div
-                  key={lane.id}
-                  style={{ left: laneX[i], width: laneW[i], height: HEADER_H }}
-                  className="group absolute top-0 flex items-center gap-0.5 overflow-hidden rounded-t bg-cyan-300/[0.06] pl-2 pr-1"
-                >
-                  <span
-                    className={cn(
-                      "min-w-0 flex-1 truncate font-mono text-xs uppercase tracking-widest",
-                      neon
-                    )}
-                    style={{ textShadow: neonGlow }}
-                  >
-                    {lane.label}
-                  </span>
-                  <span className="flex shrink-0 items-center opacity-0 group-hover:opacity-100">
-                    <button
-                      type="button"
-                      onClick={() => moveLane(lane.id, -1)}
-                      title="左移"
-                      className="rounded p-0.5 text-cyan-400/60 hover:bg-cyan-300/10 hover:text-cyan-200"
-                    >
-                      <ChevronLeft className="h-3 w-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => moveLane(lane.id, 1)}
-                      title="右移"
-                      className="rounded p-0.5 text-cyan-400/60 hover:bg-cyan-300/10 hover:text-cyan-200"
-                    >
-                      <ChevronRight className="h-3 w-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => toggleLane(lane.id)}
-                      title={`收起 ${lane.label}`}
-                      className="rounded p-0.5 text-cyan-400/60 hover:bg-cyan-300/10 hover:text-cyan-200"
-                    >
-                      <ChevronsRightLeft className="h-3 w-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => hideLane(lane.id)}
-                      title={`隐藏 ${lane.label}`}
-                      className="rounded p-0.5 text-cyan-400/60 hover:bg-cyan-300/10 hover:text-cyan-200"
-                    >
-                      <EyeOff className="h-3 w-3" />
-                    </button>
-                  </span>
-                </div>
-              );
-            })}
+            {displayLanes.map((lane, i) => (
+              <LaneHeader
+                key={lane.id}
+                lane={lane}
+                left={laneX[i]}
+                width={laneW[i]}
+                headerH={HEADER_H}
+                isCollapsed={collapsed.has(lane.id)}
+                palette={palette}
+                onToggle={toggleLane}
+                onHide={hideLane}
+                onMove={moveLane}
+              />
+            ))}
           </div>
 
           {/* body */}
@@ -673,7 +573,7 @@ export function TimelineView({
                 key={lane.id}
                 className={cn(
                   "absolute top-0 rounded-b",
-                  collapsed.has(lane.id) ? "bg-cyan-300/[0.09]" : "bg-cyan-300/[0.045]"
+                  collapsed.has(lane.id) ? palette.laneFillCollapsed : palette.laneFill
                 )}
                 style={{ left: laneX[i], width: laneW[i], height: bodyHeight }}
               />
@@ -684,7 +584,10 @@ export function TimelineView({
               label ? (
                 <div
                   key={row}
-                  className="absolute pr-2 text-right font-mono text-[9px] leading-none text-cyan-400/50"
+                  className={cn(
+                    "absolute pr-2 text-right font-mono text-[9px] leading-none",
+                    palette.clock
+                  )}
                   style={{ left: 0, width: GUTTER_W, top: rowCenterY(layout, row) - 4 }}
                 >
                   {label}
@@ -704,85 +607,49 @@ export function TimelineView({
                   height: layout.rowH[gap.row],
                 }}
               >
-                <span className="h-px flex-1 border-t border-dashed border-fuchsia-400/30" />
+                <span className={cn("h-px flex-1 border-t border-dashed", palette.gapBorder)} />
                 <span
-                  className="font-mono text-[10px] text-fuchsia-300/70"
-                  style={{ textShadow: "0 0 8px rgba(240,171,252,0.4)" }}
+                  className={cn("font-mono text-[10px]", palette.gapText)}
+                  style={{ textShadow: palette.gapGlow }}
                 >
                   {gap.label}
                 </span>
-                <span className="h-px flex-1 border-t border-dashed border-fuchsia-400/30" />
+                <span className={cn("h-px flex-1 border-t border-dashed", palette.gapBorder)} />
               </div>
             ))}
 
             {/* edges */}
-            <svg
-              className="pointer-events-none absolute left-0 top-0"
+            <EdgeLayer
+              paths={edgePaths}
               width={width}
               height={bodyHeight}
-            >
-              {/* No arrowheads: time flows down, so direction is implied —
-                  endpoints are dots (source small, target larger). */}
-              {edgePaths.map(({ edge, d, start, end }) => {
-                const s = edgeStyle(edge);
-                const color = EDGE_STROKE[edge.kind];
-                return (
-                  <g key={edge.id} opacity={s.opacity}>
-                    {s.halo && (
-                      <path
-                        d={d}
-                        fill="none"
-                        stroke={CANVAS_BG}
-                        strokeWidth={s.width + 2.5}
-                      />
-                    )}
-                    {/* neon under-glow */}
-                    <path
-                      d={d}
-                      fill="none"
-                      stroke={color}
-                      strokeWidth={s.width * 3 + 2}
-                      opacity={0.22}
-                    />
-                    <path d={d} fill="none" stroke={color} strokeWidth={s.width} />
-                    <circle cx={start.x} cy={start.y} r={s.width + 0.5} fill={color} />
-                    <circle cx={end.x} cy={end.y} r={s.width + 1.5} fill={color} />
-                  </g>
-                );
-              })}
-            </svg>
+              hovered={hovered}
+              palette={palette}
+            />
 
             {/* run blocks (background + border; the summary chip is painted
                 in a separate layer above the cells, see below) */}
             {layout.blocks.map((block) => {
               const r = blockRect(block);
               if (!r) return null; // hidden lane
-              const running = block.open && live;
-              const hot = hovered === block.run.run_id;
               return (
-                <button
+                <RunBlockButton
                   key={block.run.run_id}
-                  type="button"
-                  onClick={() => applySelection({ kind: "run", block })}
-                  onMouseEnter={() => setHovered(block.run.run_id)}
-                  onMouseLeave={() => setHovered(null)}
-                  className={cn(
-                    "absolute z-10 rounded-md border text-left",
-                    "border-cyan-400/50 bg-cyan-400/[0.06] hover:bg-cyan-400/[0.12]",
-                    running && "animate-pulse",
-                    hot && "ring-2 ring-cyan-300/70",
-                    freshIds.has(block.run.run_id) && "tl-pop",
-                    flashId === block.run.run_id && "tl-flash"
-                  )}
-                  style={{
+                  run={block.run}
+                  title={blockTitle(block)}
+                  rect={{
                     left: r.left,
                     width: r.right - r.left,
                     top: r.top,
                     height: Math.max(r.bottom - r.top, 24),
-                    boxShadow:
-                      "0 0 10px rgba(34,211,238,0.22), inset 0 0 22px rgba(34,211,238,0.05)",
                   }}
-                  title={`[run] ${blockTitle(block)}`}
+                  running={block.open && live}
+                  hot={hovered === block.run.run_id}
+                  fresh={freshIds.has(block.run.run_id)}
+                  flash={flashId === block.run.run_id}
+                  palette={palette}
+                  onOpen={openRun}
+                  onHover={setHover}
                 />
               );
             })}
@@ -793,7 +660,6 @@ export function TimelineView({
               if (squareX === null) return null; // hidden lane
               const d = disp(cell.lane)!;
               const y = rowCenterY(layout, cell.row);
-              const hot = hovered === cell.step.step_id;
               const isCollapsed = collapsed.has(layout.lanes[cell.lane].id);
               // preview depth follows the row height the model assigned
               const lines =
@@ -804,17 +670,12 @@ export function TimelineView({
                     : 1;
               const clickH = lines === 3 ? 46 : lines === 2 ? 34 : ROW_CLICK_H;
               return (
-                <button
+                <StepCellButton
                   key={cell.step.step_id}
-                  type="button"
-                  onClick={() => applySelection({ kind: "step", step: cell.step })}
-                  onMouseEnter={() => setHovered(cell.step.step_id)}
-                  onMouseLeave={() => setHovered(null)}
-                  className={cn(
-                    "absolute z-10 flex items-center gap-1.5 text-left",
-                    freshIds.has(cell.step.step_id) && "tl-pop"
-                  )}
-                  style={
+                  step={cell.step}
+                  idleCount={cell.idleCount}
+                  idleSpan={cell.idleSpan}
+                  rect={
                     isCollapsed
                       ? {
                           left: squareX - CELL / 2 - 2,
@@ -833,48 +694,15 @@ export function TimelineView({
                           height: clickH,
                         }
                   }
-                  title={
-                    cell.idleCount
-                      ? `[idle ×${cell.idleCount}] ${cell.idleSpan} quiet`
-                      : `[${cell.step.type}] ${cell.step.preview}`
-                  }
-                >
-                  <span
-                    className={cn(
-                      "shrink-0 rounded-sm",
-                      timelineColor(cell.step.type),
-                      hot && "ring-2 ring-cyan-200/60",
-                      flashId === cell.step.step_id && "tl-flash"
-                    )}
-                    style={{
-                      width: CELL,
-                      height: CELL,
-                      boxShadow:
-                        cell.step.type === "idle"
-                          ? undefined
-                          : "0 0 6px rgba(255,255,255,0.28)",
-                    }}
-                  />
-                  {!isCollapsed && (
-                    <span
-                      className={cn(
-                        "min-w-0 flex-1 text-[10px]",
-                        lines === 3
-                          ? "line-clamp-3 break-words leading-[13px]"
-                          : lines === 2
-                            ? "line-clamp-2 break-words leading-[13px]"
-                            : "truncate leading-none",
-                        cell.step.type === "idle"
-                          ? "text-slate-500/60"
-                          : "text-slate-300/90"
-                      )}
-                    >
-                      {cell.idleCount
-                        ? `idle ×${cell.idleCount} · ${cell.idleSpan}`
-                        : cell.step.preview || cell.step.type}
-                    </span>
-                  )}
-                </button>
+                  lines={lines}
+                  isCollapsed={isCollapsed}
+                  hot={hovered === cell.step.step_id}
+                  fresh={freshIds.has(cell.step.step_id)}
+                  flash={flashId === cell.step.step_id}
+                  palette={palette}
+                  onOpen={openStepDetail}
+                  onHover={setHover}
+                />
               );
             })}
 
@@ -885,148 +713,60 @@ export function TimelineView({
               const r = blockRect(block);
               if (!r || r.collapsed) return null;
               const iters = block.members.filter((m) => m.type === "shell-output").length;
-              const duration = durationOf(block.run.started_ts, block.run.ended_ts);
-              const route = blockRoute(block, layout.cells);
+              const duration = formatDuration(block.run.started_ts, block.run.ended_ts);
+              const route = routeByRunId.get(block.run.run_id) ?? null;
               return (
-                <div
+                <RunChip
                   key={`chip-${block.run.run_id}`}
-                  className="pointer-events-none absolute z-10 flex flex-col px-1.5 py-1"
-                  style={{
+                  run={block.run}
+                  title={blockTitle(block)}
+                  route={route}
+                  duration={duration}
+                  iters={iters}
+                  live={live}
+                  rect={{
                     left: r.left,
                     width: r.right - r.left,
                     top: r.top,
                     height: Math.max(r.bottom - r.top, 24),
                   }}
-                >
-                  {/* sticky so long blocks keep their summary in view mid-scroll */}
-                  <button
-                    type="button"
-                    onClick={() => applySelection({ kind: "run", block })}
-                    onMouseEnter={() => setHovered(block.run.run_id)}
-                    onMouseLeave={() => setHovered(null)}
-                    className="pointer-events-auto sticky flex w-full flex-col rounded border border-cyan-400/40 px-1.5 py-0.5 text-left"
-                    style={{
-                      top: HEADER_H + 4,
-                      backgroundColor: "#120b32",
-                      boxShadow: "0 0 8px rgba(34,211,238,0.25)",
-                    }}
-                    title={`[run] ${blockTitle(block)}`}
-                  >
-                    <span
-                      className="line-clamp-2 w-full break-words text-[11px] italic leading-4 text-cyan-100"
-                      style={{ textShadow: "0 0 6px rgba(103,232,249,0.4)" }}
-                    >
-                      {blockTitle(block)}
-                    </span>
-                    <span className="w-full truncate font-mono text-[9px] leading-4 text-cyan-300/60">
-                      {route && (
-                        <span className="text-fuchsia-300/90">→ {route} · </span>
-                      )}
-                      {block.open && !block.run.ended_ts
-                        ? live
-                          ? "running"
-                          : "incomplete"
-                        : duration ?? "done"}
-                      {iters > 0 && <> · {iters} iter</>}
-                      {block.run.model && (
-                        <> · {block.run.model.replace(/^claude-/, "")}</>
-                      )}
-                    </span>
-                  </button>
-                </div>
+                  headerH={HEADER_H}
+                  palette={palette}
+                  onOpen={openRun}
+                  onHover={setHover}
+                />
               );
             })}
 
-            {/* CRT scanlines + magenta horizon glow (pure decoration) */}
+            {/* CRT scanlines + horizon glow (pure decoration) */}
             <div
               className="pointer-events-none absolute inset-0 z-[12]"
               style={{
-                backgroundImage:
-                  "repeating-linear-gradient(0deg, rgba(0,0,0,0.22) 0px, rgba(0,0,0,0.22) 1px, transparent 1px, transparent 3px)",
+                backgroundImage: palette.scanlines,
                 opacity: 0.18,
               }}
             />
-            <div
-              className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-64"
-              style={{
-                background:
-                  "radial-gradient(ellipse 80% 100% at 50% 115%, rgba(217,70,239,0.14), transparent 65%)",
-              }}
-            />
+            {palette.horizonGlow && (
+              <div
+                className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-64"
+                style={{ background: palette.horizonGlow }}
+              />
+            )}
           </div>
         </div>
       </div>
 
-      {live && (
-        <div className="absolute bottom-3 right-3 z-30">
-          {pinned ? (
-            <div className="flex items-center gap-1.5 rounded-full border bg-background/90 px-3 py-1.5 font-mono text-[11px] text-muted-foreground shadow-md backdrop-blur">
-              <ArrowDownToLine className="h-3 w-3 text-green-500" />
-              following
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                const el = scrollRef.current;
-                if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-              }}
-              className="flex items-center gap-1.5 rounded-full border bg-background/90 px-3 py-1.5 font-mono text-[11px] shadow-md backdrop-blur hover:bg-accent"
-            >
-              <Pause className="h-3 w-3 text-amber-500" />
-              paused · resume
-            </button>
-          )}
-        </div>
-      )}
+      {live && <FollowPill pinned={pinned} onResume={resumeFollow} />}
 
-      {selected && (
-        <TimelineDetailModal
-          selected={selected}
-          onClose={() => applySelection(null)}
-          onSelect={applySelection}
-          stepById={stepById}
-          blockByRun={blockById}
-        />
-      )}
-
-      {/* deeplink targets outside the loaded window */}
-      {missing?.kind === "step" && traj && (
-        <StepModal
-          identityId={traj.identityId}
-          stepId={missing.id}
-          onClose={() => {
-            setMissing(null);
-            void setStepParam(null);
-          }}
-        />
-      )}
-      {missing?.kind === "step" && !traj && (
-        <Modal
-          onClose={() => {
-            setMissing(null);
-            void setStepParam(null);
-          }}
-        >
-          <div className="py-4 pr-8 text-sm text-muted-foreground">
-            This step is not in the loaded part of the timeline. Use “load
-            older” to page more history in, then open the link again.
-          </div>
-        </Modal>
-      )}
-      {missing?.kind === "run" && (
-        <Modal
-          onClose={() => {
-            setMissing(null);
-            void setRunParam(null);
-          }}
-        >
-          <div className="py-4 pr-8 text-sm text-muted-foreground">
-            This run is older than the loaded part of the timeline. Use
-            “load older” to page more history in, then open the link again.
-          </div>
-        </Modal>
-      )}
+      <TimelineModals
+        selected={selected}
+        onSelect={applySelection}
+        stepById={stepById}
+        blockByRun={blockById}
+        missing={missing}
+        identityId={traj?.identityId ?? null}
+        onDismissMissing={dismissMissing}
+      />
     </div>
   );
 }

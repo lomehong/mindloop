@@ -1,0 +1,45 @@
+# 行尾统一策略
+#
+# gofmt 的规范输出是 LF，因此 Go 源码必须在任何平台 checkout 后都是
+# LF，`gofmt -l .` 门禁（ci.yml go job）才能跨平台稳定：否则在
+# core.autocrlf=true 的 Windows clone 上，所有 .go 文件都会被
+# gofmt 判为"未格式化"（工作区 CRLF vs 规范 LF）。
+#
+# 注意：本文件只影响之后的新 checkout / 这些文件下次被重写；已有
+# 工作区一次性切换请执行（会改写大量文件的行尾，需单独提交）：
+#   git add --renormalize .
+#
+# 文本文件统一 LF（覆盖 core.autocrlf 的 CRLF 转换）：
+*.go   text eol=lf
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.js   text eol=lf
+*.jsx  text eol=lf
+*.mjs  text eol=lf
+*.cjs  text eol=lf
+*.css  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.html text eol=lf
+*.svg  text eol=lf
+*.sh   text eol=lf
+# bash 无法解析 CRLF，脚本类文件在 Windows 上也必须保持 LF
+*.env        text eol=lf
+.env.example text eol=lf
+
+# 二进制文件：禁止任何行尾/编码转换
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.webp   binary
+*.woff   binary
+*.woff2  binary
+*.ttf    binary
+*.exe    binary
+*.dll    binary
+*.zip    binary
+*.gz     binary

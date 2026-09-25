@@ -1,5 +1,6 @@
 # Go 构建产物
 mindloop.exe
+*.exe~
 *.test
 *.out
 

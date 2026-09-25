@@ -75,7 +75,7 @@ func stepSource(s traj.Step) *string {
 	if by, ok := s.Field("launched_by"); ok && by != "" {
 		return &by
 	}
-	if s.Type == "message" {
+	if s.Type == traj.TypeMessage {
 		if from, ok := s.Field("from"); ok && from != "" {
 			return &from
 		}
@@ -108,7 +108,7 @@ func normalizeStep(s traj.Step) normalizedStep {
 		rid := rid
 		n.RunID = &rid
 	}
-	if s.Type == "fork" {
+	if s.Type == traj.TypeFork {
 		child, _ := s.Field("child")
 		ref, _ := s.Field("child_ref")
 		slug := ref
@@ -117,7 +117,7 @@ func normalizeStep(s traj.Step) normalizedStep {
 		}
 		n.Fork = &forkLink{ChildTrajID: child, Slug: slug, Resolved: true}
 	}
-	if s.Type == "merge" {
+	if s.Type == traj.TypeMerge {
 		ft, _ := s.Field("from_traj")
 		fs, hasFS := s.Field("from_step")
 		wb := writebackLink{FromTraj: ft}
@@ -137,7 +137,7 @@ func groupRuns(steps []traj.Step, norm []normalizedStep) []runGroup {
 	var order []string
 	for i, s := range steps {
 		rid, ok := s.Field("run_id")
-		if !ok || rid == "" || s.Type == "trajectory" {
+		if !ok || rid == "" || s.Type == traj.TypeTrajectory {
 			continue
 		}
 		g, ok := index[rid]
@@ -148,7 +148,7 @@ func groupRuns(steps []traj.Step, norm []normalizedStep) []runGroup {
 		}
 		g.StepIDs = append(g.StepIDs, s.StepID)
 		g.LastTouch = i
-		if s.Type == "prompt" {
+		if s.Type == traj.TypePrompt {
 			if c, ok := s.Field("content"); ok {
 				g.Command = c
 			}
@@ -156,13 +156,13 @@ func groupRuns(steps []traj.Step, norm []normalizedStep) []runGroup {
 		// TLDR 从日志派生（"视图皆派生"）：final 步骤的正文就是
 		// 模型自己写的"这一觉干了什么"——不需要 run-summary 那样
 		// 为标签额外烧一次模型调用。
-		if s.Type == "final" {
+		if s.Type == traj.TypeFinal {
 			if c, ok := s.Field("content"); ok && c != "" {
 				one := traj.OneLine(c, 120)
 				g.Tldr = &one
 			}
 		}
-		if s.Type == "final" || s.Type == "error" {
+		if s.Type == traj.TypeFinal || s.Type == traj.TypeError {
 			g.Status = "done"
 			e := s.TS
 			g.EndedTS = &e
@@ -293,7 +293,7 @@ func relTrajDir(root, trajDir string) string {
 func (s *Server) handleMindlogSearch(w http.ResponseWriter, r *http.Request, id *identity.Identity, _ []string) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	scope := r.URL.Query().Get("scope")
-	out := mindlogSearchResult{Q: q, Scope: "all"}
+	out := mindlogSearchResult{Q: q, Scope: "all", Hits: []searchHit{}}
 	if q == "" {
 		writeJSON(w, 200, out)
 		return
@@ -308,7 +308,7 @@ func (s *Server) handleMindlogSearch(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	for i, s := range steps {
-		if out.Scope == "thoughts" && s.Type != "reasoning" && s.Type != "thought" {
+		if out.Scope == "thoughts" && !mindLevelStep(s.Type) {
 			continue
 		}
 		content, _ := s.Field("content")
@@ -323,8 +323,25 @@ func (s *Server) handleMindlogSearch(w http.ResponseWriter, r *http.Request, id 
 			})
 		}
 	}
+	out.Total = len(out.Hits)
 	out.StepCount = len(steps)
 	writeJSON(w, 200, out)
+}
+
+// mindLevelStep 是 "thoughts" 搜索范围的白名单：心智层面的步骤（想法、
+// 消息、观察、行动），排除运行机械（prompt、模型推理、shell 输出等，
+// 这些归 "everything" 范围）。与 viewer 搜索框的 scope 说明一致。
+//
+// tp-thought / human-msg / agent-msg / feedback 是 headlong 兼容别名
+// ——mindloop 不产出这些类型，仅为读取旧日志保留；词表常量不覆盖
+// 它们，它们也不得出现在任何 mindloop 的写入路径上。
+func mindLevelStep(t string) bool {
+	switch t {
+	case traj.TypeThought, "tp-thought", traj.TypeMessage, "human-msg", "agent-msg",
+		traj.TypeObservation, traj.TypeAction, "feedback", traj.TypeFinal:
+		return true
+	}
+	return false
 }
 
 type searchHit struct {
@@ -378,7 +395,7 @@ func (s *Server) handleRunCommand(w http.ResponseWriter, r *http.Request, id *id
 		return
 	}
 	for _, s := range steps {
-		if rid, ok := s.Field("run_id"); ok && rid == runID && s.Type == "prompt" {
+		if rid, ok := s.Field("run_id"); ok && rid == runID && s.Type == traj.TypePrompt {
 			if c, ok := s.Field("content"); ok {
 				writeJSON(w, 200, map[string]any{"run_id": runID, "command": c})
 				return
@@ -387,5 +404,3 @@ func (s *Server) handleRunCommand(w http.ResponseWriter, r *http.Request, id *id
 	}
 	writeError(w, 404, "未找到该 run 的 prompt")
 }
-
-

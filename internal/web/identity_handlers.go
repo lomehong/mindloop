@@ -47,7 +47,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request, id *identity
 	// 回复索引：被回复的入站 step_id → 有回复。
 	replied := map[string]bool{}
 	for _, st := range steps {
-		if st.Type != "message" {
+		if st.Type != traj.TypeMessage {
 			continue
 		}
 		if rt, ok := st.Field("reply_to"); ok && rt != "" {
@@ -58,7 +58,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request, id *identity
 	msgs := make([]chatMessage, 0, len(steps))
 	outcomes := map[string]string{}
 	for _, st := range steps {
-		if st.Type != "message" {
+		if st.Type != traj.TypeMessage {
 			continue
 		}
 		from, _ := st.Field("from")
@@ -120,7 +120,7 @@ func (s *Server) handleChatSend(w http.ResponseWriter, r *http.Request, id *iden
 	if from == "" {
 		from = "operator"
 	}
-	st := traj.NewStep("message")
+	st := traj.NewStep(traj.TypeMessage)
 	st.Fields["from"] = from
 	st.Fields["to"] = id.Name
 	st.Fields["source"] = "chat"

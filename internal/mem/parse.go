@@ -1,6 +1,7 @@
 package mem
 
 import (
+	"errors"
 	"os"
 	"strconv"
 	"strings"
@@ -59,13 +60,7 @@ func parseFile(path string) (Memory, error) {
 	return m, nil
 }
 
-var errBadFrontmatter = fmtError("mem: frontmatter 缺失或无 id")
-
-func fmtError(s string) error { return &simpleError{s} }
-
-type simpleError struct{ msg string }
-
-func (e *simpleError) Error() string { return e.msg }
+var errBadFrontmatter = errors.New("mem: frontmatter 缺失或无 id")
 
 // firstLine 取首行作为摘要。
 func firstLine(s string) string {

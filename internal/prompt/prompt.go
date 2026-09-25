@@ -162,9 +162,14 @@ func Render(steps []traj.Step, opts Options) []Message {
 	}
 	pins := resolvePins(steps, opts.Pin)
 
-	render := func(i int) string {
-		limit := opts.limitFor(i, n)
-		return renderStep(steps[i], limit, opts)
+	// renderAt 是唯一的渲染出口：档位一律取自 bandFor——生产路径
+	// 与测试钉死的"档位纯函数"是同一份实现，不会再各自漂移。
+	renderAt := func(i int, b band) string {
+		if b.elided {
+			// 被点名的省略区步骤照常渲染（用其本档位上限）。
+			return renderStep(steps[i], opts.limitFor(i, n), opts)
+		}
+		return renderStep(steps[i], b.limit, opts)
 	}
 	var msgs []Message
 	emit := func(r Role, text string) {
@@ -188,13 +193,13 @@ func Render(steps []traj.Step, opts Options) []Message {
 	start := opts.windowStart(n)
 
 	for i := 0; i < head; i++ {
-		emit(roleFor(i), render(i))
+		emit(roleFor(i), renderAt(i, opts.bandFor(i, n)))
 	}
 	elidedCount := 0
 	if start > head {
 		for i := head; i < start; i++ {
 			if pins[i] {
-				emit(roleFor(i), render(i))
+				emit(roleFor(i), renderAt(i, opts.bandFor(i, n)))
 			} else {
 				elidedCount++
 			}
@@ -206,7 +211,7 @@ func Render(steps []traj.Step, opts Options) []Message {
 		from = head
 	}
 	for i := from; i < n; i++ {
-		emit(roleFor(i), render(i))
+		emit(roleFor(i), renderAt(i, opts.bandFor(i, n)))
 	}
 
 	if opts.MaxBytes > 0 && bytesOf(msgs) > opts.MaxBytes {

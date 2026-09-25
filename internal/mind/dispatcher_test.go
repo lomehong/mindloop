@@ -239,4 +239,3 @@ func tl0(t *testing.T, d *Dispatcher) *traj.Timeline {
 	t.Helper()
 	return d.tl
 }
-

@@ -2,7 +2,9 @@ package mind
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -42,6 +44,10 @@ type MonolithOptions struct {
 	MaxIterations int
 	// Persona 是人格文本，注入每次唤醒的系统提示。
 	Persona string
+	// SelfName 是身份名：轮次耗尽时的工作摘要以它署名投递给
+	// operator（对话流里与 responder 的回复同一身份）。空则退回
+	// thinker 名 "monolith"。
+	SelfName string
 	// MemDir 非空时，唤醒提示会带上与近期思维流相关的记忆
 	// （BM25 检索，最多 3 条）。
 	MemDir string
@@ -94,7 +100,7 @@ func NewMonolith(opts MonolithOptions) Thinker {
 	return &monolith{opts: opts}
 }
 
-func (m *monolith) Name() string { return "monolith" }
+func (m *monolith) Name() string { return monolithName }
 
 func (m *monolith) Subscriptions() Subscription {
 	// 订阅外部产物与合成唤醒。人类 message 归 responder（分工：
@@ -108,14 +114,14 @@ func (m *monolith) Subscriptions() Subscription {
 		watchdog = 5 * time.Minute
 	}
 	return Subscription{
-		Types:       []string{"observation", "merge", "monolith-wake"},
+		Types:       []string{traj.TypeObservation, traj.TypeMerge, monolithWakeType},
 		TriggerSelf: false,
 		Watchdog:    watchdog,
 	}
 }
 
 func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
-	reactive := w.Kind == WakeStep && w.Step.Type == "message"
+	reactive := w.Kind == WakeStep && w.Step.Type == traj.TypeMessage
 	reason := "scheduled spontaneity"
 	switch w.Kind {
 	case WakeWatchdog:
@@ -161,6 +167,13 @@ func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
 		ExtraEnv:       m.opts.ExtraEnv,
 	})
 
+	// 轮次耗尽 = 没有 FINAL：已完成/已产出的工作会静默丢失（ada
+	// 实测——评审做完但轮次耗尽，成果没回发）。把最后阶段的思考
+	// 摘要以消息投递给 operator，先于分类落盘。
+	if err != nil && errors.Is(err, runner.ErrMaxIterations) {
+		m.reportUnfinishedWork(ctx, res)
+	}
+
 	class, summary := m.classify(ctx, res, err)
 	policy := backoffOrDefault(m.opts.Backoff)
 	m.level, m.ticks = policy.Advance(m.level, m.ticks, class, reactive)
@@ -168,6 +181,73 @@ func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
 	note := fmt.Sprintf("%s → 下次唤醒 %v 后（level %d，耗时 %s）",
 		summary, delay, m.level, time.Since(start).Round(time.Second))
 	return Outcome{WantWake: true, NextWakeIn: delay, Note: note}
+}
+
+// classify 是工作探测（work probe）：FINAL=IDLE 或运行失败 →
+// ClassIdle；非 IDLE 的 final 是 monolith 的持久结论——作为
+// action 步骤落盘（"做过什么"是日志里的事实，也是探针的证据）并
+// 归类 ClassWork。
+// reportUnfinishedWork 在轮次耗尽（没有 FINAL）时，把最后阶段的
+// 思考摘要投递给 operator——run 被硬停不代表没有产出，静默丢弃
+// 就是"完成了工作却说没有任何命令输出"。内容剥掉 fence 标记、裁
+// 到 500 rune；from 用身份名（对话流里与 responder 的回复同一署
+// 名），to=operator 使 responder 的定向守卫天然忽略它——进度报告
+// 不是对话回合，不进 responder 的历史组装。
+func (m *monolith) reportUnfinishedWork(ctx context.Context, res runner.Result) {
+	steps, err := m.opts.Timeline.Steps()
+	if err != nil {
+		return
+	}
+	var last string
+	for i := len(steps) - 1; i >= 0; i-- {
+		s := steps[i]
+		if s.Type != traj.TypeReasoning {
+			continue
+		}
+		if rid, ok := s.Field("run_id"); ok && rid != res.RunID {
+			continue // 只要本次耗尽运行自己的产出
+		}
+		last, _ = s.Field("content")
+		break
+	}
+	text := strings.TrimSpace(stripFences(last))
+	if text == "" {
+		return // 没有实质内容（纯围栏/空白）就不打扰
+	}
+	s := traj.NewStep(traj.TypeMessage)
+	s.Fields["from"] = m.fromName()
+	s.Fields["to"] = "operator"
+	s.Fields["source"] = "progress"
+	s.Fields["launched_by"] = m.Name()
+	s.Fields["content"] = "（轮次耗尽，以下为最后阶段的思考摘要）\n" + truncateRunes(text, 500)
+	// WithoutCancel：轮次耗尽常发生在停机边缘，报告必须落地。
+	_ = m.opts.Timeline.Append(context.WithoutCancel(ctx), s)
+}
+
+// fromName 是 monolith 对话投递的署名：优先身份名。
+func (m *monolith) fromName() string {
+	if m.opts.SelfName != "" {
+		return m.opts.SelfName
+	}
+	return m.Name()
+}
+
+// fenceLineRe 匹配行首的 markdown 围栏行（含语言标注）。
+var fenceLineRe = regexp.MustCompile("(?m)^```[a-zA-Z0-9_-]*[ \t]*$")
+
+// stripFences 剥掉围栏标记、保留围栏内的实质内容——轮次耗尽的
+// reasoning 往往带着写了一半的代码块，围栏语法本身对人是噪音。
+func stripFences(s string) string {
+	return fenceLineRe.ReplaceAllString(s, "")
+}
+
+// truncateRunes 按 rune 裁剪到 max（含省略号）。
+func truncateRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
 }
 
 // classify 是工作探测（work probe）：FINAL=IDLE 或运行失败 →
@@ -182,7 +262,7 @@ func (m *monolith) classify(ctx context.Context, res runner.Result, err error) (
 	if strings.EqualFold(final, "IDLE") {
 		return ClassIdle, "无事可做"
 	}
-	s := traj.NewStep("action")
+	s := traj.NewStep(traj.TypeAction)
 	s.Fields["run_id"] = res.RunID
 	s.Fields["launched_by"] = m.Name()
 	s.Fields["content"] = final
@@ -264,7 +344,7 @@ func (m *monolith) relatedMemories(w Wake) []string {
 			n++
 		}
 	}
-	if w.Step.Type == "message" {
+	if w.Step.Type == traj.TypeMessage {
 		if c, ok := w.Step.Field("content"); ok {
 			query.WriteString(c)
 		}

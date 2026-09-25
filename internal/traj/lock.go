@@ -1,6 +1,7 @@
 package traj
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"mindloop/internal/ids"
 )
 
 const (
@@ -44,19 +47,13 @@ func TryDirLock(ctx context.Context, dir string) (release func() error, owned bo
 	}
 	merr := os.Mkdir(dir, 0o755)
 	if merr == nil {
-		rel, err := claimLock(dir)
-		return rel, err == nil, err
+		return claimDir(dir)
 	}
 	if !errors.Is(merr, os.ErrExist) && !errors.Is(merr, os.ErrPermission) {
 		return nil, false, fmt.Errorf("mindloop: 锁 %s: %w", dir, merr)
 	}
-	if canStealLock(dir) {
-		if rmErr := os.RemoveAll(dir); rmErr == nil {
-			if os.Mkdir(dir, 0o755) == nil {
-				rel, err := claimLock(dir)
-				return rel, err == nil, err
-			}
-		}
+	if rel, ok := stealLock(dir); ok {
+		return rel, true, nil
 	}
 	return nil, false, nil
 }
@@ -101,7 +98,11 @@ func acquireDirLock(ctx context.Context, dir string, timeout time.Duration) (fun
 		}
 		err := os.Mkdir(dir, 0o755)
 		if err == nil {
-			return claimLock(dir)
+			rel, _, cerr := claimDir(dir)
+			if cerr != nil {
+				return nil, cerr
+			}
+			return rel, nil
 		}
 		// Windows 细节：目录处于删除中（delete-pending）时，同名
 		// mkdir 返回的是 ACCESS_DENIED 而不是 AlreadyExists——它
@@ -120,10 +121,8 @@ func acquireDirLock(ctx context.Context, dir string, timeout time.Duration) (fun
 		} else {
 			return nil, fmt.Errorf("mindloop: 锁 %s: %w", dir, err)
 		}
-		if canStealLock(dir) {
-			if rmErr := os.RemoveAll(dir); rmErr == nil {
-				continue
-			}
+		if rel, ok := stealLock(dir); ok {
+			return rel, nil
 		}
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("%w: 锁 %s（%s）", ErrLockTimeout, dir, probeLock(dir))
@@ -132,21 +131,97 @@ func acquireDirLock(ctx context.Context, dir string, timeout time.Duration) (fun
 	}
 }
 
-func canStealLock(dir string) bool {
+// lockView 是锁目录在某一瞬间的快照——"能不能偷"与"残躯校验"
+// 都以同一份观察为准。偷锁互斥的闭合靠 stealLock 的 rename CAS
+// （rename 原子，仅一个偷取者能移走原目录）；快照比对负责识别
+// "移走的已不是当初观测的死锁"的极端交错。
+type lockView struct {
+	hasOwner bool
+	data     []byte
+	dirMod   time.Time
+}
+
+// observeLock 拍下锁目录快照；目录不存在返回 false。
+func observeLock(dir string) (lockView, bool) {
 	data, err := os.ReadFile(filepath.Join(dir, ownerFile))
-	if err != nil {
-		return staleEnough(dir)
+	fi, statErr := os.Stat(dir)
+	if statErr != nil {
+		return lockView{}, false
+	}
+	return lockView{hasOwner: err == nil, data: data, dirMod: fi.ModTime()}, true
+}
+
+// stealable 依据快照判断锁是否可偷：属主确认死亡 ⇒ 偷；无属主或
+// 属主文件不可解析 ⇒ 只有目录足够老（写者死于声明中途的崩溃窗口
+// 之外）才偷。
+func (v lockView) stealable() bool {
+	if !v.hasOwner {
+		return v.staleEnough()
 	}
 	var o lockOwner
-	if json.Unmarshal(data, &o) != nil || o.PID <= 0 {
-		return staleEnough(dir)
+	if json.Unmarshal(v.data, &o) != nil || o.PID <= 0 {
+		return v.staleEnough()
 	}
 	return !processAlive(o.PID)
 }
 
-func staleEnough(dir string) bool {
-	fi, err := os.Stat(dir)
-	return err == nil && time.Since(fi.ModTime()) > lockGrace
+func (v lockView) staleEnough() bool {
+	return time.Since(v.dirMod) > lockGrace
+}
+
+// sameAs 报告两次观察之间锁目录是否原封未动——owner 文件一个字节
+// 没变、目录 mtime 也没前进。变了就意味着有人声明或重新声明过。
+func (v lockView) sameAs(other lockView) bool {
+	return v.hasOwner == other.hasOwner &&
+		bytes.Equal(v.data, other.data) &&
+		v.dirMod.Equal(other.dirMod)
+}
+
+// stealLock 以 rename CAS 完成"校验 → 原子移走 → 校验残躯 → 原地
+// 声明"的偷锁序列。破坏性动作不是 RemoveAll 而是 rename：rename 在
+// 内核级原子，两个并发偷取者只有一个能把原路径的目录成功移走——
+// 输家要么在 rename 处直接失败，要么稍后观察到的是赢家的活属主
+// （stealable=false）。"双双成功"从此在结构上不可能：此前的两次
+// 快照比对把 TOCTOU 收窄到了调度间隙的微秒级但没有闭合（P2 两次
+// 观测都在 P1 claim 之前、RemoveAll 落在其后时仍会删掉活锁——
+// lead 全量门禁抓到过一次），rename CAS 把它关死。
+//
+// 任何失败一律放弃本轮偷取：Windows 上目录内有打开句柄（外部读者
+// /AV）时 rename 报 ACCESS_DENIED/sharing violation，POSIX 上父目录
+// 只读时报 EACCES——保守方向正确，等待方重试或吃超时，绝不误伤
+// 可能活着的锁。
+func stealLock(dir string) (release func() error, ok bool) {
+	view, found := observeLock(dir)
+	if !found || !view.stealable() {
+		return nil, false
+	}
+	// CAS：把原路径原子移走。失败 ⇒ 已被并发方移走/目录被外部打开
+	// /已消失——放弃，不动任何人的锁。
+	scratch := fmt.Sprintf("%s.stealing-%d-%s", dir, os.Getpid(), ids.Short(ids.NewUUID(), 8))
+	if err := os.Rename(dir, scratch); err != nil {
+		return nil, false
+	}
+	// 移走的残躯必须仍是当初观测到的那把死锁：极端交错下它可能是
+	// 别人在我们观测与 rename 之间换上的新活锁——改名还原并放弃，
+	// 绝不删活锁。还原失败（微秒窗内原路径又被占）则留下残躯目录：
+	// 宁可留无害垃圾，也不冒删活锁的险。
+	if fresh, found := observeLock(scratch); !found || !view.sameAs(fresh) {
+		_ = os.Rename(scratch, dir)
+		return nil, false
+	}
+	// 死锁已被安全隔离：在原路径声明。
+	if os.Mkdir(dir, 0o755) != nil {
+		// 原路径被并发方抢先重占：残躯已验证是死锁，可删。
+		_ = os.RemoveAll(scratch)
+		return nil, false
+	}
+	rel, owned, err := claimDir(dir)
+	if err != nil || !owned {
+		_ = os.RemoveAll(scratch)
+		return nil, false
+	}
+	_ = os.RemoveAll(scratch) // 清理已验证的死锁残躯；失败只是无害垃圾
+	return rel, true
 }
 
 // probeLock 描述锁的当前占用者，用于超时报错：运维拿到错误就能
@@ -175,24 +250,40 @@ func probeLock(dir string) string {
 	return fmt.Sprintf("持有者 pid=%d (%s) 声明于 %s", o.PID, state, o.Created)
 }
 
-// claimLock 在锁目录归我们之后写属主文件。此刻锁目录被我们独占，
-// 直接写入即可——读者要么读到完整的属主文件，要么读到半行（解析
-// 失败后走宽限路径，同样保守）。绝不经过共享的临时文件：并发声明
-// 会互相踩踏，把彼此的锁整个删掉。
-func claimLock(dir string) (func() error, error) {
+// claimDir 在锁目录归我们之后写属主文件并自检。此刻锁目录被我们
+// 独占，直接写入即可——读者要么读到完整的属主文件，要么读到半行
+// （解析失败后走宽限路径，同样保守）。绝不经过共享的临时文件：并
+// 发声明会互相踩踏，把彼此的锁整个删掉。
+// 写完读回校验：目录里的 owner.json 必须逐字节等于我们刚写的内容，
+// 否则说明声明被并发者覆盖（病理场景，宽限期本应挡住它）——交还
+// 锁并报错，绝不占着一把已被别人改写的锁。
+func claimDir(dir string) (release func() error, owned bool, err error) {
+	rel, claimed, werr := writeClaim(dir)
+	if werr != nil {
+		return nil, false, werr
+	}
+	data, rerr := os.ReadFile(filepath.Join(dir, ownerFile))
+	if rerr != nil || !bytes.Equal(data, claimed) {
+		_ = rel()
+		return nil, false, fmt.Errorf("mindloop: 锁 %s: 属主文件写后即被覆盖", dir)
+	}
+	return rel, true, nil
+}
+
+func writeClaim(dir string) (release func() error, claimed []byte, err error) {
 	exe, _ := os.Executable()
 	o := lockOwner{PID: os.Getpid(), Created: NowString(), Exe: filepath.Base(exe)}
-	data, err := json.Marshal(o)
+	claimed, err = json.Marshal(o)
 	if err != nil {
 		os.RemoveAll(dir)
-		return nil, fmt.Errorf("mindloop: 序列化锁属主: %w", err)
+		return nil, nil, fmt.Errorf("mindloop: 序列化锁属主: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ownerFile), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ownerFile), claimed, 0o644); err != nil {
 		os.RemoveAll(dir)
-		return nil, fmt.Errorf("mindloop: 锁属主 %s: %w", dir, err)
+		return nil, nil, fmt.Errorf("mindloop: 锁属主 %s: %w", dir, err)
 	}
 	released := false
-	return func() error {
+	release = func() error {
 		if released {
 			return nil
 		}
@@ -209,5 +300,6 @@ func claimLock(dir string) (func() error, error) {
 			time.Sleep(5 * time.Millisecond)
 		}
 		return err
-	}, nil
+	}
+	return release, claimed, nil
 }

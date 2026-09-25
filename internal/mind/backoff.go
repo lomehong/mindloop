@@ -19,7 +19,7 @@ type BackoffPolicy struct {
 	Max         time.Duration // 封顶（Headlong 默认 5 分钟）
 	ThoughtCap  time.Duration // 思考型唤醒的额外封顶（默认 60 秒）
 	MinInterval time.Duration // 思考型 delay 的下限（默认 5 秒）
-	Hold        int // 每级驻留的空唤醒次数（默认 3）——Headlong 的 dwell
+	Hold        int           // 每级驻留的空唤醒次数（默认 3）——Headlong 的 dwell
 }
 
 func (p BackoffPolicy) normalized() BackoffPolicy {

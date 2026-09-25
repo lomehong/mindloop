@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { ExternalLink, Maximize2, Minimize2 } from "lucide-react";
+import { useTheme } from "next-themes";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
 
@@ -44,6 +45,25 @@ const CARD_STYLE: Record<Ml2Card["kind"], { card: string; label: string }> = {
   },
 };
 
+const CARD_STYLE_LIGHT: Record<Ml2Card["kind"], { card: string; label: string }> = {
+  thought: {
+    card: "border-l-4 border-violet-400 bg-violet-50",
+    label: "text-violet-700",
+  },
+  observation: {
+    card: "border-l-4 border-pink-400 bg-pink-50",
+    label: "text-pink-700",
+  },
+  outbound: {
+    card: "ml-auto max-w-2xl border border-teal-300 bg-teal-50",
+    label: "text-teal-700",
+  },
+  inbound: {
+    card: "max-w-2xl border border-indigo-300 bg-indigo-50",
+    label: "text-indigo-700",
+  },
+};
+
 function fmtTime(ts: string): string {
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return "";
@@ -62,7 +82,7 @@ const ACTIVITY_LABELS: Record<string, string> = {
   asleep: "休眠",
 };
 
-function StatusPill({ identityId }: { identityId: string }) {
+function StatusPill({ identityId, light }: { identityId: string; light: boolean }) {
   const { data: activity } = useQuery({
     queryKey: ["activity", identityId],
     queryFn: () => fetchActivity(identityId),
@@ -75,19 +95,35 @@ function StatusPill({ identityId }: { identityId: string }) {
     <span
       className={cn(
         "flex items-center gap-2 rounded-full border px-3.5 py-1 font-mono text-sm",
-        on && "border-green-400/50 text-green-300",
-        stalled && "border-amber-400/50 text-amber-300",
-        !on && !stalled && "border-zinc-600 text-zinc-400"
+        on && (light ? "border-green-500/60 text-green-700" : "border-green-400/50 text-green-300"),
+        stalled &&
+          (light ? "border-amber-500/60 text-amber-700" : "border-amber-400/50 text-amber-300"),
+        !on && !stalled && (light ? "border-zinc-400 text-zinc-500" : "border-zinc-600 text-zinc-400")
       )}
     >
       <span className="relative flex h-2 w-2">
         {on && (
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+          <span
+            className={cn(
+              "absolute inline-flex h-full w-full animate-ping rounded-full opacity-75",
+              light ? "bg-green-500" : "bg-green-400"
+            )}
+          />
         )}
         <span
           className={cn(
             "relative inline-flex h-2 w-2 rounded-full",
-            on ? "bg-green-400" : stalled ? "bg-amber-400" : "bg-zinc-500"
+            on
+              ? light
+                ? "bg-green-500"
+                : "bg-green-400"
+              : stalled
+                ? light
+                  ? "bg-amber-500"
+                  : "bg-amber-400"
+                : light
+                  ? "bg-zinc-400"
+                  : "bg-zinc-500"
           )}
         />
       </span>
@@ -96,15 +132,24 @@ function StatusPill({ identityId }: { identityId: string }) {
   );
 }
 
-function StreamCard({ card, animate }: { card: Ml2Card; animate: boolean }) {
+function StreamCard({
+  card,
+  animate,
+  light,
+}: {
+  card: Ml2Card;
+  animate: boolean;
+  light: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const long = card.body.length > CLAMP_CHARS;
   const body = expanded || !long ? card.body : `${card.body.slice(0, CLAMP_CHARS)}…`;
-  const style = CARD_STYLE[card.kind];
+  const style = (light ? CARD_STYLE_LIGHT : CARD_STYLE)[card.kind];
   return (
     <div
       className={cn(
-        "w-full max-w-3xl rounded-2xl px-6 py-5 shadow-lg shadow-black/20",
+        "w-full max-w-3xl rounded-2xl px-6 py-5 shadow-lg",
+        light ? "shadow-black/[0.06]" : "shadow-black/20",
         style.card,
         animate && "ml2-enter",
         long && "cursor-pointer"
@@ -121,7 +166,10 @@ function StreamCard({ card, animate }: { card: Ml2Card; animate: boolean }) {
             href={card.source_url}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1 font-mono text-xs text-zinc-400 hover:text-zinc-100 hover:underline"
+            className={cn(
+              "inline-flex items-center gap-1 font-mono text-xs hover:underline",
+              light ? "text-zinc-500 hover:text-zinc-900" : "text-zinc-400 hover:text-zinc-100"
+            )}
             onClick={(event) => event.stopPropagation()}
           >
             Open in Slack <ExternalLink className="h-3 w-3" />
@@ -131,7 +179,12 @@ function StreamCard({ card, animate }: { card: Ml2Card; animate: boolean }) {
           {fmtTime(card.ts)}
         </span>
       </div>
-      <div className="whitespace-pre-wrap text-lg leading-snug text-zinc-100 md:text-2xl">
+      <div
+        className={cn(
+          "whitespace-pre-wrap text-lg leading-snug md:text-2xl",
+          light ? "text-zinc-800" : "text-zinc-100"
+        )}
+      >
         {body}
       </div>
     </div>
@@ -142,6 +195,13 @@ export default function Mindlog2Page() {
   const { identityId = "" } = useParams();
   const [hidden, setHidden] = useState<Set<CardGroup>>(new Set());
   const [fullscreen, setFullscreen] = useState(false);
+
+  // SPA: resolvedTheme is undefined until next-themes hydrates; render dark
+  // (the canvas's native look) until mounted, then follow the site theme.
+  const { resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const light = mounted && resolvedTheme === "light";
 
   const { data: status } = useQuery({
     queryKey: ["status", identityId],
@@ -208,28 +268,46 @@ export default function Mindlog2Page() {
   const canvas = (
     <div
       className={cn(
-        "ml2-canvas relative text-zinc-100",
+        "ml2-canvas relative",
+        light ? "text-zinc-800" : "text-zinc-100",
         fullscreen
           ? "min-h-full px-6 py-6 md:px-12"
-          : "min-h-[80vh] rounded-2xl border border-zinc-800 px-5 py-5 md:px-10 md:py-8"
+          : cn(
+              "min-h-[80vh] rounded-2xl border px-5 py-5 md:px-10 md:py-8",
+              light ? "border-zinc-200" : "border-zinc-800"
+            )
       )}
     >
       <header className="flex items-center gap-4">
-        <span className="text-2xl font-bold tracking-tight text-white">mindloop</span>
+        <span
+          className={cn(
+            "text-2xl font-bold tracking-tight",
+            light ? "text-zinc-900" : "text-white"
+          )}
+        >
+          mindloop
+        </span>
         <div className="ml-auto flex items-center gap-3">
-          <span className="font-mono text-lg text-zinc-300">{displayName}</span>
-          <StatusPill identityId={identityId} />
+          <span className={cn("font-mono text-lg", light ? "text-zinc-600" : "text-zinc-300")}>
+            {displayName}
+          </span>
+          <StatusPill identityId={identityId} light={light} />
           <button
             type="button"
             onClick={() => setFullscreen((v) => !v)}
-            className="rounded-md border border-zinc-700 p-1.5 text-zinc-400 hover:text-zinc-100"
+            className={cn(
+              "rounded-md border p-1.5",
+              light
+                ? "border-zinc-300 text-zinc-500 hover:text-zinc-900"
+                : "border-zinc-700 text-zinc-400 hover:text-zinc-100"
+            )}
             title={fullscreen ? "退出全屏（Esc）" : "全屏"}
           >
             {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
         </div>
       </header>
-      <div className="mt-4 border-t border-zinc-800" />
+      <div className={cn("mt-4 border-t", light ? "border-zinc-200" : "border-zinc-800")} />
 
       <div className="mt-6 flex gap-8">
         <aside className="hidden w-44 shrink-0 pt-2 sm:block">
@@ -244,7 +322,11 @@ export default function Mindlog2Page() {
                 onClick={() => toggle(group)}
                 className={cn(
                   "flex w-full items-center gap-2.5 font-mono text-sm",
-                  hidden.has(group) ? "text-zinc-600 line-through" : "text-zinc-200"
+                  hidden.has(group)
+                    ? "text-zinc-600 line-through"
+                    : light
+                      ? "text-zinc-700"
+                      : "text-zinc-200"
                 )}
               >
                 <span className={cn("h-2 w-2 rounded-sm", dot)} />
@@ -257,9 +339,19 @@ export default function Mindlog2Page() {
           </div>
         </aside>
 
-        <main className="min-w-0 flex-1 border-l border-zinc-800 pl-6 md:pl-10">
+        <main
+          className={cn(
+            "min-w-0 flex-1 border-l pl-6 md:pl-10",
+            light ? "border-zinc-200" : "border-zinc-800"
+          )}
+        >
           <div className="flex items-baseline">
-            <h2 className="text-4xl font-extrabold tracking-tight text-white md:text-5xl">
+            <h2
+              className={cn(
+                "text-4xl font-extrabold tracking-tight md:text-5xl",
+                light ? "text-zinc-900" : "text-white"
+              )}
+            >
               思维日志
             </h2>
             <span className="ml-auto font-mono text-sm text-zinc-500">
@@ -277,6 +369,7 @@ export default function Mindlog2Page() {
               <StreamCard
                 key={card.step_id || abs}
                 card={card}
+                light={light}
                 animate={initialEndRef.current !== null && abs >= initialEndRef.current}
               />
             ))}
@@ -295,11 +388,20 @@ export default function Mindlog2Page() {
   }
 
   if (fullscreen) {
-    return <div className="fixed inset-0 z-50 overflow-y-auto bg-[#0b0a10]">{canvas}</div>;
+    return (
+      <div
+        className={cn(
+          "fixed inset-0 z-50 overflow-y-auto",
+          light ? "bg-[#f7f7fb]" : "bg-[#0b0a10]"
+        )}
+      >
+        {canvas}
+      </div>
+    );
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4">
+    <div className="mx-auto w-full max-w-7xl">
       <IdentityTabs
         identityId={identityId}
         live={live}

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 )
 
 // protocolVersion 是本客户端支持的 MCP 协议版本。握手时发送给
@@ -223,7 +224,10 @@ type stdioConn struct {
 
 func newStdioConn(ctx context.Context, name string, cfg ServerConfig) (*stdioConn, error) {
 	cmd := exec.Command(cfg.Command, cfg.Args...)
-	cmd.Env = append(os.Environ(), flattenEnv(cfg.Env)...)
+	// 敏感环境变量不传给 MCP 子进程：服务器进程往往是第三方包
+	// （npx 拉来的），没有理由拿到模型网关与仪表盘的凭据。
+	// mcp.json 里显式配置的 env 在其后追加，仍可按需提供。
+	cmd.Env = append(sanitizedEnv(), flattenEnv(cfg.Env)...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -351,16 +355,21 @@ type httpConn struct {
 	sessionID string
 }
 
+// httpTimeout 是单次 HTTP 上行的兜底超时：调用方的 ctx 之外再保
+// 一层——服务器挂起时调用不至于无限等（与 llm.Client 的默认同款）。
+const httpTimeout = 10 * time.Minute
+
 func newHTTPConn(cfg ServerConfig) *httpConn {
 	return &httpConn{
 		url:     cfg.URL,
 		headers: cfg.Headers,
-		client:  &http.Client{},
+		client:  &http.Client{Timeout: httpTimeout},
 	}
 }
 
 // post 上行一条消息，返回响应。expectBody=false 时（通知）接受
-// 202 空响应。
+// 202 空响应；通知路径从不向调用方交付 body——一律就地关闭，
+// 服务器不守规范回 200 时也不泄漏连接。
 func (h *httpConn) post(ctx context.Context, line []byte, expectBody bool) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.url, strings.NewReader(string(line)))
 	if err != nil {
@@ -383,10 +392,15 @@ func (h *httpConn) post(ctx context.Context, line []byte, expectBody bool) (*htt
 		return nil, fmt.Errorf("mcp: http 上行失败: %w", err)
 	}
 	if !expectBody {
-		if resp.StatusCode == http.StatusAccepted {
-			resp.Body.Close()
-			return resp, nil
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			snippet := readSnippet(resp.Body)
+			return nil, fmt.Errorf("mcp: http %d: %s", resp.StatusCode, snippet)
 		}
+		if resp.StatusCode != http.StatusAccepted {
+			_ = readSnippet(resp.Body) // 排干再关，连接可回池
+		}
+		return resp, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()
@@ -426,7 +440,8 @@ func (h *httpConn) call(ctx context.Context, id int64, method string, params any
 		return parseSSEResponse(resp.Body, id)
 	default:
 		var msg rpcMessage
-		if err := json.NewDecoder(resp.Body).Decode(&msg); err != nil {
+		// 响应体限幅：与 stdio 帧上限一致，防失控服务器撑爆内存。
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&msg); err != nil {
 			return nil, fmt.Errorf("mcp: 解析 http 响应: %w", err)
 		}
 		if msg.Error != nil {
@@ -437,7 +452,7 @@ func (h *httpConn) call(ctx context.Context, id int64, method string, params any
 }
 
 // parseSSEResponse 从 SSE 分帧里取出与本请求 id 匹配的那条响应
-//（data: 行承载 JSON-RPC 消息，event: message）。
+// （data: 行承载 JSON-RPC 消息，event: message）。
 func parseSSEResponse(body io.Reader, id int64) (json.RawMessage, error) {
 	sc := bufio.NewScanner(body)
 	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
@@ -475,6 +490,28 @@ func (h *httpConn) notify(ctx context.Context, method string) error {
 }
 
 func (h *httpConn) close() error { return nil }
+
+// sensitiveEnvKeys 会被从 MCP 子进程环境中剔除的精确键名；带
+// *_API_KEY 后缀的键在 sanitizedEnv 里按后缀匹配。
+var sensitiveEnvKeys = map[string]bool{
+	"MINDLOOP_API_KEY":   true,
+	"ANTHROPIC_API_KEY":  true,
+	"OPENAI_API_KEY":     true,
+	"MINDLOOP_WEB_TOKEN": true,
+}
+
+// sanitizedEnv 返回剔除敏感凭据后的当前进程环境。
+func sanitizedEnv() []string {
+	out := make([]string, 0, len(os.Environ()))
+	for _, kv := range os.Environ() {
+		k, _, ok := strings.Cut(kv, "=")
+		if !ok || sensitiveEnvKeys[k] || strings.HasSuffix(k, "_API_KEY") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
 
 func flattenEnv(env map[string]string) []string {
 	out := make([]string, 0, len(env))

@@ -126,14 +126,14 @@ func (s *Server) handleLlmHealth(w http.ResponseWriter, _ *http.Request, id *ide
 		// 回复索引：reply_to → 回复 ts
 		replyAt := map[string]string{}
 		for _, st := range steps {
-			if st.Type == "message" {
+			if st.Type == traj.TypeMessage {
 				if rt, ok := st.Field("reply_to"); ok && rt != "" {
 					replyAt[rt] = st.TS
 				}
 			}
 		}
 		for _, st := range steps {
-			if st.Type != "message" {
+			if st.Type != traj.TypeMessage {
 				continue
 			}
 			from, _ := st.Field("from")

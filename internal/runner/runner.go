@@ -41,7 +41,7 @@ type Thinker interface {
 var renderOptions = prompt.Options{
 	Tail:           40,
 	Block:          10,
-	AssistantTypes: []string{"final", "reasoning"},
+	AssistantTypes: []string{traj.TypeFinal, traj.TypeReasoning},
 	ExcludeFields:  []string{"exit_code", "exec_ms", "killed", "workdir", "task"},
 }
 
@@ -132,7 +132,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 // 运行头的 step_id 就是本次运行的 id——所有后续步骤盖 run_id 章
 // （Headlong 的 run_id 溯源规则）。
 func (r *run) start(ctx context.Context) (Result, error) {
-	header := traj.NewStep("run")
+	header := traj.NewStep(traj.TypeRun)
 	taskBrief := r.opts.Task
 	if runes := []rune(taskBrief); len(runes) > 200 {
 		taskBrief = string(runes[:200]) + "…"
@@ -165,7 +165,7 @@ func (r *run) start(ctx context.Context) (Result, error) {
 	}
 	r.exeEnv = append(r.exeEnv, r.opts.ExtraEnv...)
 
-	promptStep := traj.NewStep("prompt")
+	promptStep := traj.NewStep(traj.TypePrompt)
 	promptStep.Fields["run_id"] = r.runID
 	if r.opts.LaunchedBy != "" {
 		promptStep.Fields["launched_by"] = r.opts.LaunchedBy
@@ -272,10 +272,10 @@ func (r *run) loop(ctx context.Context) (Result, error) {
 
 		text, err := r.opts.Thinker.Think(ctx, r.opts.SystemPrompt, msgs)
 		if err != nil {
-			_ = r.appendStep(ctx, "error", "思考失败: "+err.Error(), nil)
+			_ = r.appendStep(ctx, traj.TypeError, "思考失败: "+err.Error(), nil)
 			return Result{RunID: r.runID, WorkDir: r.workDir}, fmt.Errorf("runner: 思考: %w", err)
 		}
-		if err := r.appendStep(ctx, "reasoning", text, nil); err != nil {
+		if err := r.appendStep(ctx, traj.TypeReasoning, text, nil); err != nil {
 			return Result{RunID: r.runID, WorkDir: r.workDir}, fmt.Errorf("runner: 写推理: %w", err)
 		}
 
@@ -284,14 +284,28 @@ func (r *run) loop(ctx context.Context) (Result, error) {
 			r.logf("提示模型: %s", ext.Notice)
 		}
 
+		// 裸文本 FINAL= 声明（回复里没有任何代码块）：模型清楚表达
+		// 了"任务完成+答案"，按成功语义直接采为终局——不进沙箱、
+		// 不教学回灌，成果原样落 final 步骤回发（实测事故见
+		// extract.go bareFinal）。
+		if ext.Final != "" {
+			if r.logf != nil {
+				r.logf("识别到裸文本 FINAL= 声明，直接采为终局")
+			}
+			if err := r.appendStep(ctx, traj.TypeFinal, ext.Final, nil); err != nil {
+				return Result{RunID: r.runID, WorkDir: r.workDir}, fmt.Errorf("runner: 写 FINAL: %w", err)
+			}
+			return Result{Final: ext.Final, Iterations: iteration, RunID: r.runID, WorkDir: r.workDir}, nil
+		}
+
 		res, err := r.execute(ctx, ext.Code)
 		if err != nil {
-			_ = r.appendStep(ctx, "error", "执行失败: "+err.Error(), nil)
+			_ = r.appendStep(ctx, traj.TypeError, "执行失败: "+err.Error(), nil)
 			return Result{RunID: r.runID, WorkDir: r.workDir}, fmt.Errorf("runner: 执行: %w", err)
 		}
 
 		content, extra := outputStepContent(ext, res)
-		if err := r.appendStep(ctx, "shell-output", content, extra); err != nil {
+		if err := r.appendStep(ctx, traj.TypeShellOutput, content, extra); err != nil {
 			return Result{RunID: r.runID, WorkDir: r.workDir}, fmt.Errorf("runner: 写输出: %w", err)
 		}
 		if r.logf != nil {
@@ -305,7 +319,7 @@ func (r *run) loop(ctx context.Context) (Result, error) {
 				return Result{RunID: r.runID, WorkDir: r.workDir}, fmt.Errorf("runner: 读 FINAL: %w", err)
 			}
 			final := strings.TrimSpace(string(data))
-			if err := r.appendStep(ctx, "final", final, nil); err != nil {
+			if err := r.appendStep(ctx, traj.TypeFinal, final, nil); err != nil {
 				return Result{RunID: r.runID, WorkDir: r.workDir}, fmt.Errorf("runner: 写 FINAL: %w", err)
 			}
 			return Result{Final: final, Iterations: iteration, RunID: r.runID, WorkDir: r.workDir}, nil
@@ -316,11 +330,11 @@ func (r *run) loop(ctx context.Context) (Result, error) {
 		if failed := res.ExitCode != 0 || res.KillReason != ""; failed {
 			r.consecutiveFails++
 			if ext.Code == r.lastFailCmd && res.ExitCode == r.lastFailExit {
-				_ = r.appendStep(ctx, "error", fmt.Sprintf("同一命令连续两次失败（exit %d），中止。", res.ExitCode), nil)
+				_ = r.appendStep(ctx, traj.TypeError, fmt.Sprintf("同一命令连续两次失败（exit %d），中止。", res.ExitCode), nil)
 				return Result{RunID: r.runID, WorkDir: r.workDir}, ErrStalled
 			}
 			if r.consecutiveFails >= r.opts.StallLimit {
-				_ = r.appendStep(ctx, "error", fmt.Sprintf("连续 %d 次失败，中止。", r.consecutiveFails), nil)
+				_ = r.appendStep(ctx, traj.TypeError, fmt.Sprintf("连续 %d 次失败，中止。", r.consecutiveFails), nil)
 				return Result{RunID: r.runID, WorkDir: r.workDir}, ErrStalled
 			}
 			r.lastFailCmd, r.lastFailExit = ext.Code, res.ExitCode
@@ -330,6 +344,6 @@ func (r *run) loop(ctx context.Context) (Result, error) {
 		}
 	}
 
-	_ = r.appendStep(ctx, "error", fmt.Sprintf("轮次耗尽（%d）。", r.opts.MaxIterations), nil)
+	_ = r.appendStep(ctx, traj.TypeError, fmt.Sprintf("轮次耗尽（%d）。", r.opts.MaxIterations), nil)
 	return Result{RunID: r.runID, WorkDir: r.workDir}, ErrMaxIterations
 }

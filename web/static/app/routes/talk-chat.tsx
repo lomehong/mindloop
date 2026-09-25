@@ -1,40 +1,36 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, SendHorizontal } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { toast } from "sonner";
-
+import {
+  ChatBubble,
+  PendingChatBubble,
+  StreamingChatBubble,
+} from "~/components/chat-bubble";
 import { PushBell } from "~/components/push-bell";
 import { useControlsEnabled } from "~/components/thinker-controls";
 import { Button } from "~/components/ui/button";
 import { LoadingDots } from "~/components/ui/loading-dots";
 import { Textarea } from "~/components/ui/textarea";
 import { useAutosizeTextarea } from "~/hooks/use-autosize-textarea";
-import { fetchActivity, fetchChat, fetchThinkers, sendChat } from "~/lib/api";
-import type { ChatMessage } from "~/lib/types";
+import { fetchThinkers } from "~/lib/api";
 import { getPwaName, pwaSender, setLastIdentity } from "~/lib/pwa";
+import { useChat, useNowTicker, useReplyStream, CHAT_DOTS_WINDOW_MS } from "~/lib/use-chat";
+import { WorkingCard } from "~/components/working-card";
+import {
+  THINKERS_AWAITING_POLL_MS,
+  THINKERS_IDLE_POLL_MS,
+} from "~/lib/polling";
 import { cn } from "~/lib/utils";
 
 export function meta({ params }: { params: { identityId?: string } }) {
   return [{ title: params.identityId ? `${params.identityId} · talk` : "mindloop · 对话" }];
 }
 
-// After a send: poll fast for this long so the reply lands near-instantly.
-const FAST_POLL_WINDOW_MS = 60_000;
-const FAST_POLL_MS = 700;
-const IDLE_POLL_MS = 2000;
-// Backstop only: the dots are already gated on verifiable thinker activity,
-// and slow replies (a busy monolith, a long task) can legitimately take
-// minutes. Declines surface instantly via outcome stamps, not this timer.
+// Backstop only: slow replies (a busy monolith, a long task) can
+// legitimately take minutes. Declines and failures surface instantly via
+// outcome stamps, not this timer.
 const TYPING_TIMEOUT_MS = 180_000;
-
-interface PendingMessage {
-  key: number;
-  content: string;
-  failed: boolean;
-}
 
 /** iOS doesn't shrink the layout viewport for the keyboard — it pans the
  * page and (in installed PWAs) often leaves it panned after dismiss,
@@ -63,112 +59,17 @@ function useKeyboardViewport() {
   }, []);
 }
 
-function messageTime(ts: string | null): string {
-  if (!ts) return "";
-  const date = new Date(ts);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function Bubble({ message, mine }: { message: ChatMessage; mine: boolean }) {
-  return (
-    <div className={cn("msg-in flex", mine ? "justify-end" : "justify-start")}>
-      <div
-        className={cn(
-          "max-w-[85%] rounded-2xl px-3.5 py-2",
-          mine
-            ? "rounded-br-md bg-primary text-primary-foreground"
-            : "rounded-bl-md border bg-card"
-        )}
-      >
-        {mine ? (
-          <div className="whitespace-pre-wrap break-words text-sm">
-            {message.content}
-          </div>
-        ) : (
-          <div className="prose prose-sm max-w-none break-words dark:prose-invert">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {message.content}
-            </ReactMarkdown>
-          </div>
-        )}
-        <div
-          className={cn(
-            "mt-0.5 text-right font-mono text-[10px]",
-            mine ? "text-primary-foreground/60" : "text-muted-foreground"
-          )}
-        >
-          {messageTime(message.ts)}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PendingBubble({
-  message,
-  onRetry,
-}: {
-  message: PendingMessage;
-  onRetry: () => void;
-}) {
-  return (
-    <div className="msg-in flex justify-end">
-      <div
-        className={cn(
-          "max-w-[85%] rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-primary-foreground",
-          !message.failed && "opacity-70"
-        )}
-      >
-        <div className="whitespace-pre-wrap break-words text-sm">
-          {message.content}
-        </div>
-        {message.failed ? (
-          <button
-            type="button"
-            className="mt-0.5 block w-full text-right font-mono text-[10px] text-red-200 underline"
-            onClick={onRetry}
-          >
-            发送失败——点按重试
-          </button>
-        ) : (
-          <div className="mt-0.5 text-right font-mono text-[10px] text-primary-foreground/60">
-            发送中…
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function TypingBubble() {
-  return (
-    <div className="msg-in flex justify-start">
-      <div className="rounded-2xl rounded-bl-md border bg-card px-4 py-3">
-        <div className="flex gap-1">
-          <span className="typing-dot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-          <span className="typing-dot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-          <span className="typing-dot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function TalkChat() {
   const { identityId = "" } = useParams();
   const navigate = useNavigate();
   const controlsEnabled = useControlsEnabled();
   useKeyboardViewport();
-  const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
-  const [pending, setPending] = useState<PendingMessage[]>([]);
-  const [lastSentAt, setLastSentAt] = useState<number | null>(null);
-  const [typingExpired, setTypingExpired] = useState(false);
-  const pendingKey = useRef(0);
+  // 超时标记：记录「哪一次发送」已超时（而非布尔），发送一旦更新
+  // （lastSentAt 变化）即视为未超时——派生值免去 effect 里的同步
+  // setState 重置，也天然随发送刷新。
+  const [expiredStamp, setExpiredStamp] = useState<number | null>(null);
   const draftRef = useAutosizeTextarea(draft);
-  const lastSentAtRef = useRef<number | null>(null);
-  lastSentAtRef.current = lastSentAt;
   const awaitingRef = useRef(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -182,75 +83,75 @@ export default function TalkChat() {
   }, [name, identityId, navigate]);
   const myName = name ? pwaSender(name) : "";
 
-  const { data: chat, isLoading } = useQuery({
-    queryKey: ["chat", identityId, myName],
-    queryFn: () => fetchChat(identityId, 200, myName),
-    refetchInterval: () => {
-      const sent = lastSentAtRef.current;
-      const awaiting =
-        awaitingRef.current && sent && Date.now() - sent < FAST_POLL_WINDOW_MS;
-      return awaiting ? FAST_POLL_MS : IDLE_POLL_MS;
-    },
+  // PWA 只看自己与该身份的会话（withName 过滤）；查询、乐观气泡、
+  // 失败重试与快轮询都来自共享的 useChat。回复生成期间的流式渐进气泡
+  // 由 useReplyStream 提供（旧后端无此端点时自动退化为纯轮询）。
+  const {
+    chat,
+    messages,
+    outcomes,
+    pending: visiblePending,
+    lastSentAt,
+    send,
+    retry,
+    isSending,
+    isLoading,
+  } = useChat({
+    identityId,
+    myName,
+    withName: myName,
     enabled: !!myName,
   });
+  // reply = 流式回复；working/activity/stepTotal = 心智干活期间的实时
+  // 活动进度卡；sentAt（lastSentAt）是耗时计时与步数起算的界定点。
+  const {
+    reply,
+    working,
+    activity,
+    stepTotal,
+  } = useReplyStream({
+    identityId,
+    enabled: !!myName,
+    sentAt: lastSentAt,
+  });
+  // 进度可见期间每秒心跳：驱动 mm:ss 计时、点动画 4s 让位窗口。
+  const now = useNowTicker(lastSentAt !== null || working || activity.length > 0);
+
+  // 统一指示器：点动画只允许「发送后 4s 内」的短窗口（空文本流式气泡
+  // 的输入点），之后让位给进度卡——两者互斥。
+  const dotsWindow =
+    lastSentAt !== null && now - lastSentAt < CHAT_DOTS_WINDOW_MS;
+  const dotsActive =
+    reply !== null && reply.text.length === 0 && dotsWindow;
 
   const { data: thinkerStatus } = useQuery({
     queryKey: ["thinkers", identityId],
     queryFn: () => fetchThinkers(identityId),
-    // Faster while awaiting a reply — this feed is what turns the dots on.
-    refetchInterval: () => (awaitingRef.current ? 1000 : 5000),
+    // Faster while awaiting a reply (the sleep banner tracks this feed).
+    refetchInterval: () =>
+      awaitingRef.current ? THINKERS_AWAITING_POLL_MS : THINKERS_IDLE_POLL_MS,
   });
   const dispatcherRunning = thinkerStatus?.dispatcher.running ?? true;
 
-  const { data: activity } = useQuery({
-    queryKey: ["activity", identityId],
-    queryFn: () => fetchActivity(identityId),
-    refetchInterval: () => (awaitingRef.current ? 2000 : 5000),
-  });
-  // My message is sitting in the pending queue behind a busy run — say so
-  // instead of letting the typing dots silently expire.
-  const queuedMine =
-    (activity?.state === "working" || activity?.state === "stalled") &&
-    (activity?.queued_messages ?? []).some((m) => m.from === myName);
-
-  const messages = useMemo(() => chat?.messages ?? [], [chat]);
-  const outcomes = chat?.outcomes ?? {};
-
-  // A reply arriving ends the "waiting" state (fast poll + typing dots).
-  const lastMessage = messages[messages.length - 1];
+  // Waiting longer than the backstop expires the "no reply yet" note —
+  // NO_REPLY (declined) and failure stamp their own outcome instead.
+  // 派生：typingExpired 仅在「最近一次发送」已挂起超过 backstop 时为真；
+  // 新发送（lastSentAt 变化）立即使旧 stamp 失配归 false。
   useEffect(() => {
-    if (lastMessage && lastMessage.from !== myName) setLastSentAt(null);
-  }, [lastMessage, myName]);
-
-  // Optimistic bubbles disappear once the server echoes the real message.
-  const confirmedContents = useMemo(
-    () => new Set(messages.filter((m) => m.from === myName).map((m) => m.content)),
-    [messages, myName]
-  );
-  useEffect(() => {
-    setPending((prev) =>
-      prev.filter((p) => p.failed || !confirmedContents.has(p.content))
+    if (lastSentAt === null) return;
+    const timer = setTimeout(
+      () => setExpiredStamp(lastSentAt),
+      TYPING_TIMEOUT_MS
     );
-  }, [confirmedContents]);
-  const visiblePending = pending.filter(
-    (p) => p.failed || !confirmedContents.has(p.content)
-  );
-
-  // Typing dots time out — NO_REPLY is a legitimate outcome.
-  useEffect(() => {
-    if (lastSentAt === null) {
-      setTypingExpired(false);
-      return;
-    }
-    setTypingExpired(false);
-    const timer = setTimeout(() => setTypingExpired(true), TYPING_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [lastSentAt]);
+  const typingExpired = lastSentAt !== null && expiredStamp === lastSentAt;
 
   // The last message I sent this session, and what the mind log says
   // happened to it: "replied" / "no-reply" / "failed" / undefined (undecided).
   const lastMine = [...messages].reverse().find((m) => m.from === myName);
   const lastOutcome = lastMine?.step_id ? outcomes[lastMine.step_id] : undefined;
+  const lastMessage = messages[messages.length - 1];
 
   const waitingForReply =
     lastSentAt !== null &&
@@ -258,13 +159,6 @@ export default function TalkChat() {
     (visiblePending.some((p) => !p.failed) ||
       (lastMessage ? lastMessage.from === myName : false));
 
-  // Dots only when the agent is verifiably on it: dispatcher up AND a
-  // thinker either mid-step or with a queued message. No theater.
-  const thinkerBusy = (thinkerStatus?.thinkers ?? []).some(
-    (t) => t.steps_in_flight > 0 || t.pending.includes("message")
-  );
-  const showTyping =
-    waitingForReply && dispatcherRunning && thinkerBusy && !typingExpired;
   const showDeclinedNote =
     lastSentAt !== null &&
     lastOutcome === "no-reply" &&
@@ -274,14 +168,40 @@ export default function TalkChat() {
     lastOutcome === "failed" &&
     (lastMessage ? lastMessage.from === myName : false);
   const showNoReplyNote =
-    waitingForReply && typingExpired && !showDeclinedNote && !showFailedNote;
-  awaitingRef.current = waitingForReply;
+    waitingForReply &&
+    typingExpired &&
+    reply === null &&
+    !showDeclinedNote &&
+    !showFailedNote;
 
-  // Follow new messages only when already reading the latest ones.
+  // 等回复、正在流式接收回复、或心智在干活（活动卡片可见）时，
+  // thinkers 状态流保持加速轮询。
+  const awaitingOrStreaming =
+    waitingForReply || reply !== null || working || activity.length > 0;
+
+  // The thinkers poll-interval callback reads this ref at tick time (not
+  // render time), so keeping it current from an effect is sufficient.
+  useEffect(() => {
+    awaitingRef.current = awaitingOrStreaming;
+  }, [awaitingOrStreaming]);
+
+  // 统一指示器的两半：流式气泡（有正文必显；空文本=输入点，仅 4s 窗口
+  // 内）与进度卡（working/有活动/等待超窗 任一即显，点动画在场时让位）。
+  const showStreaming =
+    reply !== null && (reply.text.length > 0 || dotsWindow);
+  const showCard =
+    !dotsActive &&
+    (working || activity.length > 0 || (waitingForReply && !dotsWindow));
+
+  // Follow new messages only when already reading the latest ones; while
+  // a reply streams in or the working card ticks, follow their growth too
+  // (same near-bottom guard).
   const itemCount =
     messages.length +
     visiblePending.length +
-    (showTyping || showDeclinedNote || showFailedNote || showNoReplyNote ? 1 : 0);
+    (showStreaming ? 1 : 0) +
+    (showCard ? 1 : 0) +
+    (showDeclinedNote || showFailedNote || showNoReplyNote ? 1 : 0);
   useEffect(() => {
     if (itemCount === 0) return;
     if (!didInitialScroll.current) {
@@ -292,32 +212,7 @@ export default function TalkChat() {
     if (nearBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }
-  }, [itemCount]);
-
-  const sendMutation = useMutation({
-    mutationFn: (content: string) => sendChat(identityId, content, myName),
-    onMutate: (content: string) => {
-      const key = ++pendingKey.current;
-      setPending((prev) => [...prev, { key, content, failed: false }]);
-      setDraft("");
-      setLastSentAt(Date.now());
-      return { key };
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["chat", identityId, myName] });
-    },
-    onError: (error: Error, _content, context) => {
-      setPending((prev) =>
-        prev.map((p) => (p.key === context?.key ? { ...p, failed: true } : p))
-      );
-      toast.error(error.message);
-    },
-  });
-
-  const retryPending = (message: PendingMessage) => {
-    setPending((prev) => prev.filter((p) => p.key !== message.key));
-    sendMutation.mutate(message.content);
-  };
+  }, [itemCount, reply?.text.length, activity.length]);
 
   const identityName = chat?.identity.name ?? identityId.split("~").pop();
 
@@ -355,11 +250,6 @@ export default function TalkChat() {
           {identityName} 正在睡眠（思考者已停止）——消息会等它醒来后再被看到。
         </div>
       )}
-      {dispatcherRunning && queuedMine && (
-        <div className="border-b border-sky-300 bg-sky-50 px-4 py-2 text-xs text-sky-900 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-200">
-          {identityName} 正在忙——你的消息已排队，当前任务结束后会被看到。
-        </div>
-      )}
 
       <div
         ref={scrollerRef}
@@ -382,20 +272,24 @@ export default function TalkChat() {
         ) : (
           <>
             {messages.map((message, idx) => (
-              <Bubble
+              <ChatBubble
                 key={message.step_id ?? idx}
                 message={message}
                 mine={message.from === myName}
+                variant="talk"
               />
             ))}
             {visiblePending.map((message) => (
-              <PendingBubble
+              <PendingChatBubble
                 key={`pending-${message.key}`}
                 message={message}
-                onRetry={() => retryPending(message)}
+                onRetry={() => retry(message)}
+                variant="talk"
               />
             ))}
-            {showTyping && <TypingBubble />}
+            {showStreaming && reply !== null && (
+              <StreamingChatBubble text={reply.text} variant="talk" />
+            )}
             {showDeclinedNote && (
               <div className="py-2 text-center font-mono text-[10px] text-muted-foreground">
                 {identityName} 已读但选择不回复
@@ -413,6 +307,17 @@ export default function TalkChat() {
             )}
           </>
         )}
+        {/* 活动进度卡独立于消息分支：线程为空时（接了任务还没回话）也要可见。 */}
+        {showCard && (
+          <WorkingCard
+            name={identityName ?? identityId}
+            working={working}
+            activity={activity}
+            stepTotal={stepTotal}
+            sentAt={lastSentAt}
+            variant="talk"
+          />
+        )}
         <div ref={bottomRef} />
       </div>
 
@@ -421,8 +326,9 @@ export default function TalkChat() {
           className="flex select-none items-end gap-2 border-t px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)]"
           onSubmit={(event) => {
             event.preventDefault();
-            const content = draft.trim();
-            if (content && !sendMutation.isPending) sendMutation.mutate(content);
+            if (!draft.trim() || isSending) return;
+            send(draft);
+            setDraft("");
           }}
         >
           <Textarea
@@ -439,7 +345,7 @@ export default function TalkChat() {
             type="submit"
             size="icon"
             className="h-10 w-10 shrink-0 rounded-full"
-            disabled={sendMutation.isPending || !draft.trim()}
+            disabled={isSending || !draft.trim()}
             aria-label="发送"
           >
             <SendHorizontal className="size-4" />

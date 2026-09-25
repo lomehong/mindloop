@@ -39,6 +39,24 @@ type ResponderOptions struct {
 	// RecallWindow 之外的旧消息不再视为待回复（rewind 兜底，
 	// 默认 15 分钟）。
 	RecallWindow time.Duration
+	// Streaming 开启回复流式旁路：回复生成期间把累积全文写进
+	// <Timeline.Dir>/stream/<reply_to>.txt，并在 <RunLockDir>/replying
+	// 维护状态文件（web SSE 端点据此实时推送）。最终 message 步骤
+	// 照旧一次性落轨迹——旁路是瞬态投影，轨迹仍是唯一事实源。
+	// 装配层按 MINDLOOP_STREAM 折算（!=0 即开，缺省开启）；关掉时
+	// 完全不写旁路文件。
+	Streaming bool
+	// StreamFn 是流式补全的调用面：与 Think 同参，多一个 onDelta
+	// 增量回调（逐段回调全文增量，读方以累积全量为准）。装配层从
+	// llm.Client.CompleteStream 适配（见 cli/mindsetup.go）；nil =
+	// 无流式能力，Streaming 开着也回退一次性补全。
+	StreamFn func(ctx context.Context, system string, msgs []llm.Message, onDelta func(string)) (string, error)
+	// MinDwell 是旁路文件的最小可观测驻留：快生成器（echo、缓存
+	// 命中、短回复）的旁路存活可能短于读方（web SSE 200ms 轮询）
+	// 的采样周期，流式协议会静默失效——finish 时不足额则补足再删。
+	// 只延迟清理、不延迟回复落盘（顺序锚不变）。0 取默认 1s；负数
+	// 禁用驻留（测试）。
+	MinDwell time.Duration
 }
 
 // runnerThinker 是 responder 对模型调用的需求面：单次补全。
@@ -54,20 +72,26 @@ func NewResponder(opts ResponderOptions) Thinker {
 	if opts.RecallWindow <= 0 {
 		opts.RecallWindow = 15 * time.Minute
 	}
+	switch {
+	case opts.MinDwell == 0:
+		opts.MinDwell = defaultReplyDwell
+	case opts.MinDwell < 0:
+		opts.MinDwell = 0 // 负数：禁用驻留（测试直通）
+	}
 	return &Responder{opts: opts}
 }
 
-func (r *Responder) Name() string { return "responder" }
+func (r *Responder) Name() string { return responderName }
 
 func (r *Responder) Subscriptions() Subscription {
 	// 只订阅人类消息；回复步骤带 launched_by=responder，天然被
 	// 本守卫挡住。不设 Watchdog：responder 是纯被动的，无事不做。
-	return Subscription{Types: []string{"message"}, TriggerSelf: false}
+	return Subscription{Types: []string{traj.TypeMessage}, TriggerSelf: false}
 }
 
 func (r *Responder) Wake(ctx context.Context, w Wake) Outcome {
 	step := w.Step
-	if step.Type != "message" {
+	if step.Type != traj.TypeMessage {
 		return Outcome{}
 	}
 	from, _ := step.Field("from")
@@ -88,13 +112,24 @@ func (r *Responder) Wake(ctx context.Context, w Wake) Outcome {
 	}
 	content, _ := step.Field("content")
 
-	reply, err := r.compose(ctx, from, content)
+	// 流式旁路：建立（截断式）+ replying 状态。返回 nil（开关关、
+	// 无 StreamFn、reply_to 不合规或建立失败）则退化为一次性补全
+	// ——旁路是体验增强，绝不挡住回复本身。
+	var stream *replyStream
+	if r.opts.Streaming && r.opts.StreamFn != nil {
+		stream = beginReplyStream(r.opts.Timeline.Dir, step.StepID, r.opts.MinDwell)
+	}
+
+	reply, err := r.compose(ctx, from, content, stream)
 	if err != nil {
+		stream.discard() // LLM 失败：旁路与状态一起消失，照旧只回 Note
 		return Outcome{Note: "回复失败: " + err.Error()}
 	}
+	stream.seal() // 全文定稿：关闭旁路句柄，等轨迹落盘后移除
+
 	// 回复落盘：message 步骤 + reply_to 盖章 + launched_by=responder
 	// （调度器据此不把回复喂回给 responder 自己）。
-	s := traj.NewStep("message")
+	s := traj.NewStep(traj.TypeMessage)
 	s.Fields["from"] = r.opts.SelfName
 	s.Fields["to"] = from
 	s.Fields["source"] = "chat"
@@ -102,8 +137,12 @@ func (r *Responder) Wake(ctx context.Context, w Wake) Outcome {
 	s.Fields["launched_by"] = r.Name()
 	s.Fields["content"] = reply
 	if err := r.opts.Timeline.Append(ctx, s); err != nil {
+		stream.discard()
 		return Outcome{Note: "回复落盘失败: " + err.Error()}
 	}
+	// 轨迹已落盘才移除旁路：读方看到旁路消失（done）后 invalidate
+	// 查询，必能拿到正式消息——顺序是 done 事件正确性的锚。
+	stream.finish()
 	return Outcome{Note: fmt.Sprintf("已回复 %s", from)}
 }
 
@@ -115,7 +154,7 @@ func (r *Responder) answered(triggerStepID string) bool {
 		return false // 读不出日志时宁可重试也不静默吞掉
 	}
 	for _, s := range steps {
-		if s.Type != "message" {
+		if s.Type != traj.TypeMessage {
 			continue
 		}
 		if rt, ok := s.Field("reply_to"); ok && rt == triggerStepID {
@@ -133,7 +172,7 @@ func (r *Responder) history(person string, max int) []llm.Message {
 	}
 	var msgs []llm.Message
 	for _, s := range steps {
-		if s.Type != "message" {
+		if s.Type != traj.TypeMessage {
 			continue
 		}
 		from, _ := s.Field("from")
@@ -164,11 +203,20 @@ func (r *Responder) history(person string, max int) []llm.Message {
 	return msgs
 }
 
-// compose 组装对话并做一次模型调用。
-func (r *Responder) compose(ctx context.Context, person, inbound string) (string, error) {
-	system := fmt.Sprintf(ResponderSystemTemplate, r.opts.Persona)
+// compose 组装对话并做模型调用。stream 非 nil 时走流式：增量经
+// onDelta 落进旁路文件，返回值仍是拼接后的完整全文——旁路只是
+// 投影，全文的处理（去元数据前缀、落轨迹）与一次性补全完全一致。
+func (r *Responder) compose(ctx context.Context, person, inbound string, stream *replyStream) (string, error) {
+	system := fmt.Sprintf(ResponderSystemTemplate, r.opts.Persona) + r.progressDigest()
 	msgs := r.history(person, r.opts.MaxHistory)
 	msgs = append(msgs, llm.Message{Role: "user", Content: inbound})
+	if stream != nil {
+		text, err := r.opts.StreamFn(ctx, system, msgs, stream.appendDelta)
+		if err != nil {
+			return "", err
+		}
+		return stripMetaPrefix(strings.TrimSpace(text)), nil
+	}
 	text, err := r.opts.Thinker.Think(ctx, system, msgs)
 	if err != nil {
 		return "", err
@@ -184,4 +232,70 @@ var metaPrefixRe = regexp.MustCompile(
 
 func stripMetaPrefix(s string) string {
 	return metaPrefixRe.ReplaceAllString(s, "")
+}
+
+// progressDigest 渲染「近期工作摘要」：最近至多 15 条非对话步骤
+// （message/prompt/run 除外——它们要么已在历史里、要么是簿记），
+// 每条一行 `[type] 首行excerpt · 相对时间`，注入系统提示尾部。
+// responder 的上下文原本对 monolith 的工作成果全盲，ada 实测被问
+// 进度时两次回答「没有任何命令输出」——摘要显式声明这是真实工作
+// 记录，被问进度必须据此如实回答。无可摘要步骤返回空串（系统提示
+// 与历史行为完全不变）。
+func (r *Responder) progressDigest() string {
+	steps, err := r.opts.Timeline.Steps()
+	if err != nil {
+		return ""
+	}
+	const maxLines, excerptRunes = 15, 100
+	var lines []string
+	for i := len(steps) - 1; i >= 0 && len(lines) < maxLines; i-- {
+		s := steps[i]
+		switch s.Type {
+		case traj.TypeMessage, traj.TypePrompt, traj.TypeRun, traj.TypeTrajectory:
+			continue
+		}
+		content, _ := s.Field("content")
+		excerpt := firstLine(content)
+		if excerpt == "" {
+			continue // 无正文的簿记步骤（fork 等）不进摘要
+		}
+		line := fmt.Sprintf("[%s] %s", s.Type, truncateRunes(excerpt, excerptRunes))
+		if age := relAge(s.TS); age != "" {
+			line += " · " + age
+		}
+		lines = append([]string{line}, lines...) // 新的在上
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "\n\n## Work digest（近期工作记录）\n" +
+		"这是你（monolith）近期的真实工作记录（最新在上），被问进度时必须据此如实回答：\n" +
+		strings.Join(lines, "\n")
+}
+
+// firstLine 取多行文本的首行（裁剪在调用方做）。
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
+}
+
+// relAge 把步骤时间戳渲染成粗粒度中文相对时间（"" = 不可解析）。
+func relAge(ts string) string {
+	t, err := time.Parse(traj.TimeFormat, ts)
+	if err != nil {
+		return ""
+	}
+	switch d := time.Since(t); {
+	case d < time.Minute:
+		return "刚刚"
+	case d < time.Hour:
+		return fmt.Sprintf("%d 分钟前", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%d 小时前", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%d 天前", int(d.Hours()/24))
+	}
 }

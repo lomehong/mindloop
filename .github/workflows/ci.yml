@@ -1,5 +1,7 @@
-# 最小质量门禁：vet + 测试全绿才允许合并。viewer 前端同样上锁——
-# typecheck + vitest（2026-09 起，此前套件红了没人拦）。
+# 质量门禁：gofmt + vet + 测试全绿才允许合并。viewer 前端同样
+# 上锁——typecheck + vitest + 生产构建（2026-09 起，此前套件红了
+# 没人拦）。gofmt 门禁依赖 .gitattributes 的 LF 策略，保证 Windows
+# checkout 与 Linux 一致。
 name: ci
 
 on:
@@ -12,7 +14,7 @@ jobs:
     strategy:
       matrix:
         # Windows 是一等公民（Job Object 沙箱只有 Windows 能测到），
-        # ubuntu 保证跨平台可编译可运行。
+        # ubuntu 保证跨平台可编译可运行，并承担 -race 数据竞争检测。
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -21,7 +23,13 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go vet ./...
-      - run: go test ./...
+      - name: gofmt（有输出即失败）
+        # windows runner 的 run 默认是 pwsh，这里需要 POSIX 的
+        # test -z "$(...)" 写法，显式钉 bash。
+        shell: bash
+        run: test -z "$(gofmt -l .)"
+      - name: go test（ubuntu 加 -race 检测数据竞争）
+        run: go test ${{ matrix.os == 'ubuntu-latest' && '-race' || '' }} ./...
 
   viewer:
     runs-on: ubuntu-latest
@@ -33,6 +41,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install --no-audit --no-fund
+          cache: npm
+          cache-dependency-path: web/static/package-lock.json
+      # npm ci 严格按 package-lock.json 安装，lock 漂移直接失败。
+      - run: npm ci --no-audit --no-fund
       - run: npx react-router typegen && npx tsc --noEmit
       - run: npm test
+      # 生产构建（react-router build）进门禁：bundling 断裂、
+      # 重依赖解析问题不能等本机构建才暴露。
+      - run: npm run build

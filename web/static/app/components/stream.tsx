@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { formatClock } from "~/lib/format";
 import { RunGroupBlock } from "~/components/run-group";
 import { StepCard } from "~/components/step-card";
 import type { NormalizedStep, RunGroup } from "~/lib/types";
@@ -80,8 +81,8 @@ export function IdleStrip({
   expandAll: boolean;
 }) {
   const [show, setShow] = useState(false);
-  const first = steps[0].ts.slice(11, 19);
-  const last = steps[steps.length - 1].ts.slice(11, 19);
+  const first = formatClock(steps[0].ts);
+  const last = formatClock(steps[steps.length - 1].ts);
   return (
     <div className="my-1">
       <button

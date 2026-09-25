@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
+import { toast } from "sonner";
 
 import { fetchMindlog, pollWhileLive } from "~/lib/api";
 import type { Mindlog, RunGroup } from "~/lib/types";
@@ -9,6 +10,13 @@ import type { Mindlog, RunGroup } from "~/lib/types";
  * chunks on demand. */
 const INITIAL_TAIL = 1000;
 const OLDER_CHUNK = 2000;
+
+/** Poll cadence contract for this hook: `pollWhileLive` (lib/api.ts,
+ * IN_PROGRESS_POLL_MS = 2000) polls every 2s while the identity is live and
+ * stops entirely when it isn't. The mindlog delta is cheap (server serves a
+ * since-window, not the whole log), which is why this poll runs faster than
+ * the 5s identities/usage cadences used elsewhere in the dashboard. */
+const MINDLOG_POLL = pollWhileLive;
 
 /** Mindlog plus the absolute index of steps[0] in the full log. */
 export type MindlogData = Mindlog & { start: number };
@@ -67,7 +75,7 @@ export function useMindlog(identityId: string, live: boolean) {
         start: prev.start,
       };
     },
-    refetchInterval: pollWhileLive(live),
+    refetchInterval: MINDLOG_POLL(live),
   });
 
   const loadOlder = useCallback(async () => {
@@ -94,6 +102,12 @@ export function useMindlog(identityId: string, live: boolean) {
             start: from,
           };
         }
+      );
+    } catch (error) {
+      // loadOlder 由 `void loadOlder()` 调用，异常若逃逸就是 unhandled
+      // rejection；这里给出与全站一致的用户反馈。
+      toast.error(
+        `加载更早的历史失败：${error instanceof Error ? error.message : String(error)}`
       );
     } finally {
       setLoadingOlder(false);

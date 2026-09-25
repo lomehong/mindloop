@@ -152,6 +152,9 @@ export function MindlogSearch({
     queryFn: () => searchMindlog(identityId, debouncedQ, scope),
     enabled,
   });
+  // The server may legitimately return hits: null (empty result) — treat
+  // it as an empty list everywhere below.
+  const hits = data?.hits ?? [];
 
   return (
     // ml-auto: when the sticky header wraps, keep the box (and its
@@ -178,8 +181,8 @@ export function MindlogSearch({
           <div className="flex items-center gap-2 border-b px-3 py-1.5 text-xs text-muted-foreground">
             <span>
               {data
-                ? data.total > data.hits.length
-                  ? `${data.hits.length} of ${data.total} matches`
+                ? data.total > hits.length
+                  ? `${hits.length} of ${data.total} matches`
                   : `${data.total} match${data.total === 1 ? "" : "es"}`
                 : isFetching
                   ? "searching…"
@@ -214,12 +217,12 @@ export function MindlogSearch({
             </div>
           </div>
           <div className="max-h-96 overflow-y-auto">
-            {data && data.hits.length === 0 && !isFetching && (
+            {data && hits.length === 0 && !isFetching && (
               <div className="px-3 py-4 text-center text-xs text-muted-foreground">
                 No matches.
               </div>
             )}
-            {data?.hits.map((hit) => (
+            {hits.map((hit) => (
               <button
                 key={hit.step_id}
                 type="button"

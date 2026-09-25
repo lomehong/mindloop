@@ -79,7 +79,6 @@ export interface Identity {
   dispatcher: DispatcherStatus;
   thinkers_total: number;
   thinkers_active: number;
-  steps_in_flight: number;
 }
 
 export type ThinkerState =
@@ -93,11 +92,9 @@ export type ThinkerState =
 export interface ThinkerInfo {
   name: string;
   state: ThinkerState;
-  steps_in_flight: number;
   pid: number | null;
   types: string[];
   trigger_self: boolean;
-  pending: string[];
   log_bytes: number | null;
   log_mtime: string | null;
 }
@@ -108,8 +105,6 @@ export interface ThinkersStatus {
   active_thinkers: number;
   thinkers_total: number;
   thinkers_disabled: number;
-  steps_in_flight: number;
-  pending_total: number;
   thinkers: ThinkerInfo[];
 }
 
@@ -307,26 +302,15 @@ export interface IdentityStatus {
 
 export type ActivityState = "working" | "stalled" | "idle" | "asleep";
 
-export interface QueuedMessage {
-  thinker: string;
-  from: string | null;
-  preview: string | null;
-  ts: string | null;
-  age_s: number | null;
-}
-
 export interface IdentityActivity {
   state: ActivityState;
   dispatcher_running: boolean;
-  steps_in_flight: number;
   busy_thinkers: string[];
   last_step_ts: string | null;
   last_step_age_s: number | null;
   run_seconds: number | null;
   stall_after_s: number;
   cadence_s: number | null;
-  queued_messages: QueuedMessage[];
-  pending_total: number;
 }
 
 export interface ResponseEvent {
