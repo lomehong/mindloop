@@ -124,6 +124,8 @@ func (c *CLI) newRootCmd() *cobra.Command {
 		c.newMemCmd(),
 		c.newWebCmd(),
 		c.newTailfCmd(),
+		c.newSkillsCmd(),
+		c.newMCPCmd(),
 		c.newVersionCmd(),
 	)
 	return root

@@ -73,6 +73,10 @@ type Options struct {
 	MemLimitBytes  uint64
 	// Progress 是进度回调（人看的信息，进 stderr 而不是日志）。
 	Progress func(format string, args ...any)
+	// ExtraEnv 是追加给沙箱进程的 K=V 环境变量（SKILLS_DIR、
+	// MINDLOOP_IDENTITY_DIR 等扩展面）——agent 在沙箱里用同一套
+	// CLI 探索身份的扩展能力。
+	ExtraEnv []string
 }
 
 // Result 是一次成功完成的运行。
@@ -159,6 +163,7 @@ func (r *run) start(ctx context.Context) (Result, error) {
 	if exe, err := os.Executable(); err == nil {
 		r.exeEnv = append(r.exeEnv, "MINDLOOP_EXE="+exe)
 	}
+	r.exeEnv = append(r.exeEnv, r.opts.ExtraEnv...)
 
 	promptStep := traj.NewStep("prompt")
 	promptStep.Fields["run_id"] = r.runID

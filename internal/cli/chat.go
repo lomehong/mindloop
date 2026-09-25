@@ -230,6 +230,10 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 		client := c.newChatClient()
 		client.OnDone = obs.UsageRecorder(id.Dir, client.Model, client.Provider, c.mindLog)
 		requestClient := requestTierClient(client, id.Dir, c.mindLog)
+		skillsDirs, mcpServers, extraEnv, extErr := identityExtension(id)
+		if extErr != nil {
+			term.Plainf("⚠ %v", extErr)
+		}
 		dispatchCtx, cancelDispatch := context.WithCancel(c.ctx)
 		dispatcher := mind.NewDispatcher(id.Timeline, 200*time.Millisecond)
 		dispatcher.SetLogger(chatLogger)
@@ -242,6 +246,9 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 			MemDir:         id.Dir + "/memories",
 			EnableRecap:    true,
 			Watchdog:       watchdog,
+			SkillsDirs:     skillsDirs,
+			MCPServers:     mcpServers,
+			ExtraEnv:       extraEnv,
 			SetLogger:      chatLogger,
 		}))
 		dispatcher.Register(mind.NewResponder(mind.ResponderOptions{
