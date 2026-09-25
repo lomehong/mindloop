@@ -194,14 +194,11 @@ func TestClientFullRoundTrip(t *testing.T) {
 	}
 }
 
-// TestStartRejects：HTTP 传输与缺 command 显式报错而非静默。
+// TestStartRejects：缺 command/url 与不存在的可执行文件显式报错。
 func TestStartRejects(t *testing.T) {
 	ctx := context.Background()
-	if _, err := Start(ctx, "remote", ServerConfig{URL: "https://example.com/mcp"}); err == nil || !strings.Contains(err.Error(), "HTTP") {
-		t.Fatalf("url 配置应报 HTTP 传输不支持: %v", err)
-	}
 	if _, err := Start(ctx, "empty", ServerConfig{}); err == nil {
-		t.Fatal("缺 command 应报错")
+		t.Fatal("缺 command/url 应报错")
 	}
 	if _, err := Start(ctx, "gone", ServerConfig{Command: "definitely-not-a-real-binary-xyz"}); err == nil {
 		t.Fatal("不存在的可执行文件应报错")

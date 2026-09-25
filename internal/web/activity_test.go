@@ -346,3 +346,73 @@ func TestMindlogRunTldrDerived(t *testing.T) {
 		t.Fatalf("tldr 应派生自 final 正文，得到 %v", run.Tldr)
 	}
 }
+
+// TestHandleSkillsPage：技能页契约——两层合并列出、安装（本地目录
+// 源）、身份层可删、全局层删除被拒。
+func TestHandleSkillsPage(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MINDLOOP_HOME", dir)
+	home := identity.Home()
+	if _, err := identity.Create(context.Background(), "ada"); err != nil {
+		t.Fatal(err)
+	}
+	// 全局层放一个技能。
+	globalSkills := filepath.Join(filepath.Dir(home), "skills")
+	if err := os.MkdirAll(filepath.Join(globalSkills, "global-skill"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(globalSkills, "global-skill", "SKILL.md"),
+		[]byte("---\nname: global-skill\ndescription: 全局技能\n---\n正文"), 0o644)
+
+	ts, _ := newTestServer(t, home, "")
+
+	// 列表：空身份层时仍能看到全局层。
+	resp, err := http.Get(ts.URL + "/api/identities/ada/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var view struct {
+		Skills []struct {
+			Name   string `json:"name"`
+			Source string `json:"source"`
+		} `json:"skills"`
+		Problems []string `json:"problems"`
+	}
+	json.NewDecoder(resp.Body).Decode(&view)
+	if len(view.Skills) != 1 || view.Skills[0].Name != "global-skill" || view.Skills[0].Source != "global" {
+		t.Fatalf("应列出全局技能: %+v", view.Skills)
+	}
+
+	// 安装（本地目录源，含一个多技能包）。
+	pack := filepath.Join(dir, "pack")
+	if err := os.MkdirAll(filepath.Join(pack, "alpha"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(pack, "alpha", "SKILL.md"),
+		[]byte("---\nname: alpha\ndescription: A\n---\n"), 0o644)
+	insp, out := postJSON(t, ts, "/api/identities/ada/skills", map[string]string{"source": pack})
+	if insp.StatusCode != 200 {
+		t.Fatalf("install = %d %v", insp.StatusCode, out)
+	}
+
+	// 身份层可删；全局层删除被拒。
+	del, _ := http.NewRequest("DELETE", ts.URL+"/api/identities/ada/skills/alpha", nil)
+	dresp, err := http.DefaultClient.Do(del)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dresp.Body.Close()
+	if dresp.StatusCode != 200 {
+		t.Fatalf("删除身份层技能应 200，得到 %d", dresp.StatusCode)
+	}
+	del2, _ := http.NewRequest("DELETE", ts.URL+"/api/identities/ada/skills/global-skill", nil)
+	d2, err := http.DefaultClient.Do(del2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d2.Body.Close()
+	if d2.StatusCode != 400 {
+		t.Fatalf("删除全局层技能应 400，得到 %d", d2.StatusCode)
+	}
+}

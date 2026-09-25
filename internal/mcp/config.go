@@ -25,7 +25,8 @@ type ServerConfig struct {
 	Command string            `json:"command,omitempty"` // stdio：可执行文件
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"` // 追加到进程环境
-	URL     string            `json:"url,omitempty"` // HTTP 传输（v1 未实现，出现即报错）
+	URL     string            `json:"url,omitempty"` // streamable HTTP 传输
+	Headers map[string]string `json:"headers,omitempty"` // HTTP 传输的额外请求头（鉴权等）
 }
 
 // Config 是 mcp.json 的顶层形态。键名 mcpServers 是生态标准拼写，

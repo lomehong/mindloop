@@ -550,6 +550,19 @@ export interface DispatchEvent {
   raw: string;
 }
 
+export interface SkillEntry {
+  name: string;
+  description: string;
+  source: "identity" | "global";
+  dir: string;
+}
+
+export interface SkillsView {
+  identity: { id: string; name: string };
+  skills: SkillEntry[];
+  problems: string[];
+}
+
 export interface MemoryInfo {
   name: string;
   mtime: number;

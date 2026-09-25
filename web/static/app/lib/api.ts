@@ -22,6 +22,8 @@ import type {
   Recap,
   Usage,
   SelfUpdateResult,
+  SkillEntry,
+  SkillsView,
   StepDetail,
   SubTrajectory,
   ThinkerSyncResult,
@@ -188,6 +190,33 @@ export function fetchLog(
 
 export function fetchDispatch(identityId: string): Promise<DispatchEvent[]> {
   return getJson(`/api/identities/${encodeURIComponent(identityId)}/dispatch`);
+}
+
+export function fetchSkills(identityId: string): Promise<SkillsView> {
+  return getJson(
+    `/api/identities/${encodeURIComponent(identityId)}/skills`
+  );
+}
+
+export function installSkill(
+  identityId: string,
+  source: string
+): Promise<{ ok: boolean; installed: string[] }> {
+  return postJson(
+    `/api/identities/${encodeURIComponent(identityId)}/skills`,
+    { source }
+  );
+}
+
+export function removeSkill(
+  identityId: string,
+  name: string
+): Promise<{ ok: boolean; removed: string }> {
+  return sendJson(
+    "DELETE",
+    `/api/identities/${encodeURIComponent(identityId)}/skills/${encodeURIComponent(name)}`,
+    undefined
+  );
 }
 
 export function fetchMemories(identityId: string): Promise<MemoryInfo[]> {

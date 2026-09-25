@@ -51,6 +51,7 @@ v1 传输层为 stdio（本地服务器最普遍形态）；url（HTTP）配置�
 	cmd.PersistentFlags().DurationVar(&timeoutP, "timeout", 60*time.Second, "单次调用的超时")
 
 	cmd.AddCommand(
+		c.newMCPServeCmd(),
 		func() *cobra.Command {
 			return &cobra.Command{
 				Use:   "list",

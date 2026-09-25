@@ -194,6 +194,19 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 		default:
 			s.handleIdentityEnv(w, r, id, rest)
 		}
+	case "skills":
+		switch r.Method {
+		case http.MethodPost:
+			s.handleSkillsInstall(w, r, id)
+		case http.MethodDelete:
+			name := ""
+			if len(rest) > 0 {
+				name = rest[0]
+			}
+			s.handleSkillsDelete(w, r, id, name)
+		default:
+			s.handleSkillsList(w, r, id)
+		}
 	case "tree":
 		s.handleTree(w, r, id, rest)
 	case "logs":
