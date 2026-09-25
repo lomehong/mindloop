@@ -1,12 +1,11 @@
 import { Bot, Cog, Cpu } from "lucide-react";
 import { toast } from "sonner";
 
+import { formatClock } from "~/lib/format";
 import { stepColor } from "~/lib/step-colors";
 import type { NormalizedStep } from "~/lib/types";
 
-function timeOf(ts: string): string {
-  return ts.length >= 19 ? ts.slice(11, 19) : ts;
-}
+
 
 function Chip({
   children,
@@ -50,7 +49,7 @@ export function StepHeader({ step }: { step: NormalizedStep }) {
         }}
         className="tabular-nums text-muted-foreground"
       >
-        {timeOf(step.ts)}
+        {formatClock(step.ts)}
       </Chip>
       <Chip className={color.chip} onClick={copyId} title={`step ${step.step_id} — click to copy`}>
         {step.type}

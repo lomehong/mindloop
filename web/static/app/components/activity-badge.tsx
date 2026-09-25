@@ -53,10 +53,9 @@ function label(activity: IdentityActivity): string {
 
 function tooltip(activity: IdentityActivity): string {
   const lines = [
-    `${activity.steps_in_flight} 个步骤进行中` +
-      (activity.busy_thinkers.length
-        ? ` (${activity.busy_thinkers.join(", ")})`
-        : ""),
+    activity.busy_thinkers.length
+      ? `忙碌思考者: ${activity.busy_thinkers.join(", ")}`
+      : null,
     activity.last_step_ts
       ? `最近写入思维日志 ${fmtDuration(activity.last_step_age_s)} 前`
       : "尚未看到思维日志写入",
@@ -66,11 +65,6 @@ function tooltip(activity: IdentityActivity): string {
     activity.state === "stalled"
       ? `已安静超过 ${fmtDuration(activity.stall_after_s)} 停滞阈值`
       : null,
-    ...activity.queued_messages.map(
-      (m) =>
-        `排队 ${fmtDuration(m.age_s) ?? "?"}: ${m.from ?? "未知"}` +
-        (m.preview ? ` — ${m.preview.slice(0, 60)}` : "")
-    ),
   ];
   return lines.filter(Boolean).join("\n");
 }
@@ -92,7 +86,6 @@ export function ActivityBadge({
 
   if (!activity) return live ? <LiveBadge /> : null;
 
-  const queued = activity.queued_messages.length;
   return (
     <Link to={`/i/${encodeURIComponent(identityId)}/health`}>
       <Badge
@@ -114,7 +107,6 @@ export function ActivityBadge({
           />
         </span>
         {label(activity)}
-        {queued > 0 && ` · ${queued} queued`}
       </Badge>
     </Link>
   );

@@ -16,7 +16,6 @@ import (
 	"mindloop/internal/config"
 	"mindloop/internal/llm"
 	"mindloop/internal/mind"
-	"mindloop/internal/obs"
 	"mindloop/internal/traj"
 )
 
@@ -227,43 +226,28 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 	defer lock.Release()
 
 	if owned {
-		client := c.newChatClient()
-		client.OnDone = obs.UsageRecorder(id.Dir, client.Model, client.Provider, c.mindLog)
-		requestClient := requestTierClient(client, id.Dir, c.mindLog)
-		skillsDirs, mcpServers, extraEnv, extErr := identityExtension(id)
-		if extErr != nil {
-			term.Plainf("⚠ %v", extErr)
+		stack, aerr := c.assembleMindStack(id, mindStackOpts{
+			// chat 的底线是"先能对话"：未配置模型时降级 echo。
+			clientFactory: func() (*llm.Client, error) { return c.newChatClient(), nil },
+			poll:          200 * time.Millisecond,
+			watchdog:      watchdog,
+			logger:        chatLogger,
+		})
+		if aerr != nil {
+			term.Finish()
+			return c.fail(aerr)
+		}
+		if err := clearStopFlag(id); err != nil {
+			term.Plainf("⚠ 消费残留停机标志失败: %v", err)
 		}
 		dispatchCtx, cancelDispatch := context.WithCancel(c.ctx)
-		dispatcher := mind.NewDispatcher(id.Timeline, 200*time.Millisecond)
-		dispatcher.SetLogger(chatLogger)
-		persona, _ := id.Persona()
-		dispatcher.Register(mind.NewMonolith(mind.MonolithOptions{
-			Timeline:       id.Timeline,
-			Thinker:        mind.LLMThinker{Client: client},
-			RequestThinker: mind.LLMThinker{Client: requestClient},
-			Persona:        persona,
-			MemDir:         id.Dir + "/memories",
-			EnableRecap:    true,
-			Watchdog:       watchdog,
-			SkillsDirs:     skillsDirs,
-			MCPServers:     mcpServers,
-			ExtraEnv:       extraEnv,
-			SetLogger:      chatLogger,
-		}))
-		dispatcher.Register(mind.NewResponder(mind.ResponderOptions{
-			Timeline: id.Timeline,
-			Thinker:  mind.LLMThinker{Client: client},
-			SelfName: id.Name,
-			Persona:  persona,
-		}))
-		go dispatcher.Run(dispatchCtx)
+		go stack.dispatcher.Run(dispatchCtx)
 		// 优雅停机：输入循环退出后先停心跳，再等在途思考收尾——
 		// 声明在 defer lock.Release() 之后，LIFO 保证 join 先于
 		// 释放运行锁，跑一半的 bash 与落盘不被腰斩。
 		defer func() {
 			cancelDispatch()
-			if !dispatcher.WaitIdle(10 * time.Second) {
+			if !stack.dispatcher.WaitIdle(10 * time.Second) {
 				term.Plainf("⚠ 10 秒内思考未全部收尾，放弃等待直接停机")
 			}
 		}()
@@ -283,6 +267,7 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 		cursor := traj.NewCursorAtEnd(id.Timeline.Path)
 		tick := time.NewTicker(150 * time.Millisecond)
 		defer tick.Stop()
+		var lastWarn time.Time
 		for {
 			select {
 			case <-tailCtx.Done():
@@ -290,12 +275,18 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 			case <-tick.C:
 				steps, err := cursor.ReadNew()
 				if err != nil {
-					return
+					// 读失败不再静默放弃——那会让对话视图从此
+					// 停摆。限频警告并继续重试。
+					if time.Since(lastWarn) > 5*time.Second {
+						lastWarn = time.Now()
+						term.Plainf("⚠ 读取新步骤失败（继续重试）: %v", err)
+					}
+					continue
 				}
 				for _, s := range steps {
 					from, _ := s.Field("from")
 					switch s.Type {
-					case "message":
+					case traj.TypeMessage:
 						if from == "operator" {
 							continue // 自己说的话终端里已经有了
 						}
@@ -315,12 +306,12 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 						// 下一次心跳打断或回应。
 						term.Set(promptWorking)
 						printLine("%s> %s", id.Name, oneLineLocal(content, 400))
-					case "action":
+					case traj.TypeAction:
 						if content, ok := s.Field("content"); ok {
 							term.Set(promptWorking)
 							printLine("  [%s 行动] %s", id.Name, oneLineLocal(content, 200))
 						}
-					case "error":
+					case traj.TypeError:
 						if content, ok := s.Field("content"); ok {
 							printLine("  [错误] %s", oneLineLocal(content, 200))
 						}
@@ -382,15 +373,14 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 				term.Plainf("再见。")
 				return nil
 			}
-			s := traj.NewStep("message")
-			s.Fields["from"] = "operator"
-			s.Fields["to"] = id.Name
-			s.Fields["source"] = "chat"
-			s.Fields["content"] = line
-			if err := id.Timeline.Append(c.ctx, s); err != nil {
+			if err := mind.PostMessage(id.Timeline, "operator", id.Name, "chat", line); err != nil {
 				return c.fail(err)
 			}
-			lastSent = s.StepID
+			// PostMessage 只回错误；回执 id 取刚落盘的最后一步，
+			// 供 EOF 等待路径去重（读失败降级为不去重，仅少一次兜底）。
+			if last, lerr := id.Timeline.LastStep(); lerr == nil {
+				lastSent = last.StepID
+			}
 			// 发送后不画提示符：异步回复经 Linef 自然补回。
 			// 兜底：30 秒仍无回复时恢复"工作态"提示符（让用户能继续输入）。
 			time.AfterFunc(30*time.Second, func() {

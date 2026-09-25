@@ -1,4 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryCache,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { NuqsAdapter } from "nuqs/adapters/react-router/v7";
 import { useEffect } from "react";
@@ -10,16 +14,28 @@ import {
   Scripts,
   ScrollRestoration,
   useLocation,
-  useNavigate,
 } from "react-router";
-import { Toaster } from "sonner";
+import { toast, Toaster } from "sonner";
 
 import { Navbar } from "~/components/navbar";
 
 import type { Route } from "./+types/root";
 import "./app.css";
 
-const queryClient = new QueryClient();
+// 全局查询错误兜底：任何 useQuery 重试耗尽后弹 toast。同一 queryKey
+// 复用同一个 toast id——sonner 会原地替换而不是堆叠，轮询中的页面
+// 失败不会刷屏。写操作（useMutation）各自带 onError toast，不走这里。
+// 首屏主查询另配页面内 QueryErrorBanner（见 home/usage/config 等）。
+const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error, query) => {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(`加载失败：${message}`, {
+        id: `query:${JSON.stringify(query.queryKey)}`,
+      });
+    },
+  }),
+});
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -32,6 +48,34 @@ export function Layout({ children }: { children: React.ReactNode }) {
         />
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+        <link
+          rel="preload"
+          href="/fonts/IBMPlexSans-400.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+        <link
+          rel="preload"
+          href="/fonts/IBMPlexSans-500.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+        <link
+          rel="preload"
+          href="/fonts/IBMPlexSans-600.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+        <link
+          rel="preload"
+          href="/fonts/GoogleSansCode-VariableFont_wght.ttf"
+          as="font"
+          type="font/ttf"
+          crossOrigin="anonymous"
+        />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta
           name="apple-mobile-web-app-status-bar-style"
@@ -40,12 +84,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta
           name="theme-color"
           media="(prefers-color-scheme: light)"
-          content="#ffffff"
+          content="#f7f9fb"
         />
         <meta
           name="theme-color"
           media="(prefers-color-scheme: dark)"
-          content="#0a0a0a"
+          content="#15161d"
         />
         <Meta />
         <Links />
@@ -61,7 +105,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const location = useLocation();
-  const navigate = useNavigate();
   // /talk* 路由是手机优先的 PWA：无导航栏、无页面留白。
   const talkMode = location.pathname.startsWith("/talk");
 
@@ -86,7 +129,7 @@ export default function App() {
               className={
                 talkMode
                   ? "flex flex-1 min-h-screen flex-col"
-                  : "flex flex-1 min-h-screen flex-col px-4 pt-4 pb-8 sm:px-4"
+                  : "flex flex-1 min-h-screen flex-col px-4 pt-4 pb-8 sm:px-6"
               }
             >
               <Outlet />
@@ -116,7 +159,7 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
   }
 
   return (
-    <main className="px-4 pt-4 pb-8 sm:px-4">
+    <main className="px-4 pt-4 pb-8 sm:px-6">
       <h1 className="mb-4 text-2xl font-bold">{message}</h1>
       <p>{details}</p>
       {stack && (

@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Sparkles } from "lucide-react";
+import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 
 import { IdentityTabs } from "~/components/identity-tabs";
 import { useControlsEnabled } from "~/components/thinker-controls";
+import { ConfirmDialog } from "~/components/confirm-dialog";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import {
@@ -15,6 +17,10 @@ import {
 } from "~/components/ui/empty";
 import { LoadingDots } from "~/components/ui/loading-dots";
 import { fetchIdentityStatus, fetchRecap, refreshRecap } from "~/lib/api";
+import {
+  RECAP_POLL_MS,
+  STATUS_BACKGROUND_POLL_MS,
+} from "~/lib/polling";
 import type { RecapStepRef } from "~/lib/types";
 
 export function meta() {
@@ -53,6 +59,7 @@ function RefreshButtons({
   showRebuild?: boolean;
 }) {
   const queryClient = useQueryClient();
+  const [confirmRebuild, setConfirmRebuild] = useState(false);
   const mutation = useMutation({
     mutationFn: (rebuild: boolean) => refreshRecap(identityId, rebuild),
     onSuccess: (_result, rebuild) => {
@@ -84,18 +91,19 @@ function RefreshButtons({
           size="sm"
           disabled={busy}
           title="全量重算：丢弃缓存的分集并重新摘要整个日志（更换模型或窗口设置后使用）"
-          onClick={() => {
-            if (
-              window.confirm(
-                "从头重建摘要？将丢弃全部缓存分集，并对整份日志重新摘要（每个窗口一次模型调用）。"
-              )
-            )
-              mutation.mutate(true);
-          }}
+          onClick={() => setConfirmRebuild(true)}
         >
           重建
         </Button>
       )}
+      <ConfirmDialog
+        open={confirmRebuild}
+        onOpenChange={setConfirmRebuild}
+        title="从头重建摘要？"
+        description="将丢弃全部缓存分集，并对整份日志重新摘要（每个窗口一次模型调用）。"
+        confirmText="重建"
+        onConfirm={() => mutation.mutate(true)}
+      />
     </div>
   );
 }
@@ -107,13 +115,13 @@ export default function RecapPage() {
   const { data: status } = useQuery({
     queryKey: ["status", identityId],
     queryFn: () => fetchIdentityStatus(identityId),
-    refetchInterval: 5000,
+    refetchInterval: STATUS_BACKGROUND_POLL_MS,
   });
 
   const { data: recap, isLoading } = useQuery({
     queryKey: ["recap", identityId],
     queryFn: () => fetchRecap(identityId),
-    refetchInterval: 5000,
+    refetchInterval: RECAP_POLL_MS,
   });
 
   if (isLoading || !recap) {
@@ -135,7 +143,7 @@ export default function RecapPage() {
 
   if (!recap.available) {
     return (
-      <div className="mx-auto w-full max-w-7xl px-4">
+      <div className="mx-auto w-full max-w-7xl">
         {header}
         <Empty>
           <EmptyHeader>
@@ -163,7 +171,7 @@ export default function RecapPage() {
   const episodes = recap.episodes ?? [];
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4">
+    <div className="mx-auto w-full max-w-7xl">
       {header}
       <div className="mx-auto w-full max-w-4xl space-y-8 pb-10">
         <div className="flex flex-wrap items-center gap-3">

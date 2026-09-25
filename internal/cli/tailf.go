@@ -36,7 +36,9 @@ func (c *CLI) newTailfCmd() *cobra.Command {
 						return c.fail(err)
 					}
 					for _, s := range steps {
-						printJSONL(c.stdout, s)
+						if err := printJSONL(c.stdout, s); err != nil {
+							return c.fail(err)
+						}
 					}
 				}
 			}

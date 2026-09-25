@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useParams } from "react-router";
 
 import { IdentityTabs } from "~/components/identity-tabs";
-import { MindlogSearch } from "~/components/mindlog-search";
+import { QueryErrorBanner } from "~/components/query-error-banner";
 import { TimelineView } from "~/components/timeline-view";
 import {
   Empty,
@@ -13,6 +13,7 @@ import {
 } from "~/components/ui/empty";
 import { LoadingDots } from "~/components/ui/loading-dots";
 import { fetchIdentityStatus } from "~/lib/api";
+import { STATUS_ACTIVE_POLL_MS } from "~/lib/polling";
 import { useMindlog } from "~/lib/use-mindlog";
 import { stepColor } from "~/lib/step-colors";
 import { buildTimeline } from "~/lib/timeline-model";
@@ -38,12 +39,20 @@ export default function TimelinePage() {
   const { data: status } = useQuery({
     queryKey: ["status", identityId],
     queryFn: () => fetchIdentityStatus(identityId),
-    refetchInterval: 2000,
+    refetchInterval: STATUS_ACTIVE_POLL_MS,
   });
   const live = status?.live ?? false;
 
-  const { data: mindlog, isLoading, loadOlder, loadingOlder, hiddenOlder } =
-    useMindlog(identityId, live);
+  const {
+    data: mindlog,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    loadOlder,
+    loadingOlder,
+    hiddenOlder,
+  } = useMindlog(identityId, live);
   // A search hit inside the loaded window opens the step's detail modal.
   const [searchStep, setSearchStep] = useState<{
     step: NonNullable<typeof mindlog>["steps"][number];
@@ -60,6 +69,15 @@ export default function TimelinePage() {
     return [...seen];
   }, [layout]);
 
+  if (isError) {
+    return (
+      <div className="mx-auto w-full max-w-7xl">
+        <IdentityTabs identityId={identityId} live={live} active="timeline" />
+        <QueryErrorBanner error={error} onRetry={() => void refetch()} />
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-20">
@@ -70,35 +88,35 @@ export default function TimelinePage() {
 
   if (!mindlog || !layout) {
     return (
-      <Empty>
-        <EmptyHeader>
-          <EmptyTitle>暂无思维日志</EmptyTitle>
-          <EmptyDescription>未找到 {identityId} 的轨迹。</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <div className="mx-auto w-full max-w-7xl">
+        <IdentityTabs identityId={identityId} live={live} active="timeline" />
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>暂无思维日志</EmptyTitle>
+            <EmptyDescription>未找到 {identityId} 的轨迹。</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </div>
     );
   }
 
   return (
     <TrajContext.Provider value={{ identityId, trajId: mindlog.traj_id }}>
-      <div className="mx-auto w-full max-w-7xl px-4">
+      <div className="mx-auto w-full max-w-7xl">
         <IdentityTabs
           identityId={identityId}
           live={live}
           active="timeline"
           name={mindlog.identity.name}
-          actions={
-            <MindlogSearch
-              identityId={identityId}
-              windowStart={hiddenOlder}
-              onJump={(hit) => {
-                const step = mindlog.steps.find(
-                  (s) => s.step_id === hit.step_id
-                );
-                if (step) setSearchStep({ step });
-              }}
-            />
-          }
+          search={{
+            windowStart: hiddenOlder,
+            onJump: (hit) => {
+              const step = mindlog.steps.find(
+                (s) => s.step_id === hit.step_id
+              );
+              if (step) setSearchStep({ step });
+            },
+          }}
         />
         <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <span className="text-sm text-muted-foreground">

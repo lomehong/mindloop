@@ -111,14 +111,22 @@ func (s Store) nextSeq() (int, error) {
 }
 
 // List 返回全部记忆，新的在前。排序键是文件名里的写序号——
-// 跨进程单调递增（见 Add），不受时间戳精度限制。
+// 跨进程单调递增（见 Add），不受时间戳精度限制。坏文件被静默
+// 跳过（web 复用本签名）；需要感知坏文件时用 ListDetailed。
 func (s Store) List() ([]Memory, error) {
+	items, _, err := s.ListDetailed()
+	return items, err
+}
+
+// ListDetailed 是 List 的诊断形态：解析失败的文件逐个记入 errs
+// （含路径），不拖垮列表——记忆库坏一条不该掩盖其余全部。
+func (s Store) ListDetailed() (items []Memory, errs []error, err error) {
 	entries, err := os.ReadDir(s.Dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	type item struct {
 		m   Memory
@@ -131,8 +139,9 @@ func (s Store) List() ([]Memory, error) {
 			continue
 		}
 		path := filepath.Join(s.Dir, name)
-		m, err := parseFile(path)
-		if err != nil {
+		m, perr := parseFile(path)
+		if perr != nil {
+			errs = append(errs, fmt.Errorf("mem: %s: %w", path, perr))
 			continue // 坏文件跳过，不拖垮列表
 		}
 		seq := 0
@@ -148,7 +157,7 @@ func (s Store) List() ([]Memory, error) {
 	for i, it := range out {
 		memories[i] = it.m
 	}
-	return memories, nil
+	return memories, errs, nil
 }
 
 // Scored 是一条检索命中。
@@ -171,7 +180,9 @@ func (s Store) Search(query string, topK int) ([]Scored, error) {
 		return nil, nil
 	}
 
-	// BM25 需要 df 与平均长度：一次扫全库。
+	// BM25 需要 df 与平均长度：一次扫全库。文档长度是词元总数
+	//（含重复）——标准 BM25 的 |D| 定义；用去重词数会让重复词
+	// 多的长文归一化失真。
 	type doc struct {
 		tf     map[string]int
 		length int
@@ -183,8 +194,8 @@ func (s Store) Search(query string, topK int) ([]Scored, error) {
 		d := doc{tf: make(map[string]int)}
 		for _, t := range tokenize(m.Summary + " " + m.Content + " " + m.Type) {
 			d.tf[t]++
+			d.length++
 		}
-		d.length = len(d.tf)
 		for t := range d.tf {
 			df[t]++
 		}
@@ -206,7 +217,7 @@ func (s Store) Search(query string, topK int) ([]Scored, error) {
 			if tf == 0 {
 				continue
 			}
-			idf := log2(1 + (n-float64(df[t])+0.5)/(float64(df[t])+0.5))
+			idf := math.Log2(1 + (n-float64(df[t])+0.5)/(float64(df[t])+0.5))
 			norm := (tf * (k1 + 1)) / (tf + k1*(1-b+0.75*float64(docs[i].length)/avgLen))
 			score += idf * norm
 		}
@@ -233,10 +244,6 @@ func (s Store) Forget(id string) error {
 		}
 	}
 	return fmt.Errorf("mem: 没有记忆 %q", id)
-}
-
-func log2(x float64) float64 {
-	return math.Log2(x)
 }
 
 // tokenize 切词：ASCII 词元 + CJK 单字二元组。中文没有空格边界，

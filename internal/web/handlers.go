@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -17,9 +16,14 @@ import (
 // web/static/app/lib/types.ts 的 Identity 接口一一对齐。home.tsx
 // 直接读取 dispatcher/group/thinkers_* 渲染表格，缺一个字段就崩
 // 进错误边界（首版发布的真实事故：缺 group 导致首页 "Oops!"）。
+// steps_in_flight/mindlog_path/persona_path/live_badge 已随契约
+// 漂移清理删除（恒 0 的调度器内存态 / 服务器绝对路径 / 恒空死字段，
+// 前后端同步删除）。
 type IdentityInfo struct {
-	// Dir 仅服务端内部使用（killall 等），不进 JSON 契约。
+	// Dir 与 TLDir 仅服务端内部使用（killall 的 live 探测与停机
+	// 投递需要轨迹目录层级），不进 JSON 契约。
 	Dir            string         `json:"-"`
+	TLDir          string         `json:"-"`
 	ID             string         `json:"id"`
 	Name           string         `json:"name"`
 	PathRel        string         `json:"path_rel"`
@@ -32,10 +36,6 @@ type IdentityInfo struct {
 	Dispatcher     dispatcherInfo `json:"dispatcher"`
 	ThinkersTotal  int            `json:"thinkers_total"`
 	ThinkersActive int            `json:"thinkers_active"`
-	StepsInFlight  int            `json:"steps_in_flight"`
-	MindlogPath    string         `json:"mindlog_path"`
-	PersonaPath    string         `json:"persona_path"`
-	LiveBadge      string         `json:"live_badge"`
 }
 
 type dispatcherInfo struct {
@@ -139,6 +139,8 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 		s.handleChat(w, r, id)
 	case "memories":
 		s.handleMemories(w, r, id, rest)
+	case "replies":
+		s.routeReplies(w, r, id, rest)
 	case "thinkers":
 		s.routeThinkers(w, r, id, rest)
 	case "thinker-sync":
@@ -343,29 +345,22 @@ func scanIdentities(root string) ([]IdentityInfo, error) {
 func summarizeIdentity(id *identity.Identity, root string) IdentityInfo {
 	dir := id.Dir
 	info := IdentityInfo{
-		Dir:         dir,
-		ID:          id.Name,
-		Name:        id.Name,
-		PathRel:     relTrajDir(root, dir),
-		PersonaPath: filepath.Join(dir, "persona.md"),
-		Group:       "local", // 单根部署：全部身份归入 local 组
+		Dir:     dir,
+		TLDir:   id.Timeline.Dir,
+		ID:      id.Name,
+		Name:    id.Name,
+		PathRel: relTrajDir(root, dir),
+		Group:   "local", // 单根部署：全部身份归入 local 组
 	}
 	info.RootTrajectory = &id.Timeline.ID
-	if info.MindlogPath == "" {
-		info.MindlogPath = id.Timeline.Path
-	}
-	if info.MindlogPath != "" {
-		if fi, err := os.Stat(info.MindlogPath); err == nil {
-			t := fi.ModTime().UTC().Format(traj.TimeFormat)
-			info.LastActivityTS = &t
-		}
-		if steps, err := id.Timeline.Steps(); err == nil {
-			info.StepCount = len(steps)
-		}
+	if fi, err := os.Stat(id.Timeline.Path); err == nil {
+		t := fi.ModTime().UTC().Format(traj.TimeFormat)
+		info.LastActivityTS = &t
 	}
 	// thinker 统计：从轨迹的 launched_by 字段提炼（去重计数）。
 	thinkers := map[string]bool{}
 	if steps, err := id.Timeline.Steps(); err == nil {
+		info.StepCount = len(steps)
 		for _, s := range steps {
 			if by, ok := s.Field("launched_by"); ok && by != "" && !thinkers[by] {
 				thinkers[by] = true
@@ -382,15 +377,14 @@ func summarizeIdentity(id *identity.Identity, root string) IdentityInfo {
 	return info
 }
 
-// identitySummary 是单个身份概览。
+// identitySummary 是单个身份概览。mindlog_path/persona_path 已随
+// 契约漂移清理删除（前端零引用，服务器绝对路径不外泄）。
 func identitySummary(root string, id *identity.Identity) map[string]any {
 	return map[string]any{
 		"id":              id.Name,
 		"name":            id.Name,
 		"path_rel":        relTrajDir(root, id.Dir),
 		"root_trajectory": id.Timeline.ID,
-		"mindlog_path":    id.Timeline.Path,
-		"persona_path":    filepath.Join(id.Dir, "persona.md"),
 	}
 }
 

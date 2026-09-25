@@ -1,6 +1,8 @@
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 
 import { ActivityBadge } from "~/components/activity-badge";
+import { MindlogSearch } from "~/components/mindlog-search";
+import type { SearchHit } from "~/lib/types";
 import { cn } from "~/lib/utils";
 
 const TABS = [
@@ -17,28 +19,39 @@ const TABS = [
   { key: "config", label: "配置", path: "/config" },
 ] as const;
 
-/** Header row shared by the identity sub-pages: breadcrumb + tab links. */
+/** Header row shared by the identity sub-pages: breadcrumb + tab links +
+ * mind-log search. The search is standard chrome on every tab; pages that
+ * render steps locally (timeline, mind log) pass `search` to jump in place,
+ * everywhere else a hit navigates to the mind log's step deeplink. */
 export function IdentityTabs({
   identityId,
   live,
   active,
   name,
   actions,
+  search,
 }: {
   identityId: string;
   live: boolean;
   active: (typeof TABS)[number]["key"];
   name?: string;
-  /** Page-specific controls (e.g. mind-log search) — rendered at the far
-   * right of this sticky header so they stay reachable at any scroll. */
+  /** Page-specific controls rendered at the far right, after the search. */
   actions?: React.ReactNode;
+  /** Page-local search behavior; omit for the default jump-to-mindlog. */
+  search?: { windowStart: number; onJump: (hit: SearchHit) => void };
 }) {
   useParams(); // keep router context
+  const navigate = useNavigate();
   const base = `/i/${encodeURIComponent(identityId)}`;
   const displayName = name ?? identityId.split("~").pop() ?? identityId;
+  const searchProps = search ?? {
+    windowStart: 0,
+    onJump: (hit: SearchHit) =>
+      navigate(`${base}/mindlog?step=${encodeURIComponent(hit.step_id)}`),
+  };
 
   return (
-    <div className="sticky top-12 z-40 -mx-4 mb-4 flex flex-wrap items-center gap-3 border-b bg-background/95 px-4 py-2 backdrop-blur">
+    <div className="sticky top-12 z-40 mb-4 flex flex-wrap items-center gap-3 border-b bg-background/95 py-2 backdrop-blur">
       <Link to="/" className="text-sm text-muted-foreground hover:underline">
         identities
       </Link>
@@ -50,17 +63,23 @@ export function IdentityTabs({
           <Link
             key={tab.key}
             to={`${base}${tab.path}`}
+            aria-current={tab.key === active ? "page" : undefined}
             className={cn(
-              "shrink-0 rounded-md px-2.5 py-1 text-xs",
+              "shrink-0 rounded-md px-2.5 py-1 text-xs transition-colors",
               tab.key === active
-                ? "bg-accent font-medium"
-                : "text-muted-foreground hover:text-foreground"
+                ? "bg-primary/10 font-medium text-primary"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground"
             )}
           >
             {tab.label}
           </Link>
         ))}
       </nav>
+      <MindlogSearch
+        identityId={identityId}
+        windowStart={searchProps.windowStart}
+        onJump={searchProps.onJump}
+      />
       {actions}
     </div>
   );

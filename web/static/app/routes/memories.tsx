@@ -27,6 +27,7 @@ import {
   fetchMemory,
   pollWhileLive,
 } from "~/lib/api";
+import { formatDateTime } from "~/lib/format";
 import { cn } from "~/lib/utils";
 
 const ALL_TYPES = "__all__";
@@ -39,7 +40,7 @@ function readableSlug(slug: string) {
 }
 
 function memoryDate(created: string | null, mtime: number) {
-  if (created) return created.slice(0, 16).replace("T", " ");
+  if (created) return formatDateTime(created);
   return new Date(mtime * 1000).toLocaleDateString();
 }
 
@@ -114,7 +115,7 @@ export default function MemoriesPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4">
+    <div className="mx-auto w-full max-w-7xl">
       <IdentityTabs identityId={identityId} live={live} active="memories" />
       {!memories || memories.length === 0 ? (
         <Empty>

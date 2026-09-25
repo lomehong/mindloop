@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"mindloop/internal/ids"
 	"mindloop/internal/llm"
 	"mindloop/internal/traj"
 )
@@ -33,8 +34,8 @@ const PromptVersion = 1
 // narrativeTypes 参与叙事的步骤类型——执行元数据（run/prompt/
 // reasoning/shell-output 的机械部分）不进情节。
 var narrativeTypes = map[string]bool{
-	"message": true, "action": true, "observation": true,
-	"thought": true, "final": true, "merge": true,
+	traj.TypeMessage: true, traj.TypeAction: true, traj.TypeObservation: true,
+	traj.TypeThought: true, traj.TypeFinal: true, traj.TypeMerge: true,
 }
 
 // 闭窗参数默认值（Headlong 的 recap.md 参数）。
@@ -79,7 +80,7 @@ func Filter(steps []traj.Step) []NStep {
 		if len(r) > LineCap {
 			content = string(r[:LineCap]) + "…"
 		}
-		line := fmt.Sprintf("[%s] %s: %s", s.StepID[:8], s.Type, content)
+		line := fmt.Sprintf("[%s] %s: %s", ids.Short(s.StepID, 8), s.Type, content)
 		out = append(out, NStep{
 			Index:  len(out),
 			StepID: s.StepID,
@@ -254,7 +255,11 @@ func (u *Updater) Update(ctx context.Context) (Report, error) {
 		}
 	}
 
-	steps := Filter(mustSteps(u.Timeline))
+	raw, err := timelineSteps(u.Timeline)
+	if err != nil {
+		return Report{}, fmt.Errorf("recap: %w", err)
+	}
+	steps := Filter(raw)
 	wins := Windows(steps, gap, maxSteps, maxBytes)
 
 	var rep Report
@@ -359,10 +364,8 @@ func RenderLife(timelineDir string, maxEpisodes int) (string, error) {
 	return b.String(), nil
 }
 
-func mustSteps(tl *traj.Timeline) []traj.Step {
-	steps, err := tl.Steps()
-	if err != nil {
-		return nil
-	}
-	return steps
+// timelineSteps 读取轨迹步骤。读取失败必须显式传播——吞掉它会让
+// Update 静默报告"没有可摘要的窗口"，把 IO 故障伪装成空闲。
+func timelineSteps(tl *traj.Timeline) ([]traj.Step, error) {
+	return tl.Steps()
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -165,7 +166,8 @@ func (c *CLI) newTrajShowCmd() *cobra.Command {
 		Short: "显示一个轨迹或步骤（id 或前缀）",
 		Args:  exactArgs(1, "用法: mindloop traj show <id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if t, err := traj.Load(args[0]); err == nil {
+			t, err := traj.Load(args[0])
+			if err == nil {
 				h, err := t.Header()
 				if err != nil {
 					return c.fail(err)
@@ -173,8 +175,13 @@ func (c *CLI) newTrajShowCmd() *cobra.Command {
 				printPretty(c.stdout, h, full)
 				return nil
 			}
-			s, _, err := traj.FindStepAnywhere(args[0])
-			if err != nil {
+			// 轨迹没命中时才回退到步骤查找；权限/IO/头损坏等真实
+			// 错误必须原样报出——被步骤查找的"找不到"顶掉会误导排错。
+			if !errors.Is(err, traj.ErrNotFound) {
+				return c.fail(err)
+			}
+			s, _, ferr := traj.FindStepAnywhere(args[0])
+			if ferr != nil {
 				return c.fail(err)
 			}
 			printPretty(c.stdout, s, full)
@@ -208,7 +215,9 @@ func (c *CLI) newTrajTailCmd() *cobra.Command {
 				if pretty {
 					printPretty(c.stdout, s, false)
 				} else {
-					printJSONL(c.stdout, s)
+					if err := printJSONL(c.stdout, s); err != nil {
+						return c.fail(err)
+					}
 				}
 			}
 			return nil
@@ -244,7 +253,9 @@ func (c *CLI) newTrajCatCmd() *cobra.Command {
 				return c.fail(err)
 			}
 			for _, s := range steps {
-				printJSONL(c.stdout, s)
+				if err := printJSONL(c.stdout, s); err != nil {
+					return c.fail(err)
+				}
 			}
 			return nil
 		},

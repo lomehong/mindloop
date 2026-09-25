@@ -217,6 +217,100 @@ func TestLockSkipsOwnerlessYoungLock(t *testing.T) {
 	release()
 }
 
+// TestConcurrentStealSingleWinner 是偷锁 TOCTOU 的回归钉子：N 个
+// goroutine 并发偷同一把死属主锁，互斥要求恰好一个 owned=true——
+// 任何实现允许两个都"成功"，同一身份的双调度器（重复回复、双倍
+// 费用）就会成真。闭合手段是 stealLock 的 rename CAS（rename 原子，
+// 仅一个偷取者能移走原目录）；此前"RemoveAll 前重读比对"的方案在
+// lead 全量门禁下被抓到过一次双赢家（两次观测都落在赢家 claim 之前
+// 的调度间隙），加压为 16 挑战者 × 5 轮。
+func TestConcurrentStealSingleWinner(t *testing.T) {
+	tr := newTimeline(t)
+	const challengers, rounds = 16, 5
+	for round := 0; round < rounds; round++ {
+		lockDir := fmt.Sprintf("%s.lock-r%d", tr.Path, round)
+		if err := os.Mkdir(lockDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		owner := fmt.Sprintf(`{"pid":%d,"created":"%s","exe":"gone"}`, deadPID(t), NowString())
+		if err := os.WriteFile(filepath.Join(lockDir, ownerFile), []byte(owner), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		winners := 0
+		var winnerRelease func() error
+		for i := 0; i < challengers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				release, owned, err := TryDirLock(context.Background(), lockDir)
+				mu.Lock()
+				defer mu.Unlock()
+				if err != nil {
+					t.Errorf("TryDirLock: %v", err)
+					return
+				}
+				if owned {
+					winners++
+					winnerRelease = release
+				}
+			}()
+		}
+		wg.Wait()
+		if winners != 1 {
+			t.Fatalf("第 %d 轮：owned=true 的挑战者 = %d，必须恰好 1（互斥被破坏）", round, winners)
+		}
+		if err := winnerRelease(); err != nil {
+			t.Fatalf("第 %d 轮赢家释放: %v", round, err)
+		}
+	}
+	// 释放后应可重新获取：锁没有被落败者弄成孤儿、残躯或 .stealing 垃圾挡路。
+	release, err := acquireDirLock(context.Background(), tr.Path+".lock-r0", time.Second)
+	if err != nil {
+		t.Fatalf("清理后重新获取: %v", err)
+	}
+	release()
+}
+
+// TestStealAbandonedWhenRenameBlocked：rename CAS 的负向用例——
+// rename 被外部条件拒绝时（Windows：目录内有非 FILE_SHARE_DELETE
+// 句柄；POSIX：父目录只读），偷取必须整体放弃且现有锁分毫无损。
+// holdLockDirBroken 是平台相关的"让 rename 失败"夹具。
+func TestStealAbandonedWhenRenameBlocked(t *testing.T) {
+	tr := newTimeline(t)
+	lockDir := tr.Path + ".lock"
+	if err := os.Mkdir(lockDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	owner := fmt.Sprintf(`{"pid":%d,"created":"%s","exe":"gone"}`, deadPID(t), NowString())
+	if err := os.WriteFile(filepath.Join(lockDir, ownerFile), []byte(owner), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	restore := holdLockDirBroken(t, lockDir)
+	defer restore()
+
+	release, owned, err := TryDirLock(context.Background(), lockDir)
+	if err != nil {
+		t.Fatalf("TryDirLock 不应报错，只应放弃: %v", err)
+	}
+	if owned {
+		if release != nil {
+			release()
+		}
+		t.Fatal("rename 被拒绝却仍偷取成功；保守放弃分支失效")
+	}
+	// 现有锁必须分毫无损：目录在、owner.json 逐字节原样。
+	data, rerr := os.ReadFile(filepath.Join(lockDir, ownerFile))
+	if rerr != nil {
+		t.Fatalf("现有锁目录被破坏: %v", rerr)
+	}
+	if string(data) != owner {
+		t.Fatalf("owner.json 被改动:\n got  %s\n want %s", data, owner)
+	}
+}
+
 func TestLockLiveOwnerNeverStolen(t *testing.T) {
 	tr := newTimeline(t)
 	lockDir := tr.Path + ".lock"

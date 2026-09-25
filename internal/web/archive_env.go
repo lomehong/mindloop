@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -50,6 +51,17 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return err
 			}
+			rel = filepath.ToSlash(rel)
+			// 与单身份导出同一条铁律（archiveExcluded 共用）：.env
+			// 与 run/ 控制面绝不进可携带归档。漏掉这条会把每个身份
+			// 的 API key 打进"导出全部"的下载产物。top=1：第 0 层
+			// 是身份名。
+			if archiveExcluded(rel, 1) {
+				if fi.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
 			hdr, err := tar.FileInfoHeader(fi, "")
 			if err != nil {
 				return err
@@ -57,7 +69,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 			// 条目名统一 identities/<name>/... 形态——与
 			// writeIdentityArchive 一致，也是 handleImport 唯一
 			// 接受的形态（外来路径一律拒绝落盘）。
-			hdr.Name = "identities/" + filepath.ToSlash(rel)
+			hdr.Name = "identities/" + rel
 			if err := tw.WriteHeader(hdr); err != nil {
 				return err
 			}
@@ -208,6 +220,33 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 // envPutMu 序列化进程内对同一 .env 的读改写。
 var envPutMu sync.Mutex
 
+// envKeyRe 是环境变量名白名单：dotenv 生态的标准形态。带空格/引号/
+// #/= 的键名会与 .env 的行解析产生歧义（注释边界、同名异写、变量
+// 注入），PUT 与 DELETE 共用同一条规则。
+var envKeyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// isEnvKey 报告 key 是否为合法环境变量名。
+func isEnvKey(key string) bool { return envKeyRe.MatchString(key) }
+
+// isSecretEnvKey 按键名判定是否敏感（含 key/secret/token/password
+// 子串，大小写不敏感）——env 读写两个端点共用同一判定。
+func isSecretEnvKey(key string) bool {
+	lk := strings.ToLower(key)
+	for _, hint := range []string{"key", "secret", "token", "password"} {
+		if strings.Contains(lk, hint) {
+			return true
+		}
+	}
+	return false
+}
+
+// maskSecretValue 对敏感值做无门槛脱敏：命中即不回显任何内容字节，
+// 只给长度提示（与 parseEnvRedacted 同一形态）。此前 PUT 响应对
+// ≤8 字符的值原样回显——短密钥同样不该泄漏。
+func maskSecretValue(v string) string {
+	return "[REDACTED · " + itoa(len(v)) + " chars]"
+}
+
 // handleEnvPut 写单个环境变量：PUT /api/identities/{id}/env {key,value}。
 // 保留文件其余行与注释；新键追加到文件尾；临时文件 + 原子改名。
 func (s *Server) handleEnvPut(w http.ResponseWriter, r *http.Request, id *identity.Identity) {
@@ -220,8 +259,8 @@ func (s *Server) handleEnvPut(w http.ResponseWriter, r *http.Request, id *identi
 		return
 	}
 	req.Key = strings.TrimSpace(req.Key)
-	if req.Key == "" || strings.ContainsAny(req.Key, "=\n\r") {
-		writeError(w, 400, "非法环境变量名")
+	if !isEnvKey(req.Key) {
+		writeError(w, 400, "非法环境变量名（仅允许字母/数字/下划线，且不以数字开头）")
 		return
 	}
 	// 值也不允许换行：dotenv 是按行解析的，换行能注入任意
@@ -257,25 +296,18 @@ func (s *Server) handleEnvPut(w http.ResponseWriter, r *http.Request, id *identi
 		writeError(w, 500, err.Error())
 		return
 	}
-	secret := false
-	lk := strings.ToLower(req.Key)
-	for _, hint := range []string{"key", "secret", "token", "password"} {
-		if strings.Contains(lk, hint) {
-			secret = true
-			break
-		}
-	}
+	secret := isSecretEnvKey(req.Key)
 	value := req.Value
-	if secret && len(value) > 8 {
-		value = value[:4] + "…·" + itoa(len(value)) + " chars"
+	if secret {
+		value = maskSecretValue(value)
 	}
 	writeJSON(w, 200, map[string]any{"key": req.Key, "value": value, "secret": secret})
 }
 
 // handleEnvDelete 删环境变量：DELETE /api/identities/{id}/env/{key}。
 func (s *Server) handleEnvDelete(w http.ResponseWriter, r *http.Request, id *identity.Identity, key string) {
-	if key == "" || strings.ContainsAny(key, "=\n\r") {
-		writeError(w, 400, "非法环境变量名")
+	if !isEnvKey(key) {
+		writeError(w, 400, "非法环境变量名（仅允许字母/数字/下划线，且不以数字开头）")
 		return
 	}
 	envPath := filepath.Join(id.Dir, ".env")

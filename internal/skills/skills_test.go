@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -155,7 +156,7 @@ func TestInstallFromLocalDir(t *testing.T) {
 	// 单技能目录。
 	src := filepath.Join(root, "my-tool")
 	writeSkill(t, src, "---\nname: my-tool\ndescription: 单技能目录\n---\n")
-	names, err := Install(dst, src)
+	names, err := Install(context.Background(), dst, src)
 	if err != nil || len(names) != 1 || names[0] != "my-tool" {
 		t.Fatalf("单技能安装: %v %v", names, err)
 	}
@@ -171,7 +172,7 @@ func TestInstallFromLocalDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "not-a-skill", "README.md"), []byte("just files\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	names, err = Install(dst, repo)
+	names, err = Install(context.Background(), dst, repo)
 	if err != nil || len(names) != 2 {
 		t.Fatalf("多技能安装: %v %v", names, err)
 	}
@@ -180,7 +181,7 @@ func TestInstallFromLocalDir(t *testing.T) {
 	bad := filepath.Join(root, "bad-pack")
 	writeSkill(t, filepath.Join(bad, "good"), "---\nname: good\ndescription: ok\n---\n")
 	writeSkill(t, filepath.Join(bad, "Bad_Name"), "---\nname: Bad_Name\ndescription: 非法\n---\n")
-	if _, err := Install(dst, bad); err == nil {
+	if _, err := Install(context.Background(), dst, bad); err == nil {
 		t.Fatal("含不合格技能的安装应整体拒绝")
 	}
 	if dirExists(filepath.Join(dst, "good")) {
@@ -188,7 +189,7 @@ func TestInstallFromLocalDir(t *testing.T) {
 	}
 
 	// 同名已存在报错。
-	if _, err := Install(dst, src); err == nil {
+	if _, err := Install(context.Background(), dst, src); err == nil {
 		t.Fatal("同名已存在应报错")
 	}
 

@@ -10,12 +10,48 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/fonts/IBMPlexSans-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/fonts/IBMPlexSans-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/fonts/IBMPlexSans-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/fonts/IBMPlexSans-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme {
+  /* Sans carries UI and prose; CJK falls through to the system faces. */
   --font-sans:
-    "Google Sans Code", ui-sans-serif, system-ui, sans-serif,
-    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
+    sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+    "Noto Color Emoji";
+  /* Mono is reserved for data: ids, numbers, timestamps, code, the wordmark. */
   --font-mono:
     "Google Sans Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
@@ -77,73 +113,75 @@ html.dark {
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* Lab-instrument palette: cool graphite neutrals, one signal azure spent
+   only on interactive states and the "live" accents of the mind. */
 :root {
-  --radius: 0rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --radius: 0.375rem;
+  --background: oklch(0.982 0.003 236);
+  --foreground: oklch(0.24 0.02 264);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.24 0.02 264);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --popover-foreground: oklch(0.24 0.02 264);
+  --primary: oklch(0.52 0.105 228);
+  --primary-foreground: oklch(0.98 0.005 228);
+  --secondary: oklch(0.945 0.006 240);
+  --secondary-foreground: oklch(0.3 0.02 264);
+  --muted: oklch(0.952 0.005 240);
+  --muted-foreground: oklch(0.5 0.02 258);
+  --accent: oklch(0.94 0.014 225);
+  --accent-foreground: oklch(0.35 0.06 235);
+  --destructive: oklch(0.577 0.215 27);
+  --border: oklch(0.898 0.008 240);
+  --input: oklch(0.898 0.008 240);
+  --ring: oklch(0.52 0.105 228);
+  --chart-1: oklch(0.58 0.11 228);
+  --chart-2: oklch(0.66 0.12 190);
+  --chart-3: oklch(0.52 0.09 264);
+  --chart-4: oklch(0.72 0.14 75);
+  --chart-5: oklch(0.62 0.18 330);
+  --sidebar: oklch(0.975 0.004 236);
+  --sidebar-foreground: oklch(0.24 0.02 264);
+  --sidebar-primary: oklch(0.52 0.105 228);
+  --sidebar-primary-foreground: oklch(0.98 0.005 228);
+  --sidebar-accent: oklch(0.94 0.014 225);
+  --sidebar-accent-foreground: oklch(0.35 0.06 235);
+  --sidebar-border: oklch(0.898 0.008 240);
+  --sidebar-ring: oklch(0.52 0.105 228);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(0.3023 0 0);
-  --input: oklch(0.3023 0 0);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.3023 0 0);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: oklch(0.172 0.012 264);
+  --foreground: oklch(0.928 0.006 240);
+  --card: oklch(0.208 0.013 264);
+  --card-foreground: oklch(0.928 0.006 240);
+  --popover: oklch(0.208 0.013 264);
+  --popover-foreground: oklch(0.928 0.006 240);
+  --primary: oklch(0.78 0.1 213);
+  --primary-foreground: oklch(0.17 0.03 250);
+  --secondary: oklch(0.248 0.014 264);
+  --secondary-foreground: oklch(0.928 0.006 240);
+  --muted: oklch(0.248 0.014 264);
+  --muted-foreground: oklch(0.66 0.015 250);
+  --accent: oklch(0.27 0.02 245);
+  --accent-foreground: oklch(0.92 0.01 230);
+  --destructive: oklch(0.637 0.19 25);
+  --border: oklch(0.285 0.014 264);
+  --input: oklch(0.285 0.014 264);
+  --ring: oklch(0.78 0.1 213);
+  --chart-1: oklch(0.72 0.1 213);
+  --chart-2: oklch(0.75 0.11 190);
+  --chart-3: oklch(0.6 0.09 264);
+  --chart-4: oklch(0.78 0.13 75);
+  --chart-5: oklch(0.7 0.16 330);
+  --sidebar: oklch(0.2 0.013 264);
+  --sidebar-foreground: oklch(0.928 0.006 240);
+  --sidebar-primary: oklch(0.78 0.1 213);
+  --sidebar-primary-foreground: oklch(0.17 0.03 250);
+  --sidebar-accent: oklch(0.27 0.02 245);
+  --sidebar-accent-foreground: oklch(0.92 0.01 230);
+  --sidebar-border: oklch(0.285 0.014 264);
+  --sidebar-ring: oklch(0.78 0.1 213);
 }
 
 @layer base {
@@ -158,6 +196,30 @@ html.dark {
     /* No gray flash on taps (Android Chrome). */
     -webkit-tap-highlight-color: transparent;
   }
+  ::selection {
+    background: color-mix(in oklch, var(--primary) 22%, transparent);
+  }
+}
+
+/* Quiet, instrument-like scrollbars that sit on the hairline palette. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* New chat bubbles ease in instead of popping. */
@@ -211,7 +273,7 @@ html.dark {
   :where(code):not(
     :where(pre *, [class~="not-prose"], [class~="not-prose"] *)
   ) {
-  @apply bg-muted px-1.5 py-0.5 rounded-none font-normal text-sm before:content-none after:content-none;
+  @apply bg-muted px-1.5 py-0.5 rounded-sm font-normal text-sm before:content-none after:content-none;
 }
 
 /* Prose code blocks */
@@ -299,13 +361,21 @@ html.dark {
   border-radius: 4px;
 }
 
-/* Mind log v2: always-dark presentation canvas with the hype-video edge
-   glow (pink upper left, teal lower right), independent of the dash theme. */
+/* Mind log v2: presentation canvas with the hype-video edge glow (pink
+   upper left, teal lower right). Dark theme keeps the deep purple-black
+   canvas; light theme gets a pale canvas with softer glows. */
 .ml2-canvas {
   background:
     radial-gradient(1100px 480px at -8% -10%, rgba(236, 72, 153, 0.16), transparent 60%),
     radial-gradient(1000px 560px at 108% 112%, rgba(45, 212, 191, 0.14), transparent 60%),
     #0b0a10;
+}
+
+html:not(.dark) .ml2-canvas {
+  background:
+    radial-gradient(1100px 480px at -8% -10%, rgba(236, 72, 153, 0.07), transparent 60%),
+    radial-gradient(1000px 560px at 108% 112%, rgba(45, 212, 191, 0.08), transparent 60%),
+    #f7f7fb;
 }
 
 /* New live cards slide in at the top of the stream */

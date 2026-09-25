@@ -79,7 +79,7 @@ func (t *Timeline) Merge(ctx context.Context, child *Timeline, content string) (
 	if err != nil {
 		return Step{}, err
 	}
-	m := Step{Type: "merge", StepID: ids.NewUUID(), TS: NowString(), Fields: map[string]any{
+	m := Step{Type: TypeMerge, StepID: ids.NewUUID(), TS: NowString(), Fields: map[string]any{
 		"from_traj":     child.ID,
 		"from_step":     last.StepID,
 		"from_traj_ref": ref,

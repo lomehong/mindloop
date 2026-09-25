@@ -27,18 +27,17 @@ func activityMap(id *identity.Identity) map[string]any {
 	if live {
 		state = "working"
 	}
+	// 契约漂移清理：steps_in_flight/pending_total 是调度器内存态，
+	// 仪表盘侧永远无法知晓——硬编码 0 的死字段，与前端同步删除。
 	out := map[string]any{
 		"state":              state,
 		"dispatcher_running": live,
-		"steps_in_flight":    0,
 		"busy_thinkers":      []string{},
 		"last_step_ts":       nil,
 		"last_step_age_s":    nil,
 		"run_seconds":        nil,
 		"stall_after_s":      300,
 		"cadence_s":          nil,
-		"queued_messages":    []map[string]any{},
-		"pending_total":      0,
 	}
 	if fi, err := os.Stat(id.Timeline.Path); err == nil {
 		out["last_step_ts"] = fi.ModTime().UTC().Format(traj.TimeFormat)
@@ -132,15 +131,21 @@ func childTrajectories(id *identity.Identity) []childTrajInfo {
 	seen := map[string]bool{}
 	var out []childTrajInfo
 	for _, s := range steps {
-		if s.Type != "fork" {
+		if s.Type != traj.TypeFork {
 			continue
 		}
 		ref, _ := s.Field("child_ref")
 		if ref == "" {
 			continue
 		}
-		// child_ref 是相对 tlDir 的路径；解绝对路径。
+		// child_ref 是相对 tlDir 的路径；解绝对路径。ref 来自轨迹
+		// 内容（traj append --field 可任意写入），解析结果必须仍在
+		// 轨迹目录之内——越界引用直接跳过，绝不 Stat/读文件。
 		childPath := filepath.Join(tlDir, ref)
+		if rel, rerr := filepath.Rel(tlDir, childPath); rerr != nil ||
+			rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			continue
+		}
 		// childPath/trajectory.jsonl
 		childDir := filepath.Dir(childPath)
 		if seen[childDir] {
@@ -193,7 +198,7 @@ func readTrajectoryMeta(dir string) trajMeta {
 			m.last = s.TS
 		}
 		m.steps++
-		if s.Type == "final" {
+		if s.Type == traj.TypeFinal {
 			m.hasFinal = true
 		}
 	}
@@ -230,8 +235,11 @@ func (s *Server) handleThinkers(w http.ResponseWriter, _ *http.Request, id *iden
 		state := "idle"
 		if mind.IsThinkerDisabled(id.Timeline.Dir, t.Name) {
 			state = "disabled"
+			disabled++
 		}
-		if live && t.LastTS != "" {
+		if live && state != "disabled" && t.LastTS != "" {
+			// disabled 优先：禁用的 thinker 不因最近有轨迹事实而
+			// 显示 active（此前 active 分支会覆盖 disabled）。
 			last, _ := time.Parse("2006-01-02T15:04:05Z07:00", t.LastTS)
 			if last.IsZero() {
 				last, _ = time.Parse(traj.TimeFormat, t.LastTS)
@@ -240,16 +248,17 @@ func (s *Server) handleThinkers(w http.ResponseWriter, _ *http.Request, id *iden
 				state = "active"
 			}
 		}
+		// 契约漂移清理（与前端同步删除）：steps_in_flight 与 pending
+		// 是仪表盘侧永远无法知晓的调度器内存态——恒 0/恒空的死字段，
+		// 展示它们等于展示谎言，两边一起删。
 		thinkInfos = append(thinkInfos, map[string]any{
-			"name":            t.Name,
-			"state":           state,
-			"steps_in_flight": 0,
-			"pid":             nil,
-			"types":           []string{},
-			"trigger_self":    false,
-			"pending":         []string{},
-			"log_bytes":       nil,
-			"log_mtime":       t.LastTS,
+			"name":         t.Name,
+			"state":        state,
+			"pid":          nil,
+			"types":        []string{},
+			"trigger_self": false,
+			"log_bytes":    nil,
+			"log_mtime":    t.LastTS,
 		})
 	}
 	active := 0
@@ -264,9 +273,9 @@ func (s *Server) handleThinkers(w http.ResponseWriter, _ *http.Request, id *iden
 		"active_thinkers":   active,
 		"thinkers_total":    total,
 		"thinkers_disabled": disabled,
-		"steps_in_flight":   0,
-		"pending_total":     0,
-		"thinkers":          thinkInfos,
+		// 顶层 steps_in_flight/pending_total 同为硬编码 0 的死字段，
+		// 与条目级字段一并删除（契约漂移清理的延伸，前端同步）。
+		"thinkers": thinkInfos,
 	})
 }
 
@@ -408,7 +417,7 @@ func stepCount(id *identity.Identity) int {
 func hasFinalStep(id *identity.Identity) bool {
 	if steps, err := id.Timeline.Steps(); err == nil {
 		for _, s := range steps {
-			if s.Type == "final" {
+			if s.Type == traj.TypeFinal {
 				return true
 			}
 		}

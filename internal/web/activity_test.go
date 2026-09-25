@@ -53,13 +53,23 @@ func TestHandleActivityShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, k := range []string{"state", "dispatcher_running", "busy_thinkers",
-		"last_step_ts", "last_step_age_s", "queued_messages", "pending_total"} {
+		"last_step_ts", "last_step_age_s"} {
 		if _, ok := got[k]; !ok {
 			t.Fatalf("activity 缺少字段 %q: %v", k, got)
 		}
 	}
-	if got["state"] != "idle" {
-		t.Fatalf("无运行锁时应为 idle，得到 %v", got["state"])
+	// queued_messages/steps_in_flight/pending_total 已随契约漂移清理
+	// 删除（恒 0/恒空的调度器内存态死字段）。
+	for _, gone := range []string{"queued_messages", "steps_in_flight", "pending_total"} {
+		if _, ok := got[gone]; ok {
+			t.Fatalf("activity 不应再产出 %q: %v", gone, got)
+		}
+	}
+	// 新创建的身份轨迹落在 30s 心跳窗内——live 兜底判定生效
+	// （liveness.go：轨迹最近被写 = 心智刚停/刚醒，viewer 不标灰），
+	// state 为 working 而非 idle。
+	if got["state"] != "working" {
+		t.Fatalf("新鲜轨迹应判 working（live 兜底），得到 %v", got["state"])
 	}
 }
 
@@ -245,7 +255,14 @@ func TestHandleThinkersStatus(t *testing.T) {
 		t.Fatal("dispatcher 字段缺失")
 	}
 	for _, ti := range got.Thinkers {
-		for _, k := range []string{"name", "state", "steps_in_flight", "pending"} {
+		// steps_in_flight/pending 已随契约漂移清理删除（恒 0/恒空的
+		// 调度器内存态，仪表盘侧永远无法知晓）。
+		for _, gone := range []string{"steps_in_flight", "pending"} {
+			if _, ok := ti[gone]; ok {
+				t.Fatalf("thinker %v 不应再产出 %q", ti, gone)
+			}
+		}
+		for _, k := range []string{"name", "state"} {
 			if _, ok := ti[k]; !ok {
 				t.Fatalf("thinker %v 缺少字段 %q", ti, k)
 			}

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 
+import { formatClock } from "~/lib/format";
 import { timelineColor } from "~/lib/step-colors";
 import type { NormalizedStep } from "~/lib/types";
 
@@ -59,7 +60,7 @@ export function TimelineBar({
           className="pointer-events-none absolute top-6 z-20 max-w-md rounded border bg-popover px-2 py-1 font-mono text-[11px] text-popover-foreground shadow-md"
           style={{ left: Math.min(hover.x, 600) }}
         >
-          <span className="text-muted-foreground">{hover.step.ts.slice(11, 19)}</span>{" "}
+          <span className="text-muted-foreground">{formatClock(hover.step.ts)}</span>{" "}
           <span className="font-medium">{hover.step.type}</span>
           {hover.step.source && <span className="text-muted-foreground"> · {hover.step.source}</span>}
           <div className="truncate">{hover.step.preview}</div>

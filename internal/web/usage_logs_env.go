@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -47,16 +46,12 @@ func (s *Server) handleIdentityEnv(w http.ResponseWriter, _ *http.Request, id *i
 			if len(v) >= 2 && (v[0] == '"' && v[len(v)-1] == '"' || v[0] == '\'' && v[len(v)-1] == '\'') {
 				v = v[1 : len(v)-1]
 			}
-			secret := false
-			lk := strings.ToLower(k)
-			for _, hint := range []string{"key", "secret", "token", "password"} {
-				if strings.Contains(lk, hint) {
-					secret = true
-					break
-				}
-			}
-			if secret && len(v) > 8 {
-				v = v[:4] + "…·" + strconv.Itoa(len(v)) + " chars"
+			secret := isSecretEnvKey(k)
+			if secret {
+				// 敏感键命中即脱敏，无长度门槛——短密钥同样不回显
+				// 任何内容字节（与 handleEnvPut/parseEnvRedacted
+				// 同一形态）。
+				v = maskSecretValue(v)
 			}
 			entries = append(entries, map[string]any{
 				"key":    k,
@@ -74,7 +69,7 @@ func (s *Server) handleIdentityEnv(w http.ResponseWriter, _ *http.Request, id *i
 }
 
 // parseEnvRedacted 解析 .env，敏感键（API_KEY/SECRET/TOKEN/PASSWORD）
-// 用值长度占位而不露出真值。前缀脱敏避免泄露厂商前缀长度。
+// 命中即脱敏（无长度门槛）：值不落任何内容字节，只给长度占位。
 func parseEnvRedacted(content string) map[string]string {
 	out := map[string]string{}
 	for _, ln := range strings.Split(content, "\n") {
@@ -92,16 +87,8 @@ func parseEnvRedacted(content string) map[string]string {
 		if len(v) >= 2 && (v[0] == '"' && v[len(v)-1] == '"' || v[0] == '\'' && v[len(v)-1] == '\'') {
 			v = v[1 : len(v)-1]
 		}
-		lk := strings.ToLower(k)
-		sensitive := false
-		for _, hint := range []string{"key", "secret", "token", "password"} {
-			if strings.Contains(lk, hint) {
-				sensitive = true
-				break
-			}
-		}
-		if sensitive {
-			v = "[REDACTED · " + itoa(len(v)) + " chars]"
+		if isSecretEnvKey(k) {
+			v = maskSecretValue(v)
 		}
 		out[k] = v
 	}
@@ -187,13 +174,13 @@ func findRunGroup(steps []traj.Step, target *traj.Step) map[string]any {
 			}
 			g["last_touch"] = i
 			// TLDR 从日志派生：final 正文即模型自己写的运行结论。
-			if s.Type == "final" {
+			if s.Type == traj.TypeFinal {
 				if c, ok := s.Field("content"); ok && c != "" {
 					one := traj.OneLine(c, 120)
 					g["tldr"] = &one
 				}
 			}
-			if s.Type == "final" || s.Type == "error" {
+			if s.Type == traj.TypeFinal || s.Type == traj.TypeError {
 				g["status"] = "done"
 				t := s.TS
 				g["ended_ts"] = &t
@@ -430,7 +417,7 @@ func (s *Server) handleUsageRefresh(w http.ResponseWriter, _ *http.Request, id *
 
 // handleKillall 强制结束所有心智相关进程——viewer 的 Kill all 按钮。
 // 请求体 {dry_run}：dry_run=true 只报告将停哪些、不写任何标志
-//（viewer 先 dryRun 弹确认框，确认后再真停）；stdout 是确认框里
+// （viewer 先 dryRun 弹确认框，确认后再真停）；stdout 是确认框里
 // 展示的人类可读摘要（KillallResult 契约 {ok, dry_run, stdout, stderr}）。
 func (s *Server) handleKillall(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -444,7 +431,14 @@ func (s *Server) handleKillall(w http.ResponseWriter, r *http.Request) {
 	}
 	var names []string
 	for _, info := range infos {
-		if isIdentityLive(info.Dir) {
+		// live 探测与停机投递都必须用轨迹目录层级（与 mind.RunLockDir/
+		// RequestStopDir 的参数语义一致）——此前传身份目录，stop 标志
+		// 写到 <身份>/run/stop，调度器消费的是 <轨迹>/run/stop，等于
+		// 永远收不到 killall。
+		if info.TLDir == "" {
+			continue
+		}
+		if isIdentityLive(info.TLDir) {
 			names = append(names, info.Name)
 		}
 	}
@@ -460,7 +454,10 @@ func (s *Server) handleKillall(w http.ResponseWriter, r *http.Request) {
 	}
 	stopped := 0
 	for _, info := range infos {
-		if err := mind.RequestStopDir(info.Dir); err == nil {
+		if info.TLDir == "" {
+			continue
+		}
+		if err := mind.RequestStopDir(info.TLDir); err == nil {
 			stopped++
 		}
 	}
@@ -575,8 +572,9 @@ func fieldOrNil(step *traj.Step, key string) any {
 	return nil
 }
 
-// bundledThinkers 是心智包内置的 thinker 清单。
-var bundledThinkers = []string{"monolith", "responder"}
+// bundledThinkers 是心智包内置的 thinker 清单——直接消费 mind 包的
+// 权威名单 ThinkerNames()（task-18 落地），web 侧不再自持硬编码副本。
+var bundledThinkers = mind.ThinkerNames()
 
 // handleDispatchLog 返回 DispatchEvent[]——读调度器落盘的 NDJSON
 // 事件流（dispatcher.log）。文件不存在 = 调度器从未运行，返回空

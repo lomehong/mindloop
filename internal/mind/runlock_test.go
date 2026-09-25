@@ -74,6 +74,27 @@ func TestRequestStopDir(t *testing.T) {
 	}
 }
 
+// TestClearStopFlag：残留停机标志清理。事故链：mind stop 写下标志
+// 时调度器已死 → 标志残留 → 下一次启动在首个心跳"启动即优雅退出"。
+// 清理必须幂等，且清理后 checkStop 不再消费到任何东西。
+func TestClearStopFlag(t *testing.T) {
+	tl := newTestTimeline(t)
+	if err := RequestStopDir(tl.Dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := ClearStopFlag(tl); err != nil {
+		t.Fatalf("ClearStopFlag: %v", err)
+	}
+	// 幂等：文件已不存在，再清一次必须仍是 nil。
+	if err := ClearStopFlagDir(tl.Dir); err != nil {
+		t.Fatalf("ClearStopFlagDir 应幂等: %v", err)
+	}
+	d := NewDispatcher(tl, 50*time.Millisecond)
+	if d.checkStop() {
+		t.Fatal("清理后 checkStop 不应再消费到停机标志")
+	}
+}
+
 // TestControlFaceNameValidation：控制面 thinker 名走白名单——
 // wake.<name> 直接拼文件名，穿越段与分隔符必须在入口被拒。
 func TestControlFaceNameValidation(t *testing.T) {

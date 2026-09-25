@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Play, Square } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 
+import { ConfirmDialog } from "~/components/confirm-dialog";
 import { Button } from "~/components/ui/button";
 import {
   fetchConfig,
@@ -74,6 +76,10 @@ export function StartStopButtons({
 }) {
   const enabled = useControlsEnabled();
   const mutation = useThinkerMutation(identityId);
+  // 「全部停止」的确认对话框状态；force 标记 Shift+点击的立即终止语义。
+  const [confirmStop, setConfirmStop] = useState<{ force: boolean } | null>(
+    null
+  );
   if (!enabled) return null;
 
   const isAll = names.length === 0;
@@ -81,29 +87,43 @@ export function StartStopButtons({
 
   if (running) {
     return (
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={mutation.isPending}
-        title="优雅停止：不再接收新触发，进行中步骤跑完（Shift+点击：立即终止进行中步骤）"
-        onClick={(event) => {
-          const force = event.shiftKey;
-          if (
-            isAll &&
-            !window.confirm(
-              force
-                ? "Force-stop all thinkers? In-flight steps will be killed."
-                : "Stop all thinkers? In-flight steps finish, then everything goes quiet."
-            )
-          ) {
-            return;
+      <>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={mutation.isPending}
+          title="优雅停止：不再接收新触发，进行中步骤跑完（Shift+点击：立即终止进行中步骤）"
+          onClick={(event) => {
+            const force = event.shiftKey;
+            if (isAll) {
+              setConfirmStop({ force });
+              return;
+            }
+            mutation.mutate({ action: "stop", names, force });
+          }}
+        >
+          <Square className="size-3" />
+          {isAll ? "全部停止" : "停止"}
+        </Button>
+        <ConfirmDialog
+          open={confirmStop !== null}
+          onOpenChange={(open) => {
+            if (!open) setConfirmStop(null);
+          }}
+          tone="danger"
+          title={confirmStop?.force ? "强制停止全部思考者？" : "停止全部思考者？"}
+          description={
+            confirmStop?.force
+              ? "进行中的步骤将被立即终止，未完成的现场会丢失。"
+              : "不再接收新触发；进行中的步骤跑完后全部安静。"
           }
-          mutation.mutate({ action: "stop", names, force });
-        }}
-      >
-        <Square className="size-3" />
-        {isAll ? "全部停止" : "停止"}
-      </Button>
+          confirmText={confirmStop?.force ? "强制停止" : "全部停止"}
+          onConfirm={() => {
+            if (confirmStop)
+              mutation.mutate({ action: "stop", names, force: confirmStop.force });
+          }}
+        />
+      </>
     );
   }
   return (

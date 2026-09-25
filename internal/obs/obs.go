@@ -8,9 +8,12 @@
 package obs
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"mindloop/internal/llm"
 	"mindloop/internal/traj"
@@ -64,28 +67,43 @@ func UsageRecorder(dir, model, provider string, logf func(format string, args ..
 			fail("序列化用量记录失败: %v", jerr)
 		}
 
+		// 健康标记是读-改-写：思考档与请求档两个 llm.Client 的
+		// OnDone 会并发落到同一目录，必须持目录锁互斥，否则连续
+		// 错误计数互相覆盖、固定 .tmp 名互相践踏。锁等待有界——
+		// 观测面不能反过来卡住模型调用收尾。
 		healthPath := filepath.Join(dir, "llm-health.json")
-		health := LoadHealth(healthPath)
-		now := traj.NowString()
-		if err != nil {
-			health.ConsecutiveErrors++
-			health.LastError = err.Error()
-			health.LastErrorAt = now
+		release, lerr := traj.AcquireDirLock(context.Background(), healthPath+".lock", 5*time.Second)
+		if lerr != nil {
+			fail("健康标记加锁失败（本轮健康状态未更新）: %v", lerr)
 		} else {
-			health.ConsecutiveErrors = 0
-			health.LastOK = now
-			health.LastError = ""
-		}
-		health.LastCheck = now
-		if data, jerr := json.MarshalIndent(health, "", "  "); jerr == nil {
-			tmp := healthPath + ".tmp"
-			if werr := os.WriteFile(tmp, data, 0o644); werr != nil {
-				fail("写健康标记失败: %v", werr)
-			} else if rerr := os.Rename(tmp, healthPath); rerr != nil {
-				fail("健康标记原子改名失败: %v", rerr)
+			defer release()
+			health, corrupt := loadHealthChecked(healthPath)
+			if corrupt != nil {
+				fail("健康标记损坏，已按零值重建（旧内容: %v）", corrupt)
 			}
-		} else {
-			fail("序列化健康标记失败: %v", jerr)
+			now := traj.NowString()
+			if err != nil {
+				health.ConsecutiveErrors++
+				health.LastError = err.Error()
+				health.LastErrorAt = now
+			} else {
+				health.ConsecutiveErrors = 0
+				health.LastOK = now
+				health.LastError = ""
+			}
+			health.LastCheck = now
+			if data, jerr := json.MarshalIndent(health, "", "  "); jerr == nil {
+				// tmp 名带 pid：即使锁失效（如 NFS）也不会两个写者
+				// 践踏同一个临时文件。
+				tmp := fmt.Sprintf("%s.%d.tmp", healthPath, os.Getpid())
+				if werr := os.WriteFile(tmp, data, 0o644); werr != nil {
+					fail("写健康标记失败: %v", werr)
+				} else if rerr := os.Rename(tmp, healthPath); rerr != nil {
+					fail("健康标记原子改名失败: %v", rerr)
+				}
+			} else {
+				fail("序列化健康标记失败: %v", jerr)
+			}
 		}
 	}
 }
@@ -99,11 +117,24 @@ type Health struct {
 	ConsecutiveErrors int    `json:"consecutive_errors"`
 }
 
-// LoadHealth 读取健康标记；不存在返回零值。
+// LoadHealth 读取健康标记；不存在或损坏返回零值（宽容形态，供
+// 只读方使用；写方用 loadHealthChecked 以便对损坏告警）。
 func LoadHealth(path string) Health {
-	var h Health
-	if data, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(data, &h)
-	}
+	h, _ := loadHealthChecked(path)
 	return h
+}
+
+// loadHealthChecked 读取健康标记并报告损坏：文件存在但解析失败时
+// 返回零值 Health 与解析错误——连续错误计数被意外清零是掩盖故障，
+// 调用方必须有机会喊出来。
+func loadHealthChecked(path string) (Health, error) {
+	var h Health
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return h, nil // 不存在 = 零值起步，合法
+	}
+	if jerr := json.Unmarshal(data, &h); jerr != nil {
+		return Health{}, jerr
+	}
+	return h, nil
 }

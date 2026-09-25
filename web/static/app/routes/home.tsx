@@ -5,6 +5,8 @@ import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { StartStopButtons, useControlsEnabled } from "~/components/thinker-controls";
+import { QueryErrorBanner } from "~/components/query-error-banner";
+import { ConfirmDialog } from "~/components/confirm-dialog";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import {
@@ -31,21 +33,11 @@ import {
   killAll,
 } from "~/lib/api";
 import type { Identity } from "~/lib/types";
+import { formatRelativeTime } from "~/lib/format";
+import { STATUS_BACKGROUND_POLL_MS } from "~/lib/polling";
 
 export function meta() {
   return [{ title: "mindloop · 身份" }];
-}
-
-function relativeTime(iso: string | null): string {
-  if (!iso) return "—";
-  const delta = Date.now() - new Date(iso).getTime();
-  const seconds = Math.floor(delta / 1000);
-  if (seconds < 60) return `${seconds}秒前`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}分前`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `${hours}小时前`;
-  return `${Math.floor(hours / 24)}天前`;
 }
 
 function LiveBadge({ live }: { live: boolean }) {
@@ -211,16 +203,14 @@ function ImportIdentityForm() {
 
 function KillAllButton() {
   const queryClient = useQueryClient();
+  // 干跑（dry_run）的输出展示在确认对话框里；确认后才真正执行 killall。
+  const [confirmSummary, setConfirmSummary] = useState<string | null>(null);
   const mutation = useMutation({
     mutationFn: killAll,
     onSuccess: (result) => {
       const summary = result.stdout.trim() || "没有找到运行中的进程。";
       if (result.dry_run) {
-        if (window.confirm(`${summary}\n\nProceed with kill?`)) {
-          mutation.mutate(false);
-          return;
-        }
-        toast.info("已取消全部停止");
+        setConfirmSummary(summary);
       } else {
         toast.success("全部停止完成", { description: summary });
         queryClient.invalidateQueries();
@@ -230,31 +220,68 @@ function KillAllButton() {
   });
 
   return (
-    <Button
-      variant="destructive"
-      size="sm"
-      disabled={mutation.isPending}
-      title="停止本机全部 mindloop 进程（调度器、agent、思考者步骤）"
-      onClick={() => mutation.mutate(true)}
-    >
-      <Skull className="size-3" />
-      全部停止
-    </Button>
+    <>
+      <Button
+        variant="destructive"
+        size="sm"
+        disabled={mutation.isPending}
+        title="停止本机全部 mindloop 进程（调度器、agent、思考者步骤）"
+        onClick={() => mutation.mutate(true)}
+      >
+        <Skull className="size-3" />
+        全部停止
+      </Button>
+      <ConfirmDialog
+        open={confirmSummary !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmSummary(null);
+        }}
+        tone="danger"
+        title="停止本机全部 mindloop 进程？"
+        description={confirmSummary ?? ""}
+        confirmText="全部停止"
+        onCancel={() => toast.info("已取消全部停止")}
+        onConfirm={() => mutation.mutate(false)}
+      />
+    </>
   );
 }
 
 export default function Home() {
   const controlsEnabled = useControlsEnabled();
-  const { data: identities, isLoading } = useQuery({
+  const {
+    data: identities,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["identities"],
     queryFn: fetchIdentities,
-    refetchInterval: 5000,
+    refetchInterval: STATUS_BACKGROUND_POLL_MS,
   });
 
   if (isLoading) {
     return (
       <div className="flex justify-center py-20">
         <LoadingDots />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="mx-auto w-full max-w-7xl space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">身份</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            本机全部心智身份及其实时运行状态。
+          </p>
+        </div>
+        <QueryErrorBanner
+          error={error}
+          onRetry={() => void refetch()}
+        />
       </div>
     );
   }
@@ -267,13 +294,17 @@ export default function Home() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-8 px-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <div className="mx-auto w-full max-w-7xl space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">身份</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            本机全部心智身份及其实时运行状态。
+          </p>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           {controlsEnabled && <NewIdentityForm />}
           {controlsEnabled && <ImportIdentityForm />}
-        </div>
-        <div className="flex items-center gap-2">
           {(identities?.length ?? 0) > 0 && (
             <Button
               variant="outline"
@@ -303,7 +334,7 @@ export default function Home() {
       ) : (
         [...groups.entries()].map(([group, members]) => (
           <section key={group}>
-            <h2 className="mb-2 font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <h2 className="mb-2 font-mono text-xs text-muted-foreground">
               {group}
             </h2>
             <div className="rounded-lg border">
@@ -313,7 +344,6 @@ export default function Home() {
                     <TableHead>身份</TableHead>
                     <TableHead>调度器</TableHead>
                     <TableHead>思考者</TableHead>
-                    <TableHead className="text-right">进行中</TableHead>
                     <TableHead>最近活动</TableHead>
                     <TableHead className="text-right">步骤</TableHead>
                     {controlsEnabled && (
@@ -341,18 +371,8 @@ export default function Home() {
                           ? `${identity.thinkers_active}/${identity.thinkers_total} active`
                           : "—"}
                       </TableCell>
-                      <TableCell
-                        className={
-                          "text-right font-mono tabular-nums" +
-                          (identity.steps_in_flight > 0
-                            ? " font-semibold text-green-700 dark:text-green-400"
-                            : " text-muted-foreground")
-                        }
-                      >
-                        {identity.steps_in_flight}
-                      </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {relativeTime(identity.last_activity_ts)}
+                        {formatRelativeTime(identity.last_activity_ts)}
                       </TableCell>
                       <TableCell className="text-right font-mono tabular-nums">
                         {identity.step_count}

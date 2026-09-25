@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -75,22 +76,58 @@ type Result struct {
 	StderrDropped int64
 }
 
-// BashPath 返回 bash 的绝对路径或 ErrNoBash。
+// BashPath 返回一个验证过可用的 bash 绝对路径或 ErrNoBash。
 //
-// 真实使用场景（Headlong 自带 bash 的开发机，部署到任意 Windows
-// 用户的 PowerShell 环境）需要 fallback：PATH 里找不到时，扫描
-// Git Bash / Git for Windows / MSYS2 / WSL 的常见安装位置，避免
-// “明明装了 Git Bash 却报找不到”。
+// "PATH 里有 bash"不等于"bash 能用"（WSL 存根缺陷：Windows 上
+// C:\Windows\system32\bash.exe 是 WSL 的入口存根，在无发行版/代理
+// 异常的机器上只会打印警告并失败，而它天然排在 PATH 最前面）。所以
+// 对每个候选都做一次真实执行探测（bash -c true，5 秒超时）：
+//   - LookPath 命中的候选若是 system32 存根或探测失败，继续走
+//     fallback 列表（Git for Windows / MSYS2 / ...的常见安装位置）；
+//   - 全部候选都不可用才报 ErrNoBash；
+//   - 探测成功的结果按进程缓存（bash 不会在进程中途消失）。
 func BashPath() (string, error) {
-	if p, err := exec.LookPath("bash"); err == nil {
-		return p, nil
+	bashMu.Lock()
+	defer bashMu.Unlock()
+	if bashFound != "" {
+		return bashFound, nil
 	}
-	for _, p := range bashFallbackPaths() {
-		if _, err := os.Stat(p); err == nil {
+	var candidates []string
+	if p, err := exec.LookPath("bash"); err == nil {
+		candidates = append(candidates, p)
+	}
+	candidates = append(candidates, bashFallbackPaths()...)
+	for _, p := range candidates {
+		if isWSLStub(p) {
+			continue // WSL 存根：执行不了脚本，也不是 README 承诺的 Git Bash
+		}
+		if fi, err := os.Stat(p); err != nil || fi.IsDir() {
+			continue
+		}
+		if bashWorks(p) {
+			bashFound = p
 			return p, nil
 		}
 	}
 	return "", ErrNoBash
+}
+
+var (
+	bashMu    sync.Mutex
+	bashFound string // 最近一次探测成功的 bash 路径（进程级缓存）
+)
+
+// isWSLStub 报告路径是否指向 Windows 系统目录里的 bash——那是 WSL
+// 的入口存根，不是要找的执行语言。
+func isWSLStub(p string) bool {
+	return strings.Contains(strings.ToLower(filepath.ToSlash(p)), "system32/")
+}
+
+// bashWorks 对候选 bash 做一次真实执行探测：退出 0 才算可用。
+func bashWorks(path string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, path, "-c", "true").Run() == nil
 }
 
 // bashFallbackPaths 列出常见安装位置——按优先级排列（Git for Windows
@@ -116,6 +153,27 @@ func bashFallbackPaths() []string {
 		)
 	}
 	return candidates
+}
+
+// sensitiveKeys 是无条件剔除的完整键名；再加上任意 *_API_KEY 后缀
+// 规则，覆盖第三方 provider 的 key 变体。
+func scrubEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if k, _, ok := strings.Cut(kv, "="); ok && sensitiveEnvKey(k) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+func sensitiveEnvKey(key string) bool {
+	switch key {
+	case "MINDLOOP_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "MINDLOOP_WEB_TOKEN":
+		return true
+	}
+	return strings.HasSuffix(key, "_API_KEY")
 }
 
 // capture 是并发安全的带上限输出缓冲：内容截断保留、字节照常
@@ -212,7 +270,12 @@ func Run(ctx context.Context, req Request) (Result, error) {
 
 	cmd := exec.Command(bash, scriptPath)
 	cmd.Dir = req.Dir
-	cmd.Env = append(os.Environ(), req.Env...)
+	// 子进程环境先过敏感键筛子：模型 API key 与 web token 在沙箱里
+	// 没有任何用途，脚本一行 env 就能把它们倒带出机器——模型生成
+	// 的脚本原本可见全部进程环境，密钥对它完全暴露。显式追加的
+	// req.Env 也过同一把筛子——MINDLOOP_EXE、MINDLOOP_IDENTITY_DIR、
+	// SKILLS_DIR、FINAL 等业务变量不受影响。
+	cmd.Env = scrubEnv(append(os.Environ(), req.Env...))
 	if req.FinalPath != "" {
 		cmd.Env = append(cmd.Env, "FINAL_PATH="+req.FinalPath)
 	}
@@ -222,17 +285,23 @@ func Run(ctx context.Context, req Request) (Result, error) {
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
+	// 进程管辖：尽力而为，且必须发生在 Start 之前挂好钩子
+	// （POSIX 的 Setpgid 只能在启动前设置）。Windows 用 Job Object
+	//（整树管辖 + KILL_ON_JOB_CLOSE 兜底）；POSIX 降级为独立进程组
+	//（Setpgid + 对整组 SIGKILL）。管辖建立失败不阻止执行——进程
+	// 级 Kill 仍生效，只是失去整树管辖（degraded 模式）。
+	j, jobErr := newJob(req.MemLimitBytes)
+	if jobErr == nil {
+		j.prepare(cmd)
+		defer j.close()
+	}
+
 	res := Result{}
 	start := time.Now()
 	if err := cmd.Start(); err != nil {
 		return res, fmt.Errorf("sandbox: 启动 bash: %w", err)
 	}
-
-	// Job Object：尽力而为。分配失败不阻止执行——进程级 Kill 仍
-	// 生效，只是失去整树管辖（degraded 模式）。
-	j, jobErr := newJob(req.MemLimitBytes)
-	if jobErr == nil {
-		defer j.close()
+	if j != nil {
 		if err := j.assignPID(cmd.Process.Pid); err != nil {
 			j.close()
 			j = nil

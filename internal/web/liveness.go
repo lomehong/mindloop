@@ -30,23 +30,14 @@ func isIdentityLive(identityDir string) bool {
 		// 窗口（lockGrace 内），也可能是残留锁——落到 mtime 判据，
 		// 与无锁路径同一套语义。
 	}
-	// 无锁或残留锁：轨迹最近被写 = 心智刚醒（心跳窗口内）。
-	md := filepath.Join(identityDir, "trajectories")
-	entries, err := os.ReadDir(md)
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		fi, err := e.Info()
-		if err != nil {
-			continue
-		}
-		if time.Since(fi.ModTime()) < liveWindow {
-			return true
-		}
+	// 无锁或残留锁：轨迹最近被写 = 心智刚醒（心跳窗口内）。注意
+	// 参数语义是轨迹目录（与 mind.RunLockDir 一致，web 全部调用点
+	// 传 Timeline.Dir）——直接 stat 其中的 trajectory.jsonl；此前
+	// 读 <tlDir>/trajectories 子目录（不存在），mtime 兜底判据
+	// 从未生效（task-13 契约测试钉出的既有缺陷）。
+	tlFile := filepath.Join(identityDir, "trajectory.jsonl")
+	if fi, err := os.Stat(tlFile); err == nil && time.Since(fi.ModTime()) < liveWindow {
+		return true
 	}
 	return false
 }

@@ -5,6 +5,8 @@ import { useParams } from "react-router";
 import { toast } from "sonner";
 
 import { IdentityTabs } from "~/components/identity-tabs";
+import { QueryErrorBanner } from "~/components/query-error-banner";
+import { ConfirmDialog } from "~/components/confirm-dialog";
 import { useControlsEnabled } from "~/components/thinker-controls";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -25,34 +27,16 @@ import {
   TableRow,
 } from "~/components/ui/table";
 import { fetchIdentityStatus, fetchUsage, refreshUsage } from "~/lib/api";
+import { formatBytes, formatCount, formatRelativeTime } from "~/lib/format";
+import {
+  JOB_PROGRESS_POLL_MS,
+  STATUS_BACKGROUND_POLL_MS,
+  USAGE_IDLE_POLL_MS,
+} from "~/lib/polling";
 import type { UsageDay } from "~/lib/types";
 
 export function meta() {
   return [{ title: "mindloop · 用量" }];
-}
-
-// --- formatting ------------------------------------------------------------
-
-function fmtNum(n: number): string {
-  if (n >= 1e9) return `${(n / 1e9).toFixed(1).replace(/\.0$/, "")}B`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1).replace(/\.0$/, "")}M`;
-  if (n >= 1e3) return `${(n / 1e3).toFixed(1).replace(/\.0$/, "")}k`;
-  return String(Math.round(n));
-}
-
-function fmtBytes(n: number): string {
-  if (n >= 1e9) return `${(n / 1e9).toFixed(1)} GB`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1)} MB`;
-  if (n >= 1e3) return `${Math.round(n / 1e3)} KB`;
-  return `${n} B`;
-}
-
-function fmtAgo(iso: string): string {
-  const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
-  if (s < 90) return "刚刚";
-  if (s < 5400) return `${Math.round(s / 60)} 分钟前`;
-  if (s < 129600) return `${(s / 3600).toFixed(1).replace(/\.0$/, "")} 小时前`;
-  return `${(s / 86400).toFixed(1).replace(/\.0$/, "")} 天前`;
 }
 
 /** Round a y-axis max up to 1/2/2.5/5 x 10^k. */
@@ -206,7 +190,7 @@ function BarChart({
                 className="fill-muted-foreground"
                 fontSize={11}
               >
-                {fmtNum(ymax * f)}
+                {formatCount(ymax * f)}
               </text>
             </g>
           );
@@ -292,6 +276,7 @@ function RefreshButtons({
   showRecount?: boolean;
 }) {
   const queryClient = useQueryClient();
+  const [confirmRecount, setConfirmRecount] = useState(false);
   const mutation = useMutation({
     mutationFn: (rebuild: boolean) => refreshUsage(identityId, rebuild),
     onSuccess: (_result, rebuild) => {
@@ -323,18 +308,19 @@ function RefreshButtons({
           variant="ghost"
           disabled={busy}
           title="丢弃缓存计数并重新读取整个思维日志与 LLM 账本（日志被重写或整理后使用）"
-          onClick={() => {
-            if (
-              window.confirm(
-                "从头重算？将丢弃缓存的计数，重新读取整份思维日志与 LLM 账本。不调用模型；大日志约需数秒到一分钟。"
-              )
-            )
-              mutation.mutate(true);
-          }}
+          onClick={() => setConfirmRecount(true)}
         >
           重算
         </Button>
       )}
+      <ConfirmDialog
+        open={confirmRecount}
+        onOpenChange={setConfirmRecount}
+        title="从头重算？"
+        description="将丢弃缓存的计数，重新读取整份思维日志与 LLM 账本。不调用模型；大日志约需数秒到一分钟。"
+        confirmText="重算"
+        onConfirm={() => mutation.mutate(true)}
+      />
     </div>
   );
 }
@@ -346,15 +332,31 @@ export default function UsagePage() {
   const { data: status } = useQuery({
     queryKey: ["status", identityId],
     queryFn: () => fetchIdentityStatus(identityId),
-    refetchInterval: 5000,
+    refetchInterval: STATUS_BACKGROUND_POLL_MS,
   });
 
-  const { data: usage, isLoading } = useQuery({
+  const {
+    data: usage,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["usage", identityId],
     queryFn: () => fetchUsage(identityId),
     // Cheap (serves a cached file); poll faster while a refresh runs.
-    refetchInterval: (query) => (query.state.data?.refreshing ? 1500 : 30000),
+    refetchInterval: (query) =>
+      query.state.data?.refreshing ? JOB_PROGRESS_POLL_MS : USAGE_IDLE_POLL_MS,
   });
+
+  if (isError) {
+    return (
+      <div className="mx-auto w-full max-w-7xl">
+        <IdentityTabs identityId={identityId} live={false} active="usage" />
+        <QueryErrorBanner error={error} onRetry={() => void refetch()} />
+      </div>
+    );
+  }
 
   if (isLoading || !usage) {
     return (
@@ -375,7 +377,7 @@ export default function UsagePage() {
 
   if (!usage.available) {
     return (
-      <div className="mx-auto w-full max-w-7xl px-4">
+      <div className="mx-auto w-full max-w-7xl">
         {header}
         <Empty>
           <EmptyHeader>
@@ -405,7 +407,17 @@ export default function UsagePage() {
   }
 
   const days = usage.daily ?? [];
-  const totals = usage.totals!;
+  // totals 在契约里可选（available=true 不蕴含已算出 totals）——
+  // 兜底为零值而不是让整页坠进错误边界。
+  const totals = usage.totals ?? {
+    in: 0,
+    out: 0,
+    think: 0,
+    calls: 0,
+    in_msg: 0,
+    out_msg: 0,
+    runs: 0,
+  };
   const last7 = days.slice(-7).map(([, v]) => v);
   const n7 = Math.max(1, last7.length);
   const tok7 = last7.reduce((a, v) => a + v.in + v.out + v.think, 0) / n7;
@@ -417,17 +429,17 @@ export default function UsagePage() {
   const ledgerCoversAll = ledgerSince !== null && ledgerSince === firstDay;
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4">
+    <div className="mx-auto w-full max-w-7xl">
       {header}
       <div className="space-y-5 pb-10">
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs text-muted-foreground">
             {usage.rows?.toLocaleString()} 行日志 · 统计于{" "}
-            {usage.generated ? fmtAgo(usage.generated) : "—"} · 按 UTC 天分组
+            {usage.generated ? formatRelativeTime(usage.generated) : "—"} · 按 UTC 天分组
           </span>
           {usage.pending_bytes > 0 && (
             <Badge variant="outline" className="text-[10px]">
-              {fmtBytes(usage.pending_bytes)} 待统计
+              {formatBytes(usage.pending_bytes)} 待统计
             </Badge>
           )}
           {controlsEnabled && (
@@ -438,8 +450,8 @@ export default function UsagePage() {
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <Tile value={fmtNum(totals.in + totals.out + totals.think)} label="token 总量" />
-          <Tile value={fmtNum(tok7)} label="日均 token（近 7 天）" />
+          <Tile value={formatCount(totals.in + totals.out + totals.think)} label="token 总量" />
+          <Tile value={formatCount(tok7)} label="日均 token（近 7 天）" />
           <Tile value={msg7.toFixed(0)} label="日均消息（近 7 天）" />
           <Tile value={calls7.toFixed(0)} label="日均模型调用（近 7 天）" />
           <Tile value={String(days.length)} label="日志覆盖天数" />

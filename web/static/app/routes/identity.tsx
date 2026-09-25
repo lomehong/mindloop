@@ -2,12 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 import { FoldVertical, UnfoldVertical } from "lucide-react";
 import { parseAsString, useQueryState } from "nuqs";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router";
+import { useParams } from "react-router";
 
 import { FollowPin } from "~/components/follow-pin";
 import { ForkTree } from "~/components/fork-tree";
 import { IdentityTabs } from "~/components/identity-tabs";
-import { MindlogSearch } from "~/components/mindlog-search";
+import { StepModal } from "~/components/mindlog-search";
 import { assembleStream, StreamItems } from "~/components/stream";
 import { TimelineBar } from "~/components/timeline-bar";
 import { Button } from "~/components/ui/button";
@@ -127,6 +127,18 @@ export default function IdentityPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepParam, mindlog?.traj_id]);
 
+  // Deeplink to a step older than the loaded window (e.g. a search jump
+  // from another tab): show it in a modal instead of scrolling.
+  const [modalStep, setModalStep] = useState<string | null>(null);
+  useEffect(() => {
+    if (!stepParam || !mindlog) return;
+    const inWindow = mindlog.steps.some((step) =>
+      step.step_id?.startsWith(stepParam)
+    );
+    if (!inWindow) setModalStep(stepParam);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepParam, mindlog?.traj_id]);
+
   const typeCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const step of mindlog?.steps ?? []) {
@@ -171,30 +183,27 @@ export default function IdentityPage() {
 
   if (!mindlog) {
     return (
-      <Empty>
-        <EmptyHeader>
-          <EmptyTitle>暂无思维日志</EmptyTitle>
-          <EmptyDescription>未找到 {identityId} 的轨迹。</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <div className="mx-auto w-full max-w-7xl">
+        <IdentityTabs identityId={identityId} live={live} active="mindlog" />
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>暂无思维日志</EmptyTitle>
+            <EmptyDescription>未找到 {identityId} 的轨迹。</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </div>
     );
   }
 
   return (
     <TrajContext.Provider value={{ identityId, trajId: mindlog.traj_id }}>
-      <div className="mx-auto w-full max-w-7xl px-4">
+      <div className="mx-auto w-full max-w-7xl">
         <IdentityTabs
           identityId={identityId}
           live={live}
           active="mindlog"
           name={mindlog.identity.name}
-          actions={
-            <MindlogSearch
-              identityId={identityId}
-              windowStart={hiddenOlder}
-              onJump={scrollToStep}
-            />
-          }
+          search={{ windowStart: hiddenOlder, onJump: scrollToStep }}
         />
         <div className="mb-3 flex items-center gap-3">
           <span className="text-sm text-muted-foreground">
@@ -301,6 +310,14 @@ export default function IdentityPage() {
           </div>
         </div>
         <FollowPin live={live} stepCount={mindlog.step_count} />
+        {modalStep && (
+          <StepModal
+            identityId={identityId}
+            stepId={modalStep}
+            stepCount={mindlog.step_count}
+            onClose={() => setModalStep(null)}
+          />
+        )}
       </div>
     </TrajContext.Provider>
   );

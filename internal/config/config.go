@@ -2,6 +2,12 @@
 // 时读入进程环境，显式设置的环境变量永远优先——Headlong 的
 // activate 脚本两段加载（应用 .env + 状态 .env）的单文件简化版。
 // 格式是 dotenv 子集：KEY=VALUE、# 注释、空白行；值可带引号。
+//
+// 时序契约：LoadEnv（及身份级 .env 的再次 LoadEnv）必须先于
+// llm.FromEnv 与任何环境变量读取之前调用——.env 的值以环境变量
+// 形态生效，读晚了配置就静默丢失。cli.Execute 在构造命令树之前
+// 加载全局 .env，各命令在装配模型客户端之前加载身份级 .env，
+// 新命令必须保持这一顺序。
 package config
 
 import (

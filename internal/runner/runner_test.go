@@ -12,7 +12,10 @@ import (
 	"mindloop/internal/traj"
 )
 
-// requireBash 在没有 bash 的环境跳过运行循环测试。
+// requireBash 在没有【可用】bash 的环境干净跳过。BashPath 内部做
+// 真实执行探测（bash -c true），所以这里是能力语义：只有 WSL 存根
+// 的机器会干净 skip，而不是拿存根跑出一串假失败（存根缺陷：PATH
+// 命中让 LookPath 成功，却执行不了任何脚本）。
 func requireBash(t *testing.T) {
 	t.Helper()
 	if _, err := sandbox.BashPath(); err != nil {
@@ -101,6 +104,45 @@ func TestRunCompletesWithFinal(t *testing.T) {
 		if rid, ok := s.Field("run_id"); !ok || rid != res.RunID {
 			t.Fatalf("步骤 %s 缺 run_id", s.StepID)
 		}
+	}
+}
+
+// TestRunRealExecutionSmoke：真实沙箱冒烟——
+// 脚本真的跑、stdout 真的落盘、FINAL 真的写哨兵。它断言的是执行
+// 链本身，在"PATH 里的 bash 不能用"的环境下最先暴露断裂。
+func TestRunRealExecutionSmoke(t *testing.T) {
+	requireBash(t)
+	tl := newTestTimeline(t)
+	token := "runner-smoke-7351"
+	thinker := &fakeThinker{responses: []string{
+		fence("echo " + token + "\nFINAL=\"smoke done\""),
+	}}
+	res, err := Run(context.Background(), Options{
+		Timeline:    tl,
+		Thinker:     thinker,
+		Task:        "真实执行冒烟",
+		IdleTimeout: 2 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Final != "smoke done" {
+		t.Fatalf("final = %q", res.Final)
+	}
+	steps, err := tl.Steps()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, s := range steps {
+		if s.Type == "shell-output" {
+			if c, _ := s.Field("content"); strings.Contains(c, token) {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatal("真实执行的 stdout 没有落盘")
 	}
 }
 

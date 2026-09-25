@@ -5,7 +5,6 @@ import { fmtDuration } from "~/components/activity-badge";
 import { IdentityTabs } from "~/components/identity-tabs";
 import { LoadingDots } from "~/components/ui/loading-dots";
 import { fetchHealth } from "~/lib/api";
-import type { ActivityState } from "~/lib/types";
 import { cn } from "~/lib/utils";
 
 export function meta() {
@@ -92,7 +91,7 @@ export default function HealthPage() {
   const responses = health.responses;
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4">
+    <div className="mx-auto w-full max-w-7xl">
       <IdentityTabs
         identityId={identityId}
         live={activity.dispatcher_running}
@@ -108,11 +107,11 @@ export default function HealthPage() {
               className={STATE_TEXT[activity.state]}
             />
             <Stat
-              label="进行中步骤"
+              label="忙碌思考者"
               value={
-                activity.steps_in_flight > 0 && activity.busy_thinkers.length
-                  ? `${activity.steps_in_flight} (${activity.busy_thinkers.join(", ")})`
-                  : String(activity.steps_in_flight)
+                activity.busy_thinkers.length
+                  ? activity.busy_thinkers.join(", ")
+                  : "—"
               }
             />
             <Stat
@@ -146,35 +145,6 @@ export default function HealthPage() {
               Busy but the mind log has been quiet past the threshold — a
               step may be hung (a hung step also holds off the dispatcher
               watchdog).
-            </div>
-          )}
-        </Section>
-
-        <Section
-          title={`消息队列（${activity.queued_messages.length} 条等待 · ${activity.pending_total} 个触发待发）`}
-        >
-          {activity.queued_messages.length === 0 ? (
-            <div className="text-sm text-muted-foreground">
-              空——没有人在等待回复。
-            </div>
-          ) : (
-            <div className="space-y-1.5">
-              {activity.queued_messages.map((message, idx) => (
-                <div
-                  key={idx}
-                  className="flex flex-wrap items-baseline gap-x-2 text-sm"
-                >
-                  <span className="font-mono text-xs">{message.from ?? "unknown"}</span>
-                  <span className="text-xs text-muted-foreground">
-                    waiting {fmtDuration(message.age_s) ?? "?"}
-                  </span>
-                  {message.preview && (
-                    <span className="truncate text-xs text-muted-foreground">
-                      — {message.preview}
-                    </span>
-                  )}
-                </div>
-              ))}
             </div>
           )}
         </Section>

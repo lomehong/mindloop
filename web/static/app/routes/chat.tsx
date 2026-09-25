@@ -1,10 +1,15 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, SendHorizontal } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { SendHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
-import { toast } from "sonner";
 
+import {
+  ChatBubble,
+  PendingChatBubble,
+  StreamingChatBubble,
+} from "~/components/chat-bubble";
 import { IdentityTabs } from "~/components/identity-tabs";
+import { WorkingCard } from "~/components/working-card";
 import {
   StartStopButtons,
   useControlsEnabled,
@@ -15,15 +20,20 @@ import { LoadingDots } from "~/components/ui/loading-dots";
 import { Textarea } from "~/components/ui/textarea";
 import { useAutosizeTextarea } from "~/hooks/use-autosize-textarea";
 import {
-  fetchChat,
   fetchConfig,
   fetchIdentityStatus,
   fetchThinkers,
-  sendChat,
 } from "~/lib/api";
-import type { ChatMessage } from "~/lib/types";
-import { slackConversationUrl, slackSourceUrl } from "~/lib/source-links";
-import { cn } from "~/lib/utils";
+import {
+  CHAT_DOTS_WINDOW_MS,
+  useChat,
+  useNowTicker,
+  useReplyStream,
+} from "~/lib/use-chat";
+import {
+  STATUS_ACTIVE_POLL_MS,
+  THINKERS_IDLE_POLL_MS,
+} from "~/lib/polling";
 
 export function meta() {
   return [{ title: "mindloop · 对话" }];
@@ -46,64 +56,9 @@ function hasStoredName(): boolean {
   return window.localStorage.getItem(MY_NAME_KEY) !== null;
 }
 
-function messageTime(ts: string | null): string {
-  if (!ts) return "";
-  const date = new Date(ts);
-  if (Number.isNaN(date.getTime())) return ts;
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function Bubble({ message, mine }: { message: ChatMessage; mine: boolean }) {
-  const sourceUrl =
-    slackSourceUrl(message.source_url) ||
-    slackConversationUrl(message.from) ||
-    slackConversationUrl(message.to);
-  return (
-    <div className={cn("flex", mine ? "justify-end" : "justify-start")}>
-      <div
-        className={cn(
-          "max-w-[75%] rounded-lg px-3 py-2",
-          mine ? "bg-primary text-primary-foreground" : "border bg-card"
-        )}
-      >
-        <div
-          className={cn(
-            "mb-0.5 flex items-baseline gap-2 font-mono text-[10px]",
-            mine ? "text-primary-foreground/70" : "text-muted-foreground"
-          )}
-        >
-          <span>
-            {message.from} → {message.to || "?"}
-          </span>
-          <span>{messageTime(message.ts)}</span>
-        </div>
-        {message.filename && (
-          <div className="mb-1 font-mono text-[10px] opacity-70">
-            📎 {message.filename}
-          </div>
-        )}
-        <div className="whitespace-pre-wrap break-words text-sm">
-          {message.content}
-        </div>
-        {sourceUrl && (
-          <a
-            href={sourceUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-1 inline-flex items-center gap-1 font-mono text-[10px] opacity-70 hover:underline"
-          >
-            Open in Slack <ExternalLink className="h-3 w-3" />
-          </a>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export default function ChatPage() {
   const { identityId = "" } = useParams();
   const controlsEnabled = useControlsEnabled();
-  const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
   const [myName, setMyName] = useState(storedName);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -125,42 +80,68 @@ export default function ChatPage() {
   const { data: status } = useQuery({
     queryKey: ["status", identityId],
     queryFn: () => fetchIdentityStatus(identityId),
-    refetchInterval: 2000,
+    refetchInterval: STATUS_ACTIVE_POLL_MS,
   });
   const live = status?.live ?? false;
 
-  const { data: chat, isLoading } = useQuery({
-    queryKey: ["chat", identityId],
-    queryFn: () => fetchChat(identityId),
-    refetchInterval: 2000,
+  // 桌面版取整份聊天记录（不按发送者过滤），与 PWA 共享同一条
+  // 查询/发送链路：乐观气泡、失败重试、发送后快轮询全部由 useChat 提供。
+  // 流式渐进气泡、实时活动进度卡同样共享（useReplyStream），两端一致。
+  const {
+    chat,
+    messages,
+    pending,
+    isLoading,
+    send,
+    retry,
+    isSending,
+    lastSentAt,
+  } = useChat({ identityId, myName });
+  const { reply, working, activity, stepTotal } = useReplyStream({
+    identityId,
+    sentAt: lastSentAt,
   });
+  // 进度可见期间每秒心跳：驱动 mm:ss 计时、点动画 4s 让位窗口。
+  const now = useNowTicker(lastSentAt !== null || working || activity.length > 0);
+
+  // 统一指示器：点动画只允许「发送后 4s 内」的短窗口，之后进度卡接管
+  // ——两者互斥（判定公式与 talk-chat 完全一致）。
+  const dotsWindow =
+    lastSentAt !== null && now - lastSentAt < CHAT_DOTS_WINDOW_MS;
+  const dotsActive =
+    reply !== null && reply.text.length === 0 && dotsWindow;
+  const showStreaming =
+    reply !== null && (reply.text.length > 0 || dotsWindow);
+  const waitingForReply =
+    lastSentAt !== null &&
+    reply === null &&
+    (pending.some((p) => !p.failed) ||
+      (messages.length > 0 &&
+        messages[messages.length - 1]?.from === myName));
+  const showCard =
+    !dotsActive &&
+    (working || activity.length > 0 || (waitingForReply && !dotsWindow));
 
   const { data: thinkerStatus } = useQuery({
     queryKey: ["thinkers", identityId],
     queryFn: () => fetchThinkers(identityId),
-    refetchInterval: 5000,
+    refetchInterval: THINKERS_IDLE_POLL_MS,
   });
   const dispatcherRunning = thinkerStatus?.dispatcher.running ?? true;
 
-  const messages = chat?.messages ?? [];
-  const messageCount = messages.length;
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [messageCount]);
-
-  const sendMutation = useMutation({
-    mutationFn: (content: string) => sendChat(identityId, content, myName),
-    onSuccess: () => {
-      setDraft("");
-      queryClient.invalidateQueries({ queryKey: ["chat", identityId] });
-    },
-    onError: (error: Error) => toast.error(error.message),
-  });
-
   const identityName = chat?.identity.name ?? identityId.split("~").pop();
 
+  const itemCount =
+    messages.length +
+    pending.length +
+    (showStreaming ? 1 : 0) +
+    (showCard ? 1 : 0);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: "end" });
+  }, [itemCount, reply?.text.length, activity.length]);
+
   return (
-    <div className="mx-auto w-full max-w-7xl px-4">
+    <div className="mx-auto w-full max-w-7xl">
       <IdentityTabs identityId={identityId} live={live} active="chat" />
       <div className="mx-auto flex w-full max-w-3xl flex-col">
 
@@ -180,21 +161,42 @@ export default function ChatPage() {
           <div className="flex justify-center py-10">
             <LoadingDots />
           </div>
-        ) : messages.length === 0 ? (
+        ) : messages.length === 0 && pending.length === 0 ? (
           <div className="py-10 text-center text-sm text-muted-foreground">
             还没有消息，打个招呼吧。
           </div>
         ) : (
-          messages.map((message, idx) => (
-            // "you" was the hardcoded sender before default_send_from existed,
-            // so that history is always ours regardless of the current name.
-            <Bubble
-              key={message.step_id ?? idx}
-              message={message}
-              mine={message.from === myName || message.from === "you"}
-            />
-          ))
+          <>
+            {messages.map((message, idx) => (
+              // "you" was the hardcoded sender before default_send_from existed,
+              // so that history is always ours regardless of the current name.
+              <ChatBubble
+                key={message.step_id ?? idx}
+                message={message}
+                mine={message.from === myName || message.from === "you"}
+              />
+            ))}
+            {pending.map((message) => (
+              <PendingChatBubble
+                key={`pending-${message.key}`}
+                message={message}
+                onRetry={() => retry(message)}
+              />
+            ))}
+            {reply !== null && (
+              <StreamingChatBubble text={reply.text} variant="desktop" />
+            )}
+          </>
         )}
+        {/* 活动卡片独立于消息分支：线程为空时（接了任务还没回话）也要可见。 */}
+        <WorkingCard
+          name={identityName ?? identityId}
+          working={working}
+          activity={activity}
+          stepTotal={stepTotal}
+          sentAt={lastSentAt}
+          variant="desktop"
+        />
         <div ref={bottomRef} />
       </div>
 
@@ -203,8 +205,9 @@ export default function ChatPage() {
           className="mt-3 flex items-end gap-2"
           onSubmit={(event) => {
             event.preventDefault();
-            const content = draft.trim();
-            if (content && !sendMutation.isPending) sendMutation.mutate(content);
+            if (!draft.trim() || isSending) return;
+            send(draft);
+            setDraft("");
           }}
         >
           <Input
@@ -240,10 +243,10 @@ export default function ChatPage() {
           <Button
             type="submit"
             size="sm"
-            disabled={sendMutation.isPending || !draft.trim()}
+            disabled={isSending || !draft.trim()}
           >
             <SendHorizontal className="size-3.5" />
-            Send
+            发送
           </Button>
         </form>
       )}

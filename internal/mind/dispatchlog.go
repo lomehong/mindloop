@@ -87,8 +87,6 @@ func DispatchLogPath(tlDir string) string {
 	return filepath.Join(tlDir, "run", "dispatcher.log")
 }
 
-
-
 // NewDispatchLogForTest 暴露给测试构造事件写入器（生产路径由
 // NewDispatcher 内部创建）。
 func NewDispatchLogForTest(tlDir string) *dispatchLogEvents {

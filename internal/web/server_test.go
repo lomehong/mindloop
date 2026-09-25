@@ -167,6 +167,71 @@ func TestHandleMindlogTail(t *testing.T) {
 	}
 }
 
+// TestHandleMindlogSearch：thoughts 范围只搜心智层面步骤（message 命中、
+// reasoning 不命中）；hits 永远是数组而不是 null；total 与命中数一致。
+func TestHandleMindlogSearch(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MINDLOOP_HOME", dir)
+	home := identity.Home()
+	id, err := identity.Create(context.Background(), "ada")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	addMessage(t, id, "operator", "ada", "介绍一下你自己")
+	reasoning := traj.NewStep("reasoning")
+	reasoning.Fields["content"] = "介绍"
+	if err := id.Timeline.Append(context.Background(), reasoning); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	ts, _ := newTestServer(t, home, "")
+	type searchResult struct {
+		Total int `json:"total"`
+		Hits  []struct {
+			Type string `json:"type"`
+		} `json:"hits"`
+	}
+	get := func(url string) searchResult {
+		t.Helper()
+		resp, err := http.Get(ts.URL + url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			t.Fatalf("%s status = %d", url, resp.StatusCode)
+		}
+		var out searchResult
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	thoughts := get("/api/identities/ada/mindlog/search?q=介绍&scope=thoughts")
+	if thoughts.Hits == nil {
+		t.Fatal("hits 应为空数组而非 null")
+	}
+	if thoughts.Total != 1 || len(thoughts.Hits) != 1 {
+		t.Fatalf("thoughts 范围应命中 1 条（message），得到 total=%d hits=%d",
+			thoughts.Total, len(thoughts.Hits))
+	}
+	if thoughts.Hits[0].Type != "message" {
+		t.Fatalf("thoughts 范围不应命中 reasoning，得到 type=%v", thoughts.Hits[0].Type)
+	}
+
+	none := get("/api/identities/ada/mindlog/search?q=zzzz&scope=all")
+	if none.Hits == nil || len(none.Hits) != 0 || none.Total != 0 {
+		t.Fatalf("无命中时应为 total=0 hits=[]，得到 total=%d hits=%v",
+			none.Total, none.Hits)
+	}
+
+	all := get("/api/identities/ada/mindlog/search?q=介绍&scope=all")
+	if all.Total != 2 {
+		t.Fatalf("everything 范围应命中 2 条（message+reasoning），得到 %d", all.Total)
+	}
+}
+
 // TestHandleChatFiltersToMessageOnly：mindlog 含 message + run，
 // chat 只返回 message 类型。
 func TestHandleChatFiltersToMessageOnly(t *testing.T) {
@@ -281,6 +346,7 @@ func TestStaticAssetServing(t *testing.T) {
 	assetsDir := filepath.Join(viewer, "assets")
 	os.MkdirAll(assetsDir, 0o755)
 	os.WriteFile(filepath.Join(assetsDir, "main.js"), []byte("JS"), 0o644)
+	os.WriteFile(filepath.Join(viewer, "sw.js"), []byte("// sw"), 0o644)
 
 	ts, _ := newTestServer(t, dir, viewer)
 	defer ts.Close()
@@ -296,6 +362,10 @@ func TestStaticAssetServing(t *testing.T) {
 	if !strings.Contains(string(body), "SPA") {
 		t.Fatalf("catch-all 未服务 index.html，得到 %q", string(body))
 	}
+	// index.html 必须永远重新校验，否则旧构建会在新部署后存活。
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-cache" {
+		t.Fatalf("index.html Cache-Control = %q，期望 no-cache", cc)
+	}
 	resp2, err := http.Get(ts.URL + "/assets/main.js")
 	if err != nil {
 		t.Fatal(err)
@@ -303,6 +373,20 @@ func TestStaticAssetServing(t *testing.T) {
 	defer resp2.Body.Close()
 	if resp2.StatusCode != 200 {
 		t.Fatalf("assets/* status = %d", resp2.StatusCode)
+	}
+	// 内容哈希资产走长缓存。
+	if cc := resp2.Header.Get("Cache-Control"); !strings.Contains(cc, "immutable") {
+		t.Fatalf("assets/* Cache-Control = %q，期望含 immutable", cc)
+	}
+	// /sw.js 必须直出脚本本体，不能落进 SPA catch-all。
+	resp3, err := http.Get(ts.URL + "/sw.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp3.Body.Close()
+	body3, _ := io.ReadAll(resp3.Body)
+	if !strings.Contains(string(body3), "// sw") {
+		t.Fatalf("/sw.js 未服务脚本本体，得到 %q", string(body3))
 	}
 }
 

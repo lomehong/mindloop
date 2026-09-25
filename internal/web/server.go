@@ -40,6 +40,11 @@ type Server struct {
 	cfg Config
 	mux *http.ServeMux
 	srv *http.Server
+
+	// replies 流式端点的轮询/心跳节奏（New 给默认值；测试可收窄
+	// 加速，不影响生产行为）。
+	replyPollEvery time.Duration
+	replyPingEvery time.Duration
 }
 
 // New 创建仪表盘服务并装载所有路由。安全默认值：
@@ -61,7 +66,12 @@ func New(cfg Config) (*Server, error) {
 	if !isLoopbackAddr(cfg.Addr) && cfg.Token == "" {
 		return nil, errors.New("web: 绑定非回环地址（" + cfg.Addr + "）必须设置 Token（--token 或 MINDLOOP_WEB_TOKEN）")
 	}
-	s := &Server{cfg: cfg, mux: http.NewServeMux()}
+	s := &Server{
+		cfg:            cfg,
+		mux:            http.NewServeMux(),
+		replyPollEvery: 200 * time.Millisecond,
+		replyPingEvery: 15 * time.Second,
+	}
 	s.routes()
 	s.srv = &http.Server{
 		Addr:              cfg.Addr,
@@ -103,6 +113,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //   - DNS rebinding：攻击者把域名解析到 127.0.0.1 诱导浏览器访问。
 //     顶层导航请求没有 Origin，但 Host 是攻击者域名——回环部署下
 //     Host 必须是回环名，拦下。
+//
 // 非回环部署（局域网可达）无法用 Host 判别合法来源，由 New() 强制
 // 的 Token 兜底。静态资源与 SPA 不校验（读路径无副作用）。
 func (s *Server) sameOrigin(r *http.Request) bool {

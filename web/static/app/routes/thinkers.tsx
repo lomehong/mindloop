@@ -5,6 +5,7 @@ import { useParams } from "react-router";
 import { toast } from "sonner";
 
 import { IdentityTabs } from "~/components/identity-tabs";
+import { QueryErrorBanner } from "~/components/query-error-banner";
 import {
   StartStopButtons,
   useControlsEnabled,
@@ -44,25 +45,15 @@ import type {
   ThinkerState,
   ThinkerSyncEntry,
 } from "~/lib/types";
+import { formatBytes, formatRelativeTime } from "~/lib/format";
+import {
+  STATUS_ACTIVE_POLL_MS,
+  THINKERS_FEED_POLL_MS,
+} from "~/lib/polling";
 import { cn } from "~/lib/utils";
 
 export function meta() {
   return [{ title: "mindloop · 思考者" }];
-}
-
-function kb(bytes: number): string {
-  return bytes >= 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes} B`;
-}
-
-function relativeTime(iso: string | null): string {
-  if (!iso) return "—";
-  const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (seconds < 60) return `${seconds} 秒前`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes} 分钟前`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `${hours} 小时前`;
-  return `${Math.floor(hours / 24)} 天前`;
 }
 
 const STATE_STYLES: Record<ThinkerState, string> = {
@@ -87,9 +78,6 @@ const STATE_LABELS: Record<string, string> = {
 
 function StateBadge({ thinker }: { thinker: ThinkerInfo }) {
   let label: string = STATE_LABELS[thinker.state] ?? thinker.state;
-  if (thinker.state === "active") label = `活跃 (${thinker.steps_in_flight})`;
-  if (thinker.state === "draining")
-    label = `排空中 (${thinker.steps_in_flight})`;
   if (thinker.state === "running" && thinker.pid != null)
     label = `运行中 (PID ${thinker.pid})`;
   return <Badge className={STATE_STYLES[thinker.state]}>{label}</Badge>;
@@ -218,23 +206,9 @@ function ThinkerRow({
           ))}
         </div>
       </TableCell>
-      <TableCell>
-        {thinker.pending.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {thinker.pending.map((type) => (
-              <Badge
-                key={type}
-                className="bg-amber-100 text-[10px] text-amber-800 dark:bg-amber-950 dark:text-amber-300"
-              >
-                {type}
-              </Badge>
-            ))}
-          </div>
-        )}
-      </TableCell>
       <TableCell className="font-mono text-[11px] text-muted-foreground">
         {thinker.log_bytes != null
-          ? `${kb(thinker.log_bytes)} · ${relativeTime(thinker.log_mtime)}`
+          ? `${formatBytes(thinker.log_bytes)} · ${formatRelativeTime(thinker.log_mtime)}`
           : "—"}
       </TableCell>
       <VersionCell identityId={identityId} sync={sync} />
@@ -252,6 +226,7 @@ function ThinkerRow({
                   variant="ghost"
                   size="sm"
                   title="手动触发这个思考者一次"
+                  aria-label={`手动触发 ${thinker.name} 一次`}
                   disabled={mutation.isPending}
                   onClick={() =>
                     mutation.mutate({ action: "step", names: [thinker.name] })
@@ -271,6 +246,7 @@ function ThinkerRow({
                   ? `启用 ${thinker.name}`
                   : `停用 ${thinker.name}——全部启动与调度器将跳过它`
               }
+              aria-label={disabled ? `启用 ${thinker.name}` : `停用 ${thinker.name}`}
               disabled={toggleMutation.isPending}
               onClick={() => toggleMutation.mutate(disabled)}
             >
@@ -286,10 +262,15 @@ function ThinkerRow({
 function StatusPanel({ identityId }: { identityId: string }) {
   const controlsEnabled = useControlsEnabled();
   const pull = usePullMutation(identityId);
-  const { data: status } = useQuery({
+  const {
+    data: status,
+    isError: statusError,
+    error: statusErrorObj,
+    refetch: refetchStatus,
+  } = useQuery({
     queryKey: ["thinkers", identityId],
     queryFn: () => fetchThinkers(identityId),
-    refetchInterval: 2000,
+    refetchInterval: THINKERS_FEED_POLL_MS,
   });
   const { data: syncStatus } = useQuery({
     queryKey: ["thinker-sync", identityId],
@@ -309,6 +290,15 @@ function StatusPanel({ identityId }: { identityId: string }) {
       entry.name.startsWith("_") ||
       (entry.status === "not_installed" && !entry.name.startsWith("_"))
   );
+
+  if (statusError) {
+    return (
+      <QueryErrorBanner
+        error={statusErrorObj}
+        onRetry={() => void refetchStatus()}
+      />
+    );
+  }
 
   if (!status) {
     return (
@@ -331,9 +321,7 @@ function StatusPanel({ identityId }: { identityId: string }) {
           <Badge className={STATE_STYLES.stopped}>已停止</Badge>
         )}
         <span className="font-mono text-xs text-muted-foreground">
-          {status.active_thinkers}/{status.thinkers_total} 个思考者活跃 ·{" "}
-          {status.steps_in_flight} 个步骤进行中
-          {status.pending_total > 0 && ` · ${status.pending_total} 条待处理`}
+          {status.active_thinkers}/{status.thinkers_total} 个思考者活跃
           {status.thinkers_disabled > 0 && ` · ${status.thinkers_disabled} 个已停用`}
         </span>
         <div className="ml-auto">
@@ -358,7 +346,6 @@ function StatusPanel({ identityId }: { identityId: string }) {
                 <TableHead>思考者</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead>订阅类型</TableHead>
-                <TableHead>排队</TableHead>
                 <TableHead>日志</TableHead>
                 <TableHead>版本</TableHead>
                 <TableHead className="text-right">操作</TableHead>
@@ -463,14 +450,14 @@ function LogView({
   return (
     <div>
       <div className="mb-1.5 flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
-        <span>{kb(log.total_bytes)} total</span>
+        <span>{formatBytes(log.total_bytes)} total</span>
         {log.truncated && (
           <button
             type="button"
             onClick={() => setTailBytes((n) => n * 4)}
             className="hover:underline"
           >
-            showing last {kb(tailBytes)} — load more
+            showing last {formatBytes(tailBytes)} — load more
           </button>
         )}
       </div>
@@ -555,15 +542,30 @@ export default function ThinkersPage() {
   const { data: status } = useQuery({
     queryKey: ["status", identityId],
     queryFn: () => fetchIdentityStatus(identityId),
-    refetchInterval: 2000,
+    refetchInterval: STATUS_ACTIVE_POLL_MS,
   });
   const live = status?.live ?? false;
 
-  const { data: logs, isLoading } = useQuery({
+  const {
+    data: logs,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["logs", identityId],
     queryFn: () => fetchLogs(identityId),
     refetchInterval: pollWhileLive(live),
   });
+
+  if (isError) {
+    return (
+      <div className="mx-auto w-full max-w-7xl">
+        <IdentityTabs identityId={identityId} live={live} active="thinkers" />
+        <QueryErrorBanner error={error} onRetry={() => void refetch()} />
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -578,7 +580,7 @@ export default function ThinkersPage() {
     .filter((name) => name !== "dispatcher.log");
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4">
+    <div className="mx-auto w-full max-w-7xl">
       <IdentityTabs identityId={identityId} live={live} active="thinkers" />
       <StatusPanel identityId={identityId} />
       {!logs || logs.length === 0 ? (

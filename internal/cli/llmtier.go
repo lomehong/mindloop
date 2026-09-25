@@ -16,6 +16,10 @@ import (
 // MINDLOOP_REQUEST_MODEL 未设、与思考档同名、或构造失败（如缺
 // key）时原样返回思考档——分层永远只是优化，不能变成新的故障面。
 // dir 是用量台账的落盘目录；logf 是构建期警告通道（可为 nil）。
+//
+// 返回的就是 *llm.Client 本体，无包装层：Complete/CompleteStream
+// 与 OnDone 观测（CompleteStream 结束时同样回调，用量台账对两档、
+// 两种调用形态口径一致）对思考档/请求档天然同权透传。
 func requestTierClient(think *llm.Client, dir string, logf func(format string, args ...any)) *llm.Client {
 	name := strings.TrimSpace(os.Getenv("MINDLOOP_REQUEST_MODEL"))
 	if name == "" || name == think.Model {

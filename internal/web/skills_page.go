@@ -70,7 +70,10 @@ func (s *Server) handleSkillsInstall(w http.ResponseWriter, r *http.Request, id 
 		writeError(w, 400, "缺少安装源（本地目录或 owner/repo）")
 		return
 	}
-	names, err := skills.Install(identitySkillsDir(id), req.Source)
+	// Install 自 task-11 起接收 ctx（git clone 走 CommandContext +
+	// 超时）——请求 ctx 在 handler 返回时被取消，安装是同步完成
+	// 的，语义正好。
+	names, err := skills.Install(r.Context(), identitySkillsDir(id), req.Source)
 	if err != nil {
 		writeError(w, 400, err.Error())
 		return

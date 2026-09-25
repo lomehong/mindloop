@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -19,7 +20,7 @@ func (c *CLI) resolveMemStore(name string) (mem.Store, error) {
 	if err != nil {
 		return mem.Store{}, err
 	}
-	return mem.Store{Dir: id.Dir + "/memories"}, nil
+	return mem.Store{Dir: filepath.Join(id.Dir, "memories")}, nil
 }
 
 func (c *CLI) newMemCmd() *cobra.Command {
@@ -81,9 +82,13 @@ func (c *CLI) newMemListCmd() *cobra.Command {
 			if err != nil {
 				return c.fail(err)
 			}
-			all, err := store.List()
+			all, bad, err := store.ListDetailed()
 			if err != nil {
 				return c.fail(err)
+			}
+			// 坏记忆文件喊出来——静默跳过会让记忆"悄悄变少"。
+			for _, e := range bad {
+				fmt.Fprintf(c.stderr, "⚠ %v\n", e)
 			}
 			if n > 0 && len(all) > n {
 				all = all[:n]

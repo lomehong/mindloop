@@ -11,7 +11,6 @@ package identity
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,19 +31,57 @@ type Identity struct {
 // Home 返回身份的存放根：<home>/identities。
 func Home() string { return filepath.Join(traj.Home(), "identities") }
 
+// validateName 在 Slugify 之后做安全校验，Create/Load/Remove 共用：
+//   - 空名拒绝；
+//   - 纯点号名（"."、".."、"..."）拒绝——Slugify 会原样保留它们，
+//     而 Win32 路径归一会把尾点形态折叠成 "."/".."，Join 之后解析到
+//     身份根本身或其父目录，曾使 `identity create ..` 走进"清理残骸"
+//     分支删除整个心智根——评级最高的删库级缺陷；
+//   - 以点结尾的名字（"ada."）拒绝——同一条 Win32 归一规则会让
+//     两个名字落到同一目录，身份元数据与目录名失配。
+func validateName(name string) (string, error) {
+	name = traj.Slugify(name, 40)
+	if name == "" {
+		return "", fmt.Errorf("identity: 名字为空")
+	}
+	if strings.Trim(name, ".") == "" || strings.HasSuffix(name, ".") {
+		return "", fmt.Errorf("identity: 非法身份名 %q（不允许纯点号或以点结尾）", name)
+	}
+	return name, nil
+}
+
+// withinDir 报告 dir 是否严格位于 base 之内。破坏性操作（残骸清理
+// 的 RemoveAll）必须以此兜底——名字校验是第一道防线，这是第二道。
+func withinDir(base, dir string) bool {
+	rel, err := filepath.Rel(base, dir)
+	if err != nil {
+		return false
+	}
+	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
 // Create 新建身份；已存在时幂等返回现有身份（对使用方来说，
 // "create ada" 两次的结果都应该是"ada 可用"）。
 func Create(ctx context.Context, name string) (*Identity, error) {
-	name = traj.Slugify(name, 40)
-	if name == "" {
-		return nil, fmt.Errorf("identity: 名字为空")
+	name, err := validateName(name)
+	if err != nil {
+		return nil, err
 	}
-	dir := filepath.Join(Home(), name)
+	home := Home()
+	dir := filepath.Join(home, name)
+	if !withinDir(home, dir) {
+		return nil, fmt.Errorf("identity: 非法身份名 %q", name)
+	}
 	if _, err := os.Stat(filepath.Join(dir, "identity.txt")); err == nil {
 		return Load(name)
 	}
 	if _, err := os.Stat(dir); err == nil {
-		// 目录在但元数据缺失（半次创建的残骸）：清掉重来。
+		// 目录在但元数据缺失（半次创建的残骸）：清掉重来。仅在
+		// 目录严格位于身份根之内时才允许删除——心智根（含 .env）
+		// 永远不被触碰。
+		if !withinDir(home, dir) {
+			return nil, fmt.Errorf("identity: 拒绝清理身份根之外的目录 %s", dir)
+		}
 		if err := os.RemoveAll(dir); err != nil {
 			return nil, fmt.Errorf("identity: 清理残骸: %w", err)
 		}
@@ -69,7 +106,10 @@ func Create(ctx context.Context, name string) (*Identity, error) {
 
 // Load 按名字加载身份。名字只经 identities/ 目录解析，不是路径。
 func Load(name string) (*Identity, error) {
-	name = traj.Slugify(name, 40)
+	name, err := validateName(name)
+	if err != nil {
+		return nil, err
+	}
 	metaPath := filepath.Join(Home(), name, "identity.txt")
 	data, err := os.ReadFile(metaPath)
 	if err != nil {
@@ -110,13 +150,18 @@ func List() ([]string, error) {
 }
 
 // Remove 删除身份目录（轨迹 + 记忆 + 元数据）。心智根（~/.mindloop
-// 含 .env 配置）**永远不被触碰**——这条不变量是事故教训写下的。
+// 含 .env 配置）**永远不被触碰**——这条不变量是事故教训写下的，
+// validateName（拒绝 ./.. 形态）与 withinDir（包含检查）双重保障。
 func Remove(name string) error {
-	name = traj.Slugify(name, 40)
-	if name == "" {
-		return errors.New("identity: 名字为空")
+	name, err := validateName(name)
+	if err != nil {
+		return err
 	}
-	dir := filepath.Join(Home(), name)
+	home := Home()
+	dir := filepath.Join(home, name)
+	if !withinDir(home, dir) {
+		return fmt.Errorf("identity: 非法身份名 %q", name)
+	}
 	if _, err := os.Stat(filepath.Join(dir, "identity.txt")); err != nil {
 		return ErrNotFound
 	}

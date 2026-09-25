@@ -81,14 +81,17 @@ func parseValue(v string) any {
 }
 
 // printJSONL 把步骤写为一行紧凑 JSON（不转义 HTML，URL 可读）。
-func printJSONL(w io.Writer, s traj.Step) {
+// 编码/写出失败会返回而不是静默丢步骤——stdout 断管时调用方
+// 有机会报错退出。
+func printJSONL(w io.Writer, s traj.Step) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(s); err != nil {
-		return
+		return err
 	}
-	w.Write(buf.Bytes()) // Encode 自带换行
+	_, err := w.Write(buf.Bytes()) // Encode 自带换行
+	return err
 }
 
 // printPretty 输出人类可读的步骤摘要；full 时不截断字段值。
@@ -124,7 +127,11 @@ func readInput(path string) ([]byte, error) {
 func (c *CLI) loadIdentity(name string) (*identity.Identity, error) {
 	id, err := identity.Load(name)
 	if err != nil {
-		names, _ := identity.List()
+		names, lerr := identity.List()
+		if lerr != nil {
+			// 列表本身读不出来——别把 IO 故障伪装成"不存在"。
+			return nil, fmt.Errorf("身份 %q 不存在（另外读取身份列表也失败: %v）", name, lerr)
+		}
 		if len(names) > 0 {
 			return nil, fmt.Errorf("身份 %q 不存在。可用: %s", name, strings.Join(names, ", "))
 		}

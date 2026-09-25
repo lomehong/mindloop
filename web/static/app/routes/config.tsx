@@ -6,6 +6,8 @@ import { toast } from "sonner";
 
 import { IdentityTabs } from "~/components/identity-tabs";
 import { ModelConfigSection } from "~/components/model-config";
+import { QueryErrorBanner } from "~/components/query-error-banner";
+import { ConfirmDialog } from "~/components/confirm-dialog";
 import { useControlsEnabled } from "~/components/thinker-controls";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -36,6 +38,11 @@ import {
   startExportJob,
 } from "~/lib/api";
 import type { EnvEntry } from "~/lib/types";
+import { formatBytes, formatRelativeTime } from "~/lib/format";
+import {
+  JOB_PROGRESS_POLL_MS,
+  STATUS_BACKGROUND_POLL_MS,
+} from "~/lib/polling";
 
 export function meta() {
   return [{ title: "mindloop · 配置" }];
@@ -87,6 +94,7 @@ function EnvRow({
   const { save, remove } = useEnvMutations(identityId);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   return (
     <TableRow>
@@ -135,6 +143,7 @@ function EnvRow({
               variant="ghost"
               size="icon-sm"
               title={`编辑 ${entry.key}`}
+              aria-label={`编辑 ${entry.key}`}
               onClick={() => {
                 setDraft(entry.secret ? "" : entry.value);
                 setEditing(true);
@@ -146,14 +155,21 @@ function EnvRow({
               variant="ghost"
               size="icon-sm"
               title={`移除 ${entry.key}`}
+              aria-label={`移除 ${entry.key}`}
               disabled={remove.isPending}
-              onClick={() => {
-                if (window.confirm(`从该身份的 .env 移除 ${entry.key}？`))
-                  remove.mutate(entry.key);
-              }}
+              onClick={() => setConfirmRemove(true)}
             >
               <Trash2 className="size-3" />
             </Button>
+            <ConfirmDialog
+              open={confirmRemove}
+              onOpenChange={setConfirmRemove}
+              tone="danger"
+              title={`移除 ${entry.key}？`}
+              description="将从该身份的 .env 中删除此变量。"
+              confirmText="移除"
+              onConfirm={() => remove.mutate(entry.key)}
+            />
           </div>
         )}
       </TableCell>
@@ -214,14 +230,6 @@ function AddVarForm({
   );
 }
 
-function formatAgo(iso: string): string {
-  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return "刚刚";
-  if (s < 3600) return `${Math.round(s / 60)} 分钟前`;
-  if (s < 86400) return `${Math.round(s / 3600)} 小时前`;
-  return `${Math.round(s / 86400)} 天前`;
-}
-
 function formatWhen(iso: string): string {
   const when = new Date(iso).toLocaleString(undefined, {
     month: "short",
@@ -229,12 +237,7 @@ function formatWhen(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
-  return `${when} (${formatAgo(iso)})`;
-}
-
-function formatBytes(n: number): string {
-  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${when} (${formatRelativeTime(iso)})`;
 }
 
 function ExportSection({ identityId }: { identityId: string }) {
@@ -252,7 +255,9 @@ function ExportSection({ identityId }: { identityId: string }) {
     queryKey: ["export-jobs", identityId],
     queryFn: () => fetchExportJobs(identityId),
     refetchInterval: (q) =>
-      q.state.data?.some((j) => j.status === "running") ? 1500 : false,
+      q.state.data?.some((j) => j.status === "running")
+        ? JOB_PROGRESS_POLL_MS
+        : false,
   });
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ["export-jobs", identityId] });
@@ -399,13 +404,28 @@ export default function ConfigPage() {
   const { data: status } = useQuery({
     queryKey: ["status", identityId],
     queryFn: () => fetchIdentityStatus(identityId),
-    refetchInterval: 5000,
+    refetchInterval: STATUS_BACKGROUND_POLL_MS,
   });
 
-  const { data: env, isLoading } = useQuery({
+  const {
+    data: env,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["env", identityId],
     queryFn: () => fetchIdentityEnv(identityId),
   });
+
+  if (isError) {
+    return (
+      <div className="mx-auto w-full max-w-7xl">
+        <IdentityTabs identityId={identityId} live={false} active="config" />
+        <QueryErrorBanner error={error} onRetry={() => void refetch()} />
+      </div>
+    );
+  }
 
   if (isLoading || !env) {
     return (
@@ -416,7 +436,7 @@ export default function ConfigPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4">
+    <div className="mx-auto w-full max-w-7xl">
       <IdentityTabs
         identityId={identityId}
         live={status?.live ?? false}

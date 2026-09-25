@@ -10,11 +10,59 @@ import (
 	"time"
 )
 
-// requireBash 在没有 bash 的环境跳过（CI 与开发机都有 Git Bash）。
+// requireBash 在没有【可用】bash 的环境干净跳过（CI 与开发机都有
+// Git Bash）。BashPath 内部做真实执行探测（bash -c true），所以这
+// 里天然是能力语义：PATH 里的 WSL 存根不会被当成可用 bash——存根
+// 会 LookPath 命中却执行不了任何脚本。
 func requireBash(t *testing.T) {
 	t.Helper()
 	if _, err := BashPath(); err != nil {
 		t.Skipf("跳过： %v", err)
+	}
+}
+
+// TestBashPathReturnsWorkingBash 钉死 BashPath 的能力语义：返回的
+// 路径必须真的能执行脚本，且绝不是 system32 的 WSL 存根。修复前本
+// 仓库开发机上它返回的是 WSL 存根——PATH 命中即短路，fallback 永远
+// 轮不到，整条执行链静默失效（每次唤醒双倍 LLM 调用）。
+func TestBashPathReturnsWorkingBash(t *testing.T) {
+	p, err := BashPath()
+	if err != nil {
+		t.Skipf("跳过： %v", err)
+	}
+	if isWSLStub(p) {
+		t.Fatalf("BashPath 返回了 system32 的 WSL 存根: %s", p)
+	}
+	if !bashWorks(p) {
+		t.Fatalf("BashPath 返回的 bash 探测失败: %s", p)
+	}
+}
+
+// TestRunScrubsSensitiveEnv：沙箱子进程环境不得携带模型 key 与 web
+// token——脚本一行 env 就能把密钥倒带出机器（密钥暴露缺陷：模型
+// 生成的脚本原本可见全部进程环境）；非敏感变量必须照常透传。
+func TestRunScrubsSensitiveEnv(t *testing.T) {
+	requireBash(t)
+	dir := newWorkDir(t)
+	t.Setenv("MINDLOOP_API_KEY", "sk-mindloop-secret")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-anthropic-secret")
+	t.Setenv("ACME_API_KEY", "sk-acme-secret")
+	t.Setenv("MINDLOOP_WEB_TOKEN", "web-token-secret")
+	t.Setenv("MINDLOOP_KEEPME", "keepme-ok")
+	res, err := Run(context.Background(), Request{
+		Dir:    dir,
+		Script: `echo "ml=[$MINDLOOP_API_KEY] an=[$ANTHROPIC_API_KEY] ac=[$ACME_API_KEY] web=[$MINDLOOP_WEB_TOKEN] keep=[$MINDLOOP_KEEPME]"`,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	for _, banned := range []string{"sk-mindloop-secret", "sk-anthropic-secret", "sk-acme-secret", "web-token-secret"} {
+		if strings.Contains(res.Stdout, banned) {
+			t.Fatalf("敏感值 %q 泄漏进沙箱环境: %q", banned, res.Stdout)
+		}
+	}
+	if !strings.Contains(res.Stdout, "keep=[keepme-ok]") {
+		t.Fatalf("非敏感变量被误删: %q", res.Stdout)
 	}
 }
 

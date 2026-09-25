@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
@@ -138,12 +139,40 @@ func fromEnv(model string) (*Client, error) {
 	}
 }
 
+// reasoningModelPrefixes 是内置思考型模型前缀名单。它是包级变量
+// 而非常量：MINDLOOP_REASONING_MODELS 追加的条目在运行期并入，
+// 新模型上市不必等发版。
+var reasoningModelPrefixes = []string{
+	"glm-5", "glm-4.5", "deepseek-r", "o1", "o3", "o4", "qwq", "thinking",
+}
+
+// ReasoningModelEnvVar 追加思考型模型前缀（逗号分隔，大小写不敏感）。
+// 只追加不替换内置名单；空段与空白值忽略。运行期每次调用读取——
+// 改环境变量不需要重启长驻进程的心智也能生效。
+const ReasoningModelEnvVar = "MINDLOOP_REASONING_MODELS"
+
+// extraReasoningPrefixes 读环境变量追加的思考型前缀。
+func extraReasoningPrefixes() []string {
+	raw := os.Getenv(ReasoningModelEnvVar)
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if p := strings.ToLower(strings.TrimSpace(part)); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // isReasoningModel 报告模型的思考 token 是否计入输出预算。
 // 手维护的名单会老化——所以它只决定预算默认值，MINDLOOP_MAX_TOKENS
-// 是永久的逃逸口。
+// 是永久的逃逸口；内置名单之外的新模型可用 MINDLOOP_REASONING_MODELS
+// 追加前缀（见 ReasoningModelEnvVar）。
 func isReasoningModel(model string) bool {
 	m := strings.ToLower(model)
-	for _, prefix := range []string{"glm-5", "glm-4.5", "deepseek-r", "o1", "o3", "o4", "qwq", "thinking"} {
+	for _, prefix := range append(extraReasoningPrefixes(), reasoningModelPrefixes...) {
 		if strings.HasPrefix(m, prefix) || strings.Contains(m, "-thinking") {
 			return true
 		}
@@ -193,19 +222,25 @@ const echoResponse = "```bash\n" +
 	"FINAL=\"echo ok\"\n" +
 	"```"
 
+// maxBackoff 封顶单次重试等待：供应商给出的 Retry-After 再大也不
+// 等超过它（调用方还有 ctx 可随时取消）。
+const maxBackoff = 60 * time.Second
+
 func (c *Client) do(ctx context.Context, method, url string, headers map[string]string, body any, extract func([]byte) (string, Usage, error)) (string, Usage, error) {
 	var lastErr error
 	var lastUsage Usage
+	var retryAfter time.Duration
 	for attempt := 0; attempt <= c.MaxRetries; attempt++ {
 		if attempt > 0 && c.Backoff > 0 {
 			select {
 			case <-ctx.Done():
 				return "", lastUsage, ctx.Err()
-			case <-time.After(c.Backoff * time.Duration(attempt)):
+			case <-time.After(backoffDelay(c.Backoff, attempt, retryAfter)):
 			}
 		}
-		text, usage, retryable, err := c.attempt(ctx, method, url, headers, body, extract)
+		text, usage, retryable, suggested, err := c.attempt(ctx, method, url, headers, body, extract)
 		lastUsage = usage
+		retryAfter = suggested
 		if err == nil {
 			return text, usage, nil
 		}
@@ -217,15 +252,33 @@ func (c *Client) do(ctx context.Context, method, url string, headers map[string]
 	return "", lastUsage, fmt.Errorf("llm: 重试 %d 次后仍失败: %w", c.MaxRetries, lastErr)
 }
 
-// attempt 返回 (文本, 用量, 是否可重试, 错误)。
-func (c *Client) attempt(ctx context.Context, method, url string, headers map[string]string, body any, extract func([]byte) (string, Usage, error)) (string, Usage, bool, error) {
+// backoffDelay 计算第 attempt 次重试前的等待：线性退避叠加 ±20%
+// 抖动（让并发的多个思考者不同拍重试），与服务器经 Retry-After
+// 给出的建议取较大者，再封顶 maxBackoff。
+func backoffDelay(base time.Duration, attempt int, retryAfter time.Duration) time.Duration {
+	delay := base * time.Duration(attempt)
+	if retryAfter > delay {
+		delay = retryAfter
+	}
+	if delay > maxBackoff {
+		delay = maxBackoff
+	}
+	jittered := time.Duration(float64(delay) * (0.8 + 0.4*rand.Float64()))
+	if jittered < 0 {
+		jittered = delay
+	}
+	return jittered
+}
+
+// attempt 返回 (文本, 用量, 是否可重试, 建议等待, 错误)。
+func (c *Client) attempt(ctx context.Context, method, url string, headers map[string]string, body any, extract func([]byte) (string, Usage, error)) (string, Usage, bool, time.Duration, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return "", Usage{}, false, fmt.Errorf("llm: 序列化请求: %w", err)
+		return "", Usage{}, false, 0, fmt.Errorf("llm: 序列化请求: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
-		return "", Usage{}, false, fmt.Errorf("llm: 构造请求: %w", err)
+		return "", Usage{}, false, 0, fmt.Errorf("llm: 构造请求: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range headers {
@@ -233,25 +286,43 @@ func (c *Client) attempt(ctx context.Context, method, url string, headers map[st
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return "", Usage{}, true, fmt.Errorf("llm: 网络错误: %w", err)
+		return "", Usage{}, true, 0, fmt.Errorf("llm: 网络错误: %w", err)
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if err != nil {
-		return "", Usage{}, true, fmt.Errorf("llm: 读取响应: %w", err)
+		return "", Usage{}, true, 0, fmt.Errorf("llm: 读取响应: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		snippet := snippet(data)
 		retryable := resp.StatusCode == http.StatusRequestTimeout ||
 			resp.StatusCode == http.StatusTooManyRequests ||
 			resp.StatusCode >= 500
-		return "", Usage{}, retryable, fmt.Errorf("llm: HTTP %d: %s", resp.StatusCode, snippet)
+		return "", Usage{}, retryable, parseRetryAfter(resp.Header.Get("Retry-After")),
+			fmt.Errorf("llm: HTTP %d: %s", resp.StatusCode, snippet)
 	}
 	text, usage, err := extract(data)
 	if err != nil {
-		return "", usage, false, err
+		return "", usage, false, 0, err
 	}
-	return text, usage, false, nil
+	return text, usage, false, 0, nil
+}
+
+// parseRetryAfter 解析 Retry-After 头（秒数形态；HTTP 日期形态与
+// 非法值一律忽略——它只是退避建议，不是协议义务）。
+func parseRetryAfter(v string) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if n, err := strconv.Atoi(v); err == nil && n > 0 {
+		d := time.Duration(n) * time.Second
+		if d > maxBackoff {
+			return maxBackoff
+		}
+		return d
+	}
+	return 0
 }
 
 // parseUsage 统一两家供应商的 usage 字段名。
@@ -275,10 +346,13 @@ func parseUsage(data []byte) Usage {
 	return u
 }
 
+// snippet 截断响应体前若干字符用于错误诊断。按 rune 截断——诊断
+// 信息里出现半个多字节字符比省略号更糟。
 func snippet(b []byte) string {
 	s := strings.TrimSpace(string(b))
-	if len(s) > 300 {
-		s = s[:300] + "…"
+	r := []rune(s)
+	if len(r) > 300 {
+		return string(r[:300]) + "…"
 	}
 	return s
 }

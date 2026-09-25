@@ -68,7 +68,15 @@ func SetThinkerEnabled(tlDir, thinker string, enabled bool) error {
 		_ = os.Remove(disabledPath(tlDir))
 		return nil
 	}
-	return os.WriteFile(disabledPath(tlDir), []byte(strings.Join(next, "\n")+"\n"), 0o644)
+	// tmp + 原子改名：就地截断重写会让并发读者读到半行名单（调度器
+	// 每个心跳都读），两个并发写请求的中间态也会互相可见——曾经
+	// 因此出现"禁用名单短暂不完整"的投影抖动。pid 后缀让多个
+	// web/CLI 进程互不踩临时文件。
+	tmp := fmt.Sprintf("%s.%d.tmp", disabledPath(tlDir), os.Getpid())
+	if err := os.WriteFile(tmp, []byte(strings.Join(next, "\n")+"\n"), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, disabledPath(tlDir))
 }
 
 // SignalWake 写入手动唤醒信号文件（调度器下个心跳消费并删除）。

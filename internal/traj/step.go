@@ -21,12 +21,31 @@ import (
 // Headlong 的日志曾混用过时区偏移，导致排序出现 8 小时的幻影间隔。
 const TimeFormat = "2006-01-02T15:04:05.000Z07:00"
 
+// StepType 常量是全仓库共享的步骤类型词表：生产者（runner/mind/cli）
+// 与消费者（prompt/recap/web）引用同一组名字，避免字面量漂移。mind
+// 与 web 包的历史字面量沿用不强制替换，但新代码一律用常量。
+const (
+	TypeTrajectory  = "trajectory"   // 轨迹头（第一行，id 即轨迹 id）
+	TypeRun         = "run"          // 运行头（step_id 即 run_id）
+	TypePrompt      = "prompt"       // 运行任务的原文步骤
+	TypeMessage     = "message"      // 对话消息（人/外部 → 心智）
+	TypeThought     = "thought"      // 旧版思考步骤（兼容读取）
+	TypeReasoning   = "reasoning"    // 模型原始回复
+	TypeAction      = "action"       // 心智的行动结论
+	TypeObservation = "observation"  // 外部产物/执行观察
+	TypeShellOutput = "shell-output" // 沙箱执行输出
+	TypeFinal       = "final"        // 运行完成答案
+	TypeError       = "error"        // 终局错误审计
+	TypeMerge       = "merge"        // 子轨迹合并章
+	TypeFork        = "fork"         // 分叉章
+)
+
 // reservedTypes 是结构性步骤类型，它们永远不会从环境继承 run id
 // （与 Headlong 的 trajectory / shellm-run 规则相同，防止嵌套运行
 // 被打上启动者的簿记标记）。
 var reservedTypes = map[string]bool{
-	"trajectory": true,
-	"run":        true,
+	TypeTrajectory: true,
+	TypeRun:        true,
 }
 
 // IsReservedType 报告 typ 是否为结构性步骤类型。
