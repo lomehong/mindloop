@@ -66,6 +66,12 @@ monolith 负责自主行动；闲置时指数回退（每级驻留 --idle-hold �
 			// 请求档（MINDLOOP_REQUEST_MODEL，未设则与思考档同一）。
 			requestClient := requestTierClient(client, id.Dir, c.mindLog)
 
+			// 扩展能力面：技能库 + MCP 服务器（配置坏则降级为警告）。
+			skillsDirs, mcpServers, extraEnv, extErr := identityExtension(id)
+			if extErr != nil {
+				c.mindLog("身份扩展面加载失败: %v", extErr)
+			}
+
 			policy := mind.BackoffPolicy{Base: idleBaseP, Max: idleMaxP, ThoughtCap: thoughtCapP, Hold: idleHoldP}
 			dispatcher := mind.NewDispatcher(id.Timeline, pollP)
 			dispatcher.SetLogger(c.mindLog)
@@ -83,6 +89,9 @@ monolith 负责自主行动；闲置时指数回退（每级驻留 --idle-hold �
 				Persona:        persona,
 				MemDir:         id.Dir + "/memories",
 				EnableRecap:    true,
+				SkillsDirs:     skillsDirs,
+				MCPServers:     mcpServers,
+				ExtraEnv:       extraEnv,
 				SetLogger:      c.mindLog,
 			}))
 			dispatcher.Register(mind.NewResponder(mind.ResponderOptions{

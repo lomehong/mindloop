@@ -10,6 +10,7 @@ import (
 	"mindloop/internal/mem"
 	"mindloop/internal/recap"
 	"mindloop/internal/runner"
+	"mindloop/internal/skills"
 	"mindloop/internal/traj"
 )
 
@@ -61,6 +62,18 @@ type MonolithOptions struct {
 	// 日的模型开销降 70-80%。用量台账按客户端记录模型名，两档
 	// 在 llm-usage.jsonl 里天然可区分。
 	RequestThinker runner.Thinker
+	// SkillsDirs 是 Agent Skills 技能库的两层目录（身份级在前、
+	// 全局在后，前者遮蔽后者同名）。索引进系统提示（渐进披露的
+	// 第一层），正文由模型经 SKILLS_DIR 按需读取。
+	SkillsDirs []string
+	// MCPServers 是已配置的 MCP 服务器名清单——只进名字（渐进
+	// 披露），工具清单由模型经 $MINDLOOP_EXE mcp tools/call 按需
+	// 探索，避免大而全的工具表把上下文撑爆。
+	MCPServers []string
+	// ExtraEnv 追加给沙箱进程的环境变量（SKILLS_DIR、
+	// MINDLOOP_IDENTITY_DIR 等）——agent 在 bash 里用同一套 CLI
+	// 探索技能与 MCP 工具。
+	ExtraEnv []string
 	// SetLogger 注入日志回调（recap 进度）。
 	SetLogger func(format string, args ...any)
 }
@@ -145,6 +158,7 @@ func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
 		Timeout:        m.opts.Timeout,
 		IdleTimeout:    m.opts.IdleTimeout,
 		MaxOutputBytes: m.opts.MaxOutputBytes,
+		ExtraEnv:       m.opts.ExtraEnv,
 	})
 
 	class, summary := m.classify(ctx, res, err)
@@ -180,13 +194,34 @@ func (m *monolith) classify(ctx context.Context, res runner.Result, err error) (
 	return ClassWork, fmt.Sprintf("完成一步（%d 轮）: %s", res.Iterations, traj.OneLine(final, 80))
 }
 
-// systemPrompt 组装人格与循环协议。人格在前——它是"你是谁"，
-// 协议是"你怎么做"。
+// systemPrompt 组装人格、循环协议与扩展能力段（技能索引 + MCP
+// 服务器清单——渐进披露：只进"有什么、怎么探索"，不进正文或
+// 工具全表）。人格在前——它是"你是谁"，协议是"你怎么做"。
 func (m *monolith) systemPrompt() string {
-	if m.opts.Persona == "" {
-		return MonolithSystemPrompt
+	base := MonolithSystemPrompt
+	if m.opts.Persona != "" {
+		base = m.opts.Persona + "\n\n---\n\n" + MonolithSystemPrompt
 	}
-	return m.opts.Persona + "\n\n---\n\n" + MonolithSystemPrompt
+	if s := (skills.Store{Dirs: m.opts.SkillsDirs}).PromptSection(); s != "" {
+		base += "\n\n" + s
+	}
+	if len(m.opts.MCPServers) > 0 {
+		base += "\n\n" + mcpSection(m.opts.MCPServers)
+	}
+	return base
+}
+
+// mcpSection 渲染 MCP 工具面的提示段：服务器名 + 探索用法。
+// 工具全表不进提示——agent 用 CLI 按需发现，上下文预算留给任务。
+func mcpSection(servers []string) string {
+	var b strings.Builder
+	b.WriteString("## MCP tools\n\n")
+	b.WriteString("MCP (Model Context Protocol) servers are configured for this identity. ")
+	b.WriteString("Their tools are plain CLI calls:\n\n")
+	b.WriteString("  \"$MINDLOOP_EXE\" mcp tools <server>              # discover tools + input schemas\n")
+	b.WriteString("  \"$MINDLOOP_EXE\" mcp call <server> <tool> '<json-args>'\n\n")
+	b.WriteString("Configured servers: " + strings.Join(servers, ", ") + "\n")
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // wakeTask 构造唤醒任务：唤醒原因 + 人生分集（粗层，recap 缓存）

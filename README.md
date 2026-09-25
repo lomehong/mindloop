@@ -27,6 +27,10 @@ internal/sandbox/      Job Object 沙箱：整树管辖、三类超时、FINAL �
 internal/prompt/       上下文渲染器：轨迹 → LLM 消息序列
 internal/recap/        分层上下文：情节摘要缓存 + 人生分集渲染
 internal/mem/          记忆库：markdown + frontmatter、BM25 检索
+internal/skills/       Agent Skills 开放标准（SKILL.md）：解析、
+                       两层发现、系统提示索引段
+internal/mcp/          MCP（Model Context Protocol）标准客户端：
+                       mcpServers 配置 + stdio JSON-RPC
 internal/obs/          观测面落盘：用量台账（llm-usage.jsonl）、健康标记
 internal/config/       持久配置：MINDLOOP_HOME/.env 读取
 internal/traj/         日志层：追加式 JSONL 轨迹、目录锁、cursor、查询
@@ -164,6 +168,19 @@ mindloop mem forget --identity ada <记忆id>
 
 mindloop tailf <id>                            # 实时跟踪
 
+# 技能库：Agent Skills 开放标准（SKILL.md，agentskills.io）。
+# 索引进系统提示（渐进披露），正文由 agent 按需 cat 读取：
+mindloop skills init code-review --identity ada    # 脚手架新技能
+mindloop skills install owner/skills --identity ada # 从 GitHub 安装
+mindloop skills list --identity ada                # 身份级遮蔽全局
+
+# MCP：Model Context Protocol 标准客户端（JSON-RPC over stdio）。
+# 配置 mcp.json 与 Claude Desktop / Cursor 互通（mcpServers 形态），
+# agent 在沙箱里经 "$MINDLOOP_EXE" mcp ... 探索与调用：
+mindloop mcp add github -- npx -y @modelcontextprotocol/server-github
+mindloop mcp tools github
+mindloop mcp call github get_issue '{"repo":"owner/repo","issue":1}'
+
 # 仪表盘：身份/时间线/思考者控制/记忆/对话/recap/用量/配置
 mindloop web                                   # 默认 http://127.0.0.1:8080
 mindloop web --host 0.0.0.0 --token <秘密>      # 局域网暴露必须配 Token
@@ -219,6 +236,10 @@ openai-compatible（`glm-*` 自动落到智谱端点并套用思考型预算分�
 9. **[x] 仪表盘**——`mindloop web`：身份/时间线/思考者控制/记忆/
    对话/recap/用量/配置 11 个页面，写端点方法路由 + 同源守卫 +
    非回环绑定强制 Token（见 web 包注释）。
+10. **[x] 技能与工具扩展面**——Agent Skills 开放标准（SKILL.md
+   解析校验、身份/全局两层技能库、系统提示渐进披露）+ MCP 标准
+   客户端（mcpServers 配置互通、stdio JSON-RPC、沙箱内经
+   `$MINDLOOP_EXE mcp` 探索与调用）。
 
 ## Windows 说明（踩过的坑，测试钉死）
 
