@@ -173,6 +173,7 @@ mindloop tailf <id>                            # 实时跟踪
 mindloop skills init code-review --identity ada    # 脚手架新技能
 mindloop skills install owner/skills --identity ada # 从 GitHub 安装
 mindloop skills list --identity ada                # 身份级遮蔽全局
+# 仪表盘"技能"页同款能力：列表/安装/删除（web 服务时可用）
 
 # MCP：Model Context Protocol 标准客户端（JSON-RPC over stdio）。
 # 配置 mcp.json 与 Claude Desktop / Cursor 互通（mcpServers 形态），
@@ -180,6 +181,15 @@ mindloop skills list --identity ada                # 身份级遮蔽全局
 mindloop mcp add github -- npx -y @modelcontextprotocol/server-github
 mindloop mcp tools github
 mindloop mcp call github get_issue '{"repo":"owner/repo","issue":1}'
+
+# 反向接入：mindloop 自身暴露为 MCP 服务器——Claude Desktop /
+# Cursor 的 mcpServers 配置本命令，即可直接驱动 ada 的对话/记忆/技能：
+mindloop mcp serve --identity ada    # stdio 传输；客户端 tool 调用 =
+                                    # mind_status/chat_send/chat_history/
+                                    # mindlog_tail/mem_*/skills_list
+
+# MCP 服务器也支持 streamable HTTP 传输（2025-03-26+ 规范）：配置
+# {"url": "https://...", "headers": {"Authorization": "Bearer ..."}} 即可。
 
 # 仪表盘：身份/时间线/思考者控制/记忆/对话/recap/用量/配置
 mindloop web                                   # 默认 http://127.0.0.1:8080
