@@ -186,6 +186,13 @@ func findRunGroup(steps []traj.Step, target *traj.Step) map[string]any {
 				g["started_ts"] = s.TS
 			}
 			g["last_touch"] = i
+			// TLDR 从日志派生：final 正文即模型自己写的运行结论。
+			if s.Type == "final" {
+				if c, ok := s.Field("content"); ok && c != "" {
+					one := traj.OneLine(c, 120)
+					g["tldr"] = &one
+				}
+			}
 			if s.Type == "final" || s.Type == "error" {
 				g["status"] = "done"
 				t := s.TS
@@ -581,7 +588,7 @@ func (s *Server) handleDispatchLog(w http.ResponseWriter, _ *http.Request, id *i
 		return
 	}
 	if events == nil {
-		events = []map[string]any{}
+		events = []mind.DispatchEvent{}
 	}
 	writeJSON(w, 200, events)
 }

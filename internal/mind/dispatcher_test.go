@@ -132,7 +132,9 @@ func TestDispatcherSelfTriggerGuard(t *testing.T) {
 	// a 自己写的 observation 不应唤醒 a，但应唤醒 b。
 	appendStep(t, tl, "observation", "a")
 	waitFor(t, 2*time.Second, func() bool { return b.wakeCount() >= 1 })
-	time.Sleep(100 * time.Millisecond)
+	// 负向断言的观察窗要盖过慢 CI 的调度延迟（10ms 心跳 × 50），
+	// 否则迟到的投递会把"守卫失效"误判出来。
+	time.Sleep(500 * time.Millisecond)
 	if a.wakeCount() != 0 {
 		t.Fatalf("自触发守卫失效：a 收到 %d 次唤醒", a.wakeCount())
 	}
@@ -169,7 +171,7 @@ func TestDispatcherCoalescesSelfWakesKeepsFifoForMessages(t *testing.T) {
 	// 释放后：消息 FIFO 应逐条投递（保序），观察合并为 1 条
 	// last-wins。总计 2 条消息 + 1 条合并观察 = 3 次。
 	waitFor(t, 3*time.Second, func() bool { return tk.wakeCount() >= 3 })
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 	if got := tk.wakeCount(); got != 3 {
 		t.Fatalf("唤醒总数 = %d，应为 3（2 FIFO 消息 + 1 合并观察）", got)
 	}

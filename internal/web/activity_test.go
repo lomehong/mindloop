@@ -272,10 +272,10 @@ func TestHandleSubTrajectory(t *testing.T) {
 	}
 	var got struct {
 		Mindlog struct {
-			TrajID    string           `json:"traj_id"`
-			Steps     []map[string]any `json:"steps"`
-			Identity  map[string]any   `json:"identity"`
-			Runs      []map[string]any `json:"runs"`
+			TrajID   string           `json:"traj_id"`
+			Steps    []map[string]any `json:"steps"`
+			Identity map[string]any   `json:"identity"`
+			Runs     []map[string]any `json:"runs"`
 		} `json:"mindlog"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
@@ -284,5 +284,65 @@ func TestHandleSubTrajectory(t *testing.T) {
 	if got.Mindlog.TrajID != "abc12345" || got.Mindlog.Steps == nil ||
 		got.Mindlog.Identity == nil || got.Mindlog.Runs == nil {
 		t.Fatalf("子轨迹骨架字段缺失: %+v", got.Mindlog)
+	}
+}
+
+// TestMindlogRunTldrDerived：运行组的 tldr 从 final 步骤正文派生
+// （"视图皆派生"——模型自己写的结论就是这轮运行的摘要，不额外
+// 烧一次模型调用）。
+func TestMindlogRunTldrDerived(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MINDLOOP_HOME", dir)
+	home := identity.Home()
+	id, err := identity.Create(context.Background(), "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 组一轮完整的 run：prompt → reasoning → final。
+	header := traj.NewStep("run")
+	if err := id.Timeline.Append(context.Background(), header); err != nil {
+		t.Fatal(err)
+	}
+	rid := header.StepID
+	mk := func(typ, content string) {
+		s := traj.NewStep(typ)
+		s.Fields["run_id"] = rid
+		if content != "" {
+			s.Fields["content"] = content
+		}
+		if err := id.Timeline.Append(context.Background(), s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("prompt", "任务：清点目录")
+	mk("reasoning", "思考过程")
+	mk("final", "统计了 12 个文件，共 3400 行。")
+
+	ts, _ := newTestServer(t, home, "")
+	resp, err := http.Get(ts.URL + "/api/identities/ada/mindlog?tail=10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var got struct {
+		Runs []struct {
+			RunID  string  `json:"run_id"`
+			Tldr   *string `json:"tldr"`
+			Status string  `json:"status"`
+		} `json:"runs"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Runs) != 1 {
+		t.Fatalf("应聚合出 1 个运行组，得到 %d", len(got.Runs))
+	}
+	run := got.Runs[0]
+	if run.RunID != rid || run.Status != "done" {
+		t.Fatalf("运行组错位: %+v", run)
+	}
+	if run.Tldr == nil || *run.Tldr != "统计了 12 个文件，共 3400 行。" {
+		t.Fatalf("tldr 应派生自 final 正文，得到 %v", run.Tldr)
 	}
 }

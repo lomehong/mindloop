@@ -153,6 +153,15 @@ func groupRuns(steps []traj.Step, norm []normalizedStep) []runGroup {
 				g.Command = c
 			}
 		}
+		// TLDR 从日志派生（"视图皆派生"）：final 步骤的正文就是
+		// 模型自己写的"这一觉干了什么"——不需要 run-summary 那样
+		// 为标签额外烧一次模型调用。
+		if s.Type == "final" {
+			if c, ok := s.Field("content"); ok && c != "" {
+				one := traj.OneLine(c, 120)
+				g.Tldr = &one
+			}
+		}
 		if s.Type == "final" || s.Type == "error" {
 			g.Status = "done"
 			e := s.TS
