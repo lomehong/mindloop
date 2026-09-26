@@ -62,7 +62,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 // 每项带 Identity 接口的全部字段（group/dispatcher/thinkers_* 等，
 // home.tsx 渲染表格列时直接读取，缺了就崩进错误边界）。
 func (s *Server) handleIdentities(w http.ResponseWriter, _ *http.Request) {
-	infos, err := scanIdentities(s.cfg.Root)
+	infos, err := s.scanIdentities(s.cfg.Root)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -129,6 +129,10 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 		s.handleStepDetail(w, r, id, rest)
 	case "runs":
 		s.handleRunCommand(w, r, id, rest)
+	case "tasks":
+		s.handleTasks(w, r, id, rest)
+	case "approvals":
+		s.handleApprovals(w, r, id, rest)
 	case "status":
 		s.handleIdentityStatus(w, r, id)
 	case "chat":
@@ -196,6 +200,8 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 		default:
 			s.handleIdentityEnv(w, r, id, rest)
 		}
+	case "llm":
+		s.routeLLM(w, r, id, rest)
 	case "skills":
 		switch r.Method {
 		case http.MethodPost:
@@ -218,6 +224,10 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 		}
 		s.handleLogs(w, r, id, rest)
 	case "traj":
+		if len(rest) >= 2 && rest[1] == "blob" {
+			s.handleTrajectoryBlob(w, r, id, rest)
+			return
+		}
 		s.handleSubTrajectory(w, r, id, rest)
 	default:
 		writeError(w, 404, "未知子路径: "+sub)
@@ -227,6 +237,7 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 // handleIdentityStatus 返回 viewer IdentityStatus 契约：live/pid/
 // mindlog mtime/bytes/step_count。pid 探测经由运行锁存在性近似——
 // 锁目录活着即 pid_alive（精确 pid 由 mind run 写 owner.json 提供）。
+// step_count 来自共享侧索引（读请求先追平）。
 func (s *Server) handleIdentityStatus(w http.ResponseWriter, r *http.Request, id *identity.Identity) {
 	live := isIdentityLive(id.Timeline.Dir)
 	var mtime *string
@@ -236,7 +247,12 @@ func (s *Server) handleIdentityStatus(w http.ResponseWriter, r *http.Request, id
 		b := int(fi.Size())
 		mtime, bytesCount = &t, &b
 	}
-	steps, err := id.Timeline.Steps()
+	ix, err := s.indexes.get(id.Timeline)
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	count, err := ix.StepCount()
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -247,7 +263,7 @@ func (s *Server) handleIdentityStatus(w http.ResponseWriter, r *http.Request, id
 		"dispatcher_pid": nil,
 		"mindlog_mtime":  mtime,
 		"mindlog_bytes":  bytesCount,
-		"step_count":     len(steps),
+		"step_count":     count,
 	})
 }
 
@@ -287,7 +303,7 @@ func isSafeIdentName(name string) bool {
 
 // handleHealth 是整体健康探针：身份数、运行锁、心智活跃数。
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	infos, err := scanIdentities(s.cfg.Root)
+	infos, err := s.scanIdentities(s.cfg.Root)
 	if infos == nil {
 		infos = []IdentityInfo{}
 	}
@@ -313,7 +329,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 func nowISO() string { return traj.NowString() }
 
 // scanIdentities 扫描 root 下的身份目录列表。
-func scanIdentities(root string) ([]IdentityInfo, error) {
+func (s *Server) scanIdentities(root string) ([]IdentityInfo, error) {
 	root = strings.TrimRight(root, string(os.PathSeparator))
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -335,14 +351,15 @@ func scanIdentities(root string) ([]IdentityInfo, error) {
 		if err != nil {
 			continue
 		}
-		out = append(out, summarizeIdentity(id, root))
+		out = append(out, s.summarizeIdentity(id, root))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
 
-// summarizeIdentity 收集 viewer Identity 契约的全部字段。
-func summarizeIdentity(id *identity.Identity, root string) IdentityInfo {
+// summarizeIdentity 收集 viewer Identity 契约的全部字段；步数与
+// thinker 统计取自共享侧索引的投影（去重计数）。
+func (s *Server) summarizeIdentity(id *identity.Identity, root string) IdentityInfo {
 	dir := id.Dir
 	info := IdentityInfo{
 		Dir:     dir,
@@ -357,12 +374,13 @@ func summarizeIdentity(id *identity.Identity, root string) IdentityInfo {
 		t := fi.ModTime().UTC().Format(traj.TimeFormat)
 		info.LastActivityTS = &t
 	}
-	// thinker 统计：从轨迹的 launched_by 字段提炼（去重计数）。
+	// thinker 统计：从侧索引的 launched_by 投影提炼（去重计数）。
+	// 索引出错时保持零值——一个身份读不到不应打挂整个列表。
 	thinkers := map[string]bool{}
-	if steps, err := id.Timeline.Steps(); err == nil {
-		info.StepCount = len(steps)
-		for _, s := range steps {
-			if by, ok := s.Field("launched_by"); ok && by != "" && !thinkers[by] {
+	if ix, err := s.indexes.get(id.Timeline); err == nil {
+		if sum, err := ix.Summary(); err == nil {
+			info.StepCount = sum.StepCount
+			for _, by := range sum.LaunchedBy {
 				thinkers[by] = true
 			}
 		}

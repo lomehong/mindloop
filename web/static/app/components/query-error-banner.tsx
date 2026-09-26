@@ -1,6 +1,7 @@
 import { AlertTriangle, RotateCw } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
+import { AuthError } from "~/lib/api";
 
 /** Inline error state for first-screen queries. Pairs with the global
  * QueryCache toast in root.tsx: the toast is the moment-level signal,
@@ -22,7 +23,9 @@ export function QueryErrorBanner({
       <span>
         加载失败：<span className="font-medium">{message}</span>
         <span className="ml-2 text-muted-foreground">
-          请确认 mindloop web 服务是否在运行。
+          {error instanceof AuthError
+            ? "请通过页面顶部的“访问凭据”更新 Token。"
+            : "请确认 mindloop web 服务是否在运行。"}
         </span>
       </span>
       <div className="ml-auto">

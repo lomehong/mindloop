@@ -65,9 +65,8 @@ func TestDispatcherWorkingProjectionLifecycle(t *testing.T) {
 	waitFor(t, 2*time.Second, func() bool { return readWorking(t, tl.Dir) == nil })
 }
 
-// TestDispatcherWorkingForceReleaseRemovesEntry：期限强制释放是独立
-// 的 busy 释放路径——挂死的 Wake 还没返回，其忙集投影也必须摘除。
-func TestDispatcherWorkingForceReleaseRemovesEntry(t *testing.T) {
+// 未退出的超时执行仍在忙集，并对外暴露隔离诊断。
+func TestDispatcherWorkingQuarantineRetainsEntry(t *testing.T) {
 	d, tl := newTestDispatcher(t)
 	d.WakeTimeout = 60 * time.Millisecond
 	h := &hungThinker{
@@ -77,16 +76,23 @@ func TestDispatcherWorkingForceReleaseRemovesEntry(t *testing.T) {
 	}
 	d.Register(h)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	t.Cleanup(func() { cancel(); close(h.release); d.WaitIdle(time.Second) })
 	go d.Run(ctx)
 
 	appendStep(t, tl, "message", "")
 	waitFor(t, 2*time.Second, func() bool { return h.wakes.Load() >= 1 })
 	waitFor(t, 2*time.Second, func() bool {
-		ws := readWorking(t, tl.Dir)
-		return ws == nil // 强制释放后（Wake 仍挂着）投影应已摘除
+		data, _ := os.ReadFile(workingPath(tl.Dir))
+		var ws struct {
+			Working bool `json:"working"`
+			Busy    []struct {
+				State string `json:"state"`
+			} `json:"busy"`
+		}
+		return json.Unmarshal(data, &ws) == nil && ws.Working && len(ws.Busy) == 1 && ws.Busy[0].State == "quarantined"
 	})
-	close(h.release)
+	h.release <- struct{}{}
+	waitFor(t, 2*time.Second, func() bool { return readWorking(t, tl.Dir) == nil })
 }
 
 // TestDispatcherWorkingWriteFailureTolerated：把 working 路径占位成

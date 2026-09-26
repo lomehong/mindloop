@@ -18,7 +18,16 @@ function step(
   excerpt: string
 ): StepActivity {
   const ts = NOW.toISOString();
-  return { stepId, stepType, ts, excerpt, arrivedAt: NOW.getTime() };
+  return {
+    stepId,
+    stepType,
+    ts,
+    excerpt,
+    taskId: null,
+    runId: null,
+    attempt: null,
+    arrivedAt: NOW.getTime(),
+  };
 }
 
 describe("WorkingCard", () => {

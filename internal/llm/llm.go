@@ -39,6 +39,21 @@ const (
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
+	// Known 报告供应商响应是否真的带了 usage 数据：缺失时 token
+	// 计数保持零值但 Known=false——未知就是未知，不伪装成零成本。
+	Known bool `json:"usage_known"`
+	// LatencyMS 是本次调用（含重试与退避）的墙钟耗时。
+	LatencyMS int64 `json:"latency_ms,omitempty"`
+	// Retries 是本次调用实际重试的次数（首次即成功为 0）。
+	Retries int `json:"retries,omitempty"`
+	// 归因字段：这次调用属于哪个任务/运行/尝试/思考者/阶段，经
+	// ctx（WithAttrib）传播，由 Complete/CompleteStream 收尾合并。
+	Task    string `json:"task,omitempty"`
+	Run     string `json:"run,omitempty"`
+	Attempt int    `json:"attempt,omitempty"`
+	Thinker string `json:"thinker,omitempty"`
+	Wake    string `json:"wake,omitempty"`
+	Phase   string `json:"phase,omitempty"`
 }
 
 // Client 是可并发使用的模型客户端：实例无状态（monolith 与
@@ -56,6 +71,10 @@ type Client struct {
 	// OnDone 在每次 Complete 结束（无论成败）时被调用一次——
 	// CLI 用它接用量台账与健康标记；库自身不做 IO。
 	OnDone func(u Usage, err error)
+	// Gate 是请求前的准入守卫（熔断/每日预算），nil = 不检查。
+	// 装配层（obs.Guard）挂载；每次尝试（含重试）前调用，拒绝时
+	// 请求不发出且错误原样返回。
+	Gate func(ctx context.Context) error
 
 	onDoneMu sync.Mutex
 }
@@ -72,71 +91,30 @@ var ErrNoProvider = errors.New("llm: 缺少模型配置（设置 MINDLOOP_MODEL�
 // 只有 reasoning_content。这里在两层防御：预算分层 + 拆包识别）。
 func FromEnv() (*Client, error) { return fromEnv(os.Getenv("MINDLOOP_MODEL")) }
 
+// FromEnvLookup 是 FromEnv 的可注入查找版本：web 层把"进程环境 +
+// 身份 .env"合成一个 lookup 后调用——配置页探测与 CLI 实际使用走
+// 同一条构造路径，键链（MINDLOOP_* > ANTHROPIC/OPENAI）不会漂移。
+func FromEnvLookup(getenv func(string) string) (*Client, error) {
+	return fromEnvWith(getenv, getenv("MINDLOOP_MODEL"))
+}
+
 // FromEnvModel 用显式模型名构造客户端，其余配置同 FromEnv——
 // 双模型分层的入口：思考档走 MINDLOOP_MODEL，请求档走
 // MINDLOOP_REQUEST_MODEL（按请求档模型名重新推断供应商与预算）。
 func FromEnvModel(model string) (*Client, error) { return fromEnv(model) }
 
-func fromEnv(model string) (*Client, error) {
-	model = strings.TrimSpace(model)
-	provider := strings.TrimSpace(os.Getenv("MINDLOOP_PROVIDER"))
-	if provider == "" {
-		switch {
-		case model == "":
-			return nil, ErrNoProvider
-		case model == "echo":
-			provider = ProviderEcho
-		case strings.HasPrefix(model, "claude"):
-			provider = ProviderAnthropic
-		default:
-			provider = ProviderOpenAICompat
-		}
-	}
-	c := &Client{
-		Provider:   provider,
-		Model:      model,
-		APIKey:     firstNonEmpty(os.Getenv("MINDLOOP_API_KEY"), os.Getenv("ANTHROPIC_API_KEY"), os.Getenv("OPENAI_API_KEY")),
-		BaseURL:    strings.TrimRight(strings.TrimSpace(os.Getenv("MINDLOOP_BASE_URL")), "/"),
-		MaxTokens:  8192,
-		HTTP:       &http.Client{Timeout: 10 * time.Minute},
-		MaxRetries: 3,
-		Backoff:    2 * time.Second,
-	}
-	// 输出预算分层：思考型模型的思考 token 计入 max_tokens，
-	// 小预算会被思考耗尽。显式 MINDLOOP_MAX_TOKENS 永远优先。
-	if v := os.Getenv("MINDLOOP_MAX_TOKENS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			c.MaxTokens = n
-		}
-	} else if isReasoningModel(model) {
-		c.MaxTokens = 32768
-	}
-	switch provider {
-	case ProviderEcho:
-		return c, nil
-	case ProviderAnthropic:
-		if c.BaseURL == "" {
-			c.BaseURL = "https://api.anthropic.com"
-		}
-		if c.APIKey == "" {
-			return nil, fmt.Errorf("%w: anthropic 需要 API key", ErrNoProvider)
-		}
-		return c, nil
-	case ProviderOpenAICompat:
-		switch {
-		case c.BaseURL == "" && strings.HasPrefix(model, "glm-"):
-			// 智谱开放平台的 OpenAI 兼容端点。
-			c.BaseURL = "https://open.bigmodel.cn/api/paas/v4"
-		case c.BaseURL == "":
-			c.BaseURL = "https://api.openai.com/v1"
-		}
-		if c.APIKey == "" {
-			return nil, fmt.Errorf("%w: openai-compatible 需要 API key", ErrNoProvider)
-		}
-		return c, nil
-	default:
-		return nil, fmt.Errorf("%w: 未知供应商 %q", ErrNoProvider, provider)
-	}
+// fromEnv 把环境组装成 Spec 交给 New——本包唯一的"环境读取面"，
+// providers.json 档案路径不经过它。
+func fromEnv(model string) (*Client, error) { return fromEnvWith(os.Getenv, model) }
+
+// fromEnvWith 是 fromEnv 的可注入版本（查找函数由调用方给）。
+func fromEnvWith(getenv func(string) string, model string) (*Client, error) {
+	return New(Spec{
+		Provider: getenv("MINDLOOP_PROVIDER"),
+		BaseURL:  getenv("MINDLOOP_BASE_URL"),
+		APIKey:   firstNonEmpty(getenv("MINDLOOP_API_KEY"), getenv("ANTHROPIC_API_KEY"), getenv("OPENAI_API_KEY")),
+		Model:    model,
+	})
 }
 
 // reasoningModelPrefixes 是内置思考型模型前缀名单。它是包级变量
@@ -195,7 +173,10 @@ func firstNonEmpty(vals ...string) string {
 // 的串报（共享 lastUsage 的真实事故）。
 func (c *Client) Complete(ctx context.Context, system string, msgs []Message) (text string, err error) {
 	var usage Usage
+	start := time.Now()
 	defer func() {
+		usage.LatencyMS = time.Since(start).Milliseconds()
+		usage.applyAttrib(AttribFrom(ctx))
 		if c.OnDone != nil {
 			c.onDoneMu.Lock()
 			c.OnDone(usage, err)
@@ -231,6 +212,17 @@ func (c *Client) do(ctx context.Context, method, url string, headers map[string]
 	var lastUsage Usage
 	var retryAfter time.Duration
 	for attempt := 0; attempt <= c.MaxRetries; attempt++ {
+		// 准入守卫（熔断/每日预算）：拒绝的请求不算一次调用尝试，
+		// 不消耗配额。
+		if c.Gate != nil {
+			if err := c.Gate(ctx); err != nil {
+				return "", lastUsage, err
+			}
+		}
+		// 每次真实尝试（含重试）过账调用配额；耗尽即停，不退避不重试。
+		if err := TakeCall(ctx); err != nil {
+			return "", lastUsage, err
+		}
 		if attempt > 0 && c.Backoff > 0 {
 			select {
 			case <-ctx.Done():
@@ -239,6 +231,7 @@ func (c *Client) do(ctx context.Context, method, url string, headers map[string]
 			}
 		}
 		text, usage, retryable, suggested, err := c.attempt(ctx, method, url, headers, body, extract)
+		usage.Retries = attempt
 		lastUsage = usage
 		retryAfter = suggested
 		if err == nil {
@@ -325,18 +318,21 @@ func parseRetryAfter(v string) time.Duration {
 	return 0
 }
 
-// parseUsage 统一两家供应商的 usage 字段名。
+// parseUsage 统一两家供应商的 usage 字段名。用指针检测"usage 对象
+// 是否存在"：缺失与"已知的零"是两回事，Known 如实转达。
 func parseUsage(data []byte) Usage {
 	var raw struct {
-		Usage struct {
+		Usage *struct {
 			PromptTokens     int `json:"prompt_tokens"`
 			CompletionTokens int `json:"completion_tokens"`
 			InputTokens      int `json:"input_tokens"`
 			OutputTokens     int `json:"output_tokens"`
 		} `json:"usage"`
 	}
-	_ = json.Unmarshal(data, &raw)
-	u := Usage{PromptTokens: raw.Usage.PromptTokens, CompletionTokens: raw.Usage.CompletionTokens}
+	if err := json.Unmarshal(data, &raw); err != nil || raw.Usage == nil {
+		return Usage{}
+	}
+	u := Usage{PromptTokens: raw.Usage.PromptTokens, CompletionTokens: raw.Usage.CompletionTokens, Known: true}
 	if u.PromptTokens == 0 {
 		u.PromptTokens = raw.Usage.InputTokens
 	}

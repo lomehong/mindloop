@@ -70,23 +70,10 @@ func (s *Server) handleIdentityEnv(w http.ResponseWriter, _ *http.Request, id *i
 
 // parseEnvRedacted 解析 .env，敏感键（API_KEY/SECRET/TOKEN/PASSWORD）
 // 命中即脱敏（无长度门槛）：值不落任何内容字节，只给长度占位。
+// 行解析与 parseEnvRaw 共用（同一 dotenv 子集规则）。
 func parseEnvRedacted(content string) map[string]string {
 	out := map[string]string{}
-	for _, ln := range strings.Split(content, "\n") {
-		ln = strings.TrimSpace(ln)
-		if ln == "" || strings.HasPrefix(ln, "#") {
-			continue
-		}
-		k, v, ok := strings.Cut(ln, "=")
-		if !ok {
-			continue
-		}
-		k = strings.TrimSpace(k)
-		v = strings.TrimSpace(v)
-		// 去外侧引号
-		if len(v) >= 2 && (v[0] == '"' && v[len(v)-1] == '"' || v[0] == '\'' && v[len(v)-1] == '\'') {
-			v = v[1 : len(v)-1]
-		}
+	for k, v := range parseEnvRaw(content) {
 		if isSecretEnvKey(k) {
 			v = maskSecretValue(v)
 		}
@@ -387,6 +374,10 @@ func (s *Server) handleRecapRefresh(w http.ResponseWriter, r *http.Request, id *
 		return
 	}
 	client.OnDone = obs.UsageRecorder(id.Dir, client.Model, client.Provider, nil)
+	// 准入守卫：熔断与每日预算对 web 触发的重算同样生效（与
+	// 唤醒路径、CLI recap 同一份健康标记与台账）。
+	guard := obs.NewGuard(id.Dir, nil)
+	guard.Attach(client)
 	if err := os.WriteFile(flagPath, []byte(nowISO()), 0o644); err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -398,10 +389,15 @@ func (s *Server) handleRecapRefresh(w http.ResponseWriter, r *http.Request, id *
 	go func() {
 		defer cancel()
 		defer os.Remove(flagPath)
+		summaryClient := guard.Attach(obs.TierClient(client, "MINDLOOP_SUMMARY_MODEL", "摘要档", id.Dir, nil))
 		up := &recap.Updater{
-			Timeline:     id.Timeline,
-			Thinker:      mind.LLMThinker{Client: client},
-			Flush:        true,
+			Timeline: id.Timeline,
+			// 摘要档：与唤醒路径、CLI recap 同一口径
+			// （MINDLOOP_SUMMARY_MODEL，未设回落思考档）。
+			Thinker: mind.LLMThinker{Client: summaryClient},
+			Flush:   true,
+			// 摘要章的模型参与缓存覆盖：换模型后旧摘要逐步重算。
+			Model:        summaryClient.Model,
 			MaxSummaries: 20,
 		}
 		_, _ = up.Update(ctx)
@@ -424,7 +420,7 @@ func (s *Server) handleKillall(w http.ResponseWriter, r *http.Request) {
 		DryRun bool `json:"dry_run"`
 	}
 	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req)
-	infos, err := scanIdentities(s.cfg.Root)
+	infos, err := s.scanIdentities(s.cfg.Root)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -480,6 +476,9 @@ func (s *Server) handleSelfUpdate(w http.ResponseWriter, _ *http.Request) {
 
 // handleLlmHealthProbe 真实发起一次最小 LLM 调用（一次 ping），
 // 返回 LlmProbeResult 契约：{ok, latency_ms, model, provider, error}。
+// 这是运维手动触发的全局连通性检查（无身份上下文）：不挂准入
+// 守卫——守卫保护的是心智的自动请求路径，探针的本职恰是在熔断
+// 期间实测供应商是否已恢复。
 func (s *Server) handleLlmHealthProbe(w http.ResponseWriter, r *http.Request) {
 	client, err := llm.FromEnv()
 	if err != nil {

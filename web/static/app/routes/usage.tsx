@@ -27,13 +27,13 @@ import {
   TableRow,
 } from "~/components/ui/table";
 import { fetchIdentityStatus, fetchUsage, refreshUsage } from "~/lib/api";
-import { formatBytes, formatCount, formatRelativeTime } from "~/lib/format";
+import { formatBytes, formatClock, formatCount, formatRelativeTime } from "~/lib/format";
 import {
   JOB_PROGRESS_POLL_MS,
   STATUS_BACKGROUND_POLL_MS,
   USAGE_IDLE_POLL_MS,
 } from "~/lib/polling";
-import type { UsageDay } from "~/lib/types";
+import type { UsageAdmission, UsageDay } from "~/lib/types";
 
 export function meta() {
   return [{ title: "mindloop · 用量" }];
@@ -264,6 +264,78 @@ function Tile({ value, label }: { value: string; label: string }) {
   );
 }
 
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-sm">{children}</div>
+    </div>
+  );
+}
+
+/** 每日预算与熔断状态：未设置/未知都必须如实显示——零值不伪装成
+ * "未设置"，未知用量不伪装成零成本。admission 缺省（旧数据）显示
+ * 破折号而不是错误。 */
+function AdmissionCard({
+  admission,
+  unknownCalls,
+}: {
+  admission?: UsageAdmission;
+  unknownCalls: number;
+}) {
+  const budget = !admission ? (
+    "—"
+  ) : admission.daily_limit > 0 ? (
+    <span className="tabular-nums">
+      {admission.used_today.toLocaleString()} / {admission.daily_limit.toLocaleString()}
+      <span className="text-muted-foreground"> tokens 今日</span>
+    </span>
+  ) : (
+    "未设置"
+  );
+  const circuit = (() => {
+    if (!admission) return { text: "—", hint: null as string | null };
+    if (admission.cooling_until) {
+      return {
+        text: `冷却中 · 至 ${formatClock(admission.cooling_until)}`,
+        hint: `连续 ${admission.consecutive_errors} 次失败；mindloop llm resume 可显式恢复`,
+      };
+    }
+    if (admission.consecutive_errors >= admission.circuit_threshold) {
+      return {
+        text: "等待探测",
+        hint: `连续 ${admission.consecutive_errors} 次失败；下一次调用为探测`,
+      };
+    }
+    return { text: "正常", hint: null as string | null };
+  })();
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">预算与准入</CardTitle>
+        <CardDescription>
+          每日预算来自 MINDLOOP_DAILY_TOKENS（UTC 日界重置）；连续 3 次模型调用失败后进入 5
+          分钟冷却，冷却结束后仅放行一次探测。未知用量是供应商未返回 token
+          计数的调用——它们不计入 token 总量，而不是零成本。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4 sm:grid-cols-3">
+        <Field label="每日预算">{budget}</Field>
+        <Field label="熔断">
+          {circuit.text}
+          {circuit.hint && <div className="text-xs text-muted-foreground">{circuit.hint}</div>}
+        </Field>
+        <Field label="未知用量">
+          {unknownCalls > 0
+            ? `${unknownCalls.toLocaleString()} 次调用未返回用量（不计入 token）`
+            : "全部调用有用量记录"}
+        </Field>
+      </CardContent>
+    </Card>
+  );
+}
+
 function RefreshButtons({
   identityId,
   refreshing,
@@ -417,6 +489,7 @@ export default function UsagePage() {
     in_msg: 0,
     out_msg: 0,
     runs: 0,
+    unknown_calls: 0,
   };
   const last7 = days.slice(-7).map(([, v]) => v);
   const n7 = Math.max(1, last7.length);
@@ -456,6 +529,8 @@ export default function UsagePage() {
           <Tile value={calls7.toFixed(0)} label="日均模型调用（近 7 天）" />
           <Tile value={String(days.length)} label="日志覆盖天数" />
         </div>
+
+        <AdmissionCard admission={usage.admission} unknownCalls={totals.unknown_calls ?? 0} />
 
         <div className="grid gap-4 lg:grid-cols-2">
           <Card>

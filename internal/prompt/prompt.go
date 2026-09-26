@@ -20,6 +20,28 @@ import (
 	"mindloop/internal/traj"
 )
 
+// AutonomousSteps 限定自主运行可读取的事实。聊天和委托不能通过历史重放取得执行授权。
+// 旧运行没有上下文来源标记，不作为待续办事项；独立观察仍保留。
+func AutonomousSteps(steps []traj.Step) []traj.Step {
+	out := make([]traj.Step, 0, len(steps))
+	for _, step := range steps {
+		taskID, _ := step.Field("task_id")
+		if taskID != "" || step.Type == traj.TypeMessage {
+			continue
+		}
+		kind, _ := step.Field("context_kind")
+		switch step.Type {
+		case traj.TypeTrajectory, traj.TypeObservation, traj.TypeThought, traj.TypeMerge:
+			out = append(out, step)
+		case traj.TypeRun, traj.TypePrompt, traj.TypeReasoning, traj.TypeShellOutput, traj.TypeFinal, traj.TypeAction, traj.TypeError:
+			if kind == "autonomous" {
+				out = append(out, step)
+			}
+		}
+	}
+	return out
+}
+
 // Role 是 LLM 消息角色。
 type Role string
 

@@ -63,7 +63,9 @@ monolith 负责自主行动；闲置时指数回退（每级驻留 --idle-hold �
 
 			policy := mind.BackoffPolicy{Base: idleBaseP, Max: idleMaxP, ThoughtCap: thoughtCapP, Hold: idleHoldP}
 			stack, err := c.assembleMindStack(id, mindStackOpts{
-				clientFactory: llm.FromEnv,
+				// 思考档：MINDLOOP_MODEL 优先，否则 providers.json 的
+				// think 绑定（mind run 硬性要求配置，坏配置拒启）。
+				clientFactory: func() (*llm.Client, error) { return thinkClient(id.Dir) },
 				poll:          pollP,
 				watchdog:      watchdogP,
 				backoff:       &policy,
@@ -74,10 +76,12 @@ monolith 负责自主行动；闲置时指数回退（每级驻留 --idle-hold �
 				return c.fail(err)
 			}
 			fmt.Fprintf(c.stderr, "心智 %s 启动（Ctrl+C 停机）。与它对话: mindloop chat ada 或 mindloop mind say ada \"...\"\n", id.Name)
-			runErr := stack.dispatcher.Run(c.ctx)
-			// 在途思考收尾再释放运行锁（defer lock.Release() 在函数
-			// 返回时执行）——进程退出把跑一半的 bash 与落盘硬切，
-			// 正是"优雅停机"承诺要避免的。
+			// 持锁启动：持久任务恢复只允许在身份运行权下进行；在途执行
+			// 未退出前锁不释放（defer lock.Release() 只请求释放）。
+			runErr := stack.dispatcher.RunOwned(c.ctx, lock)
+			// 在途思考收尾后才真正释放运行锁：Release 只是“请求释放”，
+			// 仍在途的 worker 未退出时锁保持持有（防另一个调度器接管后
+			// 并行执行）。等待超时也不能当作已停止。
 			if !stack.dispatcher.WaitIdle(15 * time.Second) {
 				fmt.Fprintln(c.stderr, "⚠ 15 秒内思考未全部收尾，放弃等待")
 			}

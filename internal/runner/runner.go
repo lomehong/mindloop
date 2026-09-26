@@ -47,6 +47,14 @@ var renderOptions = prompt.Options{
 
 // Options 配置一次运行。零值字段取默认。
 type Options struct {
+	// 显式任务使用领取时预分配的 RunID；普通运行仍自行生成。
+	RunID   string
+	TaskID  string
+	Attempt int
+	// BeforeExecute 是所有脚本启动前的统一授权入口，等待期间不调用模型。
+	BeforeExecute func(context.Context, Execution) error
+	// Autonomous 排除聊天、委托以及没有来源标记的旧运行上下文。
+	Autonomous bool
 	// Timeline 是运行所在的轨迹（通常刚由 traj new 创建）。
 	Timeline *traj.Timeline
 	// Thinker 是模型调用方。
@@ -55,7 +63,12 @@ type Options struct {
 	Task string
 	// SystemPrompt 覆盖默认系统提示（测试用）。
 	SystemPrompt string
-	// WorkDir 是脚本工作目录；默认 <轨迹目录>/runs/<runid8>。
+	// ContextBudget 是单次请求的输入文本字节预算（0 取
+	// prompt.DefaultContextBudget）——输入防线，不等价于模型
+	// token 窗口；受保护内容（系统提示 + 完整任务）超限时
+	// Run 明确报错，不静默截断。
+	ContextBudget int
+	// WorkDir 是脚本工作目录；默认 <轨迹目录>/runs/<完整 runID>。
 	WorkDir string
 	// LaunchedBy 盖在每个写入步骤的 launched_by 字段上——调度器
 	// 据此区分"思考者自己的产物"与"外部事件"，防自触发回路
@@ -81,10 +94,21 @@ type Options struct {
 
 // Result 是一次成功完成的运行。
 type Result struct {
-	Final      string
-	Iterations int
-	RunID      string
-	WorkDir    string
+	FinalKind       string
+	EvidenceStepIDs []string
+	Final           string
+	Iterations      int
+	RunID           string
+	WorkDir         string
+}
+
+// Execution 是待授权的具体脚本及其执行归属，不包含环境凭据。
+type Execution struct {
+	Script  string
+	WorkDir string
+	RunID   string
+	TaskID  string
+	Attempt int
 }
 
 // finalFileName 是 FINAL 哨兵文件的固定名字。
@@ -102,9 +126,11 @@ type run struct {
 	finalPath string
 	exeEnv    []string
 
+	evidence         []string
 	consecutiveFails int
 	lastFailCmd      string
 	lastFailExit     int
+	budget           *prompt.Budget
 }
 
 // Run 执行循环直到 FINAL、失速或轮次耗尽。
@@ -115,6 +141,12 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	if opts.Thinker == nil {
 		return Result{}, errors.New("runner: 缺少 Thinker")
 	}
+	if (opts.TaskID != "" && (opts.Attempt < 1 || opts.RunID == "")) || (opts.TaskID == "" && opts.Attempt != 0) || (opts.RunID != "" && !validRunID(opts.RunID)) {
+		return Result{}, errors.New("runner: 无效的任务/运行关联")
+	}
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
 	if opts.SystemPrompt == "" {
 		opts.SystemPrompt = SystemPrompt
 	}
@@ -124,7 +156,16 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	if opts.StallLimit <= 0 {
 		opts.StallLimit = 3
 	}
-	r := &run{opts: opts, logf: opts.Progress}
+	// 受保护段（系统提示 + 完整任务）先登记：超限属于配置错误，
+	// 在写任何步骤、调任何模型之前就明确报错。
+	budget := prompt.NewBudget(opts.ContextBudget)
+	if err := budget.TakeProtected("system", opts.SystemPrompt); err != nil {
+		return Result{}, fmt.Errorf("runner: %w", err)
+	}
+	if err := budget.TakeProtected("task", opts.Task); err != nil {
+		return Result{}, fmt.Errorf("runner: %w", err)
+	}
+	r := &run{opts: opts, logf: opts.Progress, budget: budget}
 	return r.start(ctx)
 }
 
@@ -133,6 +174,11 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 // （Headlong 的 run_id 溯源规则）。
 func (r *run) start(ctx context.Context) (Result, error) {
 	header := traj.NewStep(traj.TypeRun)
+	if r.opts.RunID != "" {
+		header.StepID = r.opts.RunID
+	}
+	r.runID = header.StepID
+	r.correlate(&header)
 	taskBrief := r.opts.Task
 	if runes := []rune(taskBrief); len(runes) > 200 {
 		taskBrief = string(runes[:200]) + "…"
@@ -141,15 +187,14 @@ func (r *run) start(ctx context.Context) (Result, error) {
 	if r.opts.LaunchedBy != "" {
 		header.Fields["launched_by"] = r.opts.LaunchedBy
 	}
-	if err := r.opts.Timeline.Append(ctx, header); err != nil {
+	if err := r.opts.Timeline.AppendWithOptions(ctx, header, traj.AppendOptions{Durable: r.opts.TaskID != ""}); err != nil {
 		return Result{}, fmt.Errorf("runner: 写运行头: %w", err)
 	}
-	r.runID = header.StepID
 
 	// 工作目录随轨迹走：产物与日志同处一个目录树。
 	r.workDir = r.opts.WorkDir
 	if r.workDir == "" {
-		r.workDir = filepath.Join(r.opts.Timeline.Dir, "runs", r.runID[:8])
+		r.workDir = filepath.Join(r.opts.Timeline.Dir, "runs", r.runID)
 	}
 	if err := os.MkdirAll(r.workDir, 0o755); err != nil {
 		return Result{}, fmt.Errorf("runner: 建工作目录: %w", err)
@@ -166,12 +211,9 @@ func (r *run) start(ctx context.Context) (Result, error) {
 	r.exeEnv = append(r.exeEnv, r.opts.ExtraEnv...)
 
 	promptStep := traj.NewStep(traj.TypePrompt)
-	promptStep.Fields["run_id"] = r.runID
-	if r.opts.LaunchedBy != "" {
-		promptStep.Fields["launched_by"] = r.opts.LaunchedBy
-	}
+	r.correlate(&promptStep)
 	promptStep.Fields["content"] = r.opts.Task
-	if err := r.opts.Timeline.Append(ctx, promptStep); err != nil {
+	if err := r.opts.Timeline.AppendWithOptions(ctx, promptStep, traj.AppendOptions{Durable: r.opts.TaskID != ""}); err != nil {
 		return Result{}, fmt.Errorf("runner: 写任务: %w", err)
 	}
 
@@ -184,17 +226,21 @@ func (r *run) start(ctx context.Context) (Result, error) {
 // 有 logf 就喊出来。
 func (r *run) appendStep(ctx context.Context, typ, content string, extra map[string]any) error {
 	s := traj.NewStep(typ)
-	s.Fields["run_id"] = r.runID
-	if r.opts.LaunchedBy != "" {
-		s.Fields["launched_by"] = r.opts.LaunchedBy
-	}
+	r.correlate(&s)
 	if content != "" {
 		s.Fields["content"] = content
 	}
 	for k, v := range extra {
 		s.Fields[k] = v
 	}
-	err := r.opts.Timeline.Append(context.WithoutCancel(ctx), s)
+	writeCtx := context.WithoutCancel(ctx)
+	if typ == traj.TypeFinal {
+		writeCtx = ctx
+	}
+	err := r.opts.Timeline.AppendWithOptions(writeCtx, s, traj.AppendOptions{Durable: r.opts.TaskID != ""})
+	if err == nil && (typ == traj.TypeShellOutput || typ == traj.TypeFinal) {
+		r.evidence = append(r.evidence, s.StepID)
+	}
 	if err != nil && r.logf != nil {
 		r.logf("runner: 步骤 %q 落盘失败: %v", typ, err)
 	}
@@ -208,8 +254,30 @@ func (r *run) renderMessages() ([]llm.Message, error) {
 	if err != nil {
 		return nil, err
 	}
+	if r.opts.TaskID != "" {
+		filtered := make([]traj.Step, 0, len(steps))
+		for _, s := range steps {
+			rid, _ := s.Field("run_id")
+			tid, _ := s.Field("task_id")
+			if rid == r.runID && tid == r.opts.TaskID && s.Type != traj.TypeMessage {
+				filtered = append(filtered, s)
+			}
+		}
+		steps = filtered
+	} else if r.opts.Autonomous {
+		steps = prompt.AutonomousSteps(steps)
+	}
+	// 历史（含旧记忆/摘要等低优先材料）吃剩余预算；预算已被受
+	// 保护段用满时不带历史（MaxBytes=0 在 prompt 里表示不限，
+	// 不能当"零预算"用）。
+	opts := renderOptions
+	if remain := r.budget.Remaining(); remain > 0 {
+		opts.MaxBytes = remain
+	} else {
+		return []llm.Message{}, nil
+	}
 	msgs := make([]llm.Message, 0, len(steps))
-	for _, m := range prompt.Render(steps, renderOptions) {
+	for _, m := range prompt.Render(steps, opts) {
 		msgs = append(msgs, llm.Message{Role: string(m.Role), Content: m.Content})
 	}
 	return msgs, nil
@@ -218,6 +286,17 @@ func (r *run) renderMessages() ([]llm.Message, error) {
 // execute 清掉上一轮哨兵后，把本轮代码放进沙箱执行。哨兵属于
 // "本轮是否完成"——不清理会把上一轮的完成泄漏到这一轮。
 func (r *run) execute(ctx context.Context, code string) (sandbox.Result, error) {
+	if err := ctx.Err(); err != nil {
+		return sandbox.Result{}, err
+	}
+	if r.opts.BeforeExecute != nil {
+		if err := r.opts.BeforeExecute(ctx, Execution{Script: code, WorkDir: r.workDir, RunID: r.runID, TaskID: r.opts.TaskID, Attempt: r.opts.Attempt}); err != nil {
+			return sandbox.Result{}, err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return sandbox.Result{}, err
+	}
 	_ = os.Remove(r.finalPath)
 	return sandbox.Run(ctx, sandbox.Request{
 		Script:         code,
@@ -229,6 +308,39 @@ func (r *run) execute(ctx context.Context, code string) (sandbox.Result, error) 
 		MaxOutputBytes: r.opts.MaxOutputBytes,
 		MemLimitBytes:  r.opts.MemLimitBytes,
 	})
+}
+
+func validRunID(id string) bool {
+	if len(id) == 0 || len(id) > 128 {
+		return false
+	}
+	for _, c := range id {
+		if !(c >= 'a' && c <= 'z') && !(c >= 'A' && c <= 'Z') && !(c >= '0' && c <= '9') && c != '-' && c != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *run) correlate(s *traj.Step) {
+	s.Fields["run_id"] = r.runID
+	if r.opts.Autonomous {
+		s.Fields["context_kind"] = "autonomous"
+	}
+	if r.opts.LaunchedBy != "" {
+		s.Fields["launched_by"] = r.opts.LaunchedBy
+	}
+	if r.opts.TaskID != "" {
+		s.Fields["task_id"] = r.opts.TaskID
+		s.Fields["attempt"] = r.opts.Attempt
+	}
+}
+
+func (r *run) finish(ctx context.Context, final, kind string, iteration int) (Result, error) {
+	if err := r.appendStep(ctx, traj.TypeFinal, final, map[string]any{"result_kind": kind}); err != nil {
+		return Result{RunID: r.runID, WorkDir: r.workDir}, fmt.Errorf("runner: 写 FINAL: %w", err)
+	}
+	return Result{Final: final, FinalKind: kind, EvidenceStepIDs: r.evidence, Iterations: iteration, RunID: r.runID, WorkDir: r.workDir}, nil
 }
 
 // outputStepContent 把执行结果拼成 shell-output 步骤的正文与
@@ -260,7 +372,13 @@ func outputStepContent(ext extraction, res sandbox.Result) (string, map[string]a
 // loop 是主循环骨架：渲染 → 思考 → 提取 → 执行 → 记录 → FINAL
 // 或失速判定。
 func (r *run) loop(ctx context.Context) (Result, error) {
+	// 归因随 ctx 传到模型调用收尾：台账把每一笔记到任务运行代次上
+	// （自主运行 TaskID 为空，只带 run）。
+	ctx = llm.WithAttrib(ctx, llm.Attrib{Task: r.opts.TaskID, Run: r.runID, Attempt: r.opts.Attempt})
 	for iteration := 1; iteration <= r.opts.MaxIterations; iteration++ {
+		if err := ctx.Err(); err != nil {
+			return Result{RunID: r.runID, WorkDir: r.workDir}, err
+		}
 		if r.logf != nil {
 			r.logf("── 第 %d/%d 轮 ──", iteration, r.opts.MaxIterations)
 		}
@@ -271,6 +389,9 @@ func (r *run) loop(ctx context.Context) (Result, error) {
 		}
 
 		text, err := r.opts.Thinker.Think(ctx, r.opts.SystemPrompt, msgs)
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
 		if err != nil {
 			_ = r.appendStep(ctx, traj.TypeError, "思考失败: "+err.Error(), nil)
 			return Result{RunID: r.runID, WorkDir: r.workDir}, fmt.Errorf("runner: 思考: %w", err)
@@ -292,10 +413,7 @@ func (r *run) loop(ctx context.Context) (Result, error) {
 			if r.logf != nil {
 				r.logf("识别到裸文本 FINAL= 声明，直接采为终局")
 			}
-			if err := r.appendStep(ctx, traj.TypeFinal, ext.Final, nil); err != nil {
-				return Result{RunID: r.runID, WorkDir: r.workDir}, fmt.Errorf("runner: 写 FINAL: %w", err)
-			}
-			return Result{Final: ext.Final, Iterations: iteration, RunID: r.runID, WorkDir: r.workDir}, nil
+			return r.finish(ctx, ext.Final, "model-final", iteration)
 		}
 
 		res, err := r.execute(ctx, ext.Code)
@@ -312,6 +430,9 @@ func (r *run) loop(ctx context.Context) (Result, error) {
 			r.logf("exit=%d %s 输出 %d 字节", res.ExitCode, res.Duration.Round(time.Millisecond), len(res.Stdout))
 		}
 
+		if err := ctx.Err(); err != nil {
+			return Result{RunID: r.runID, WorkDir: r.workDir}, err
+		}
 		// FINAL 副作用检测：文件在，任务就完成了。
 		if res.FinalSet {
 			data, err := os.ReadFile(r.finalPath)
@@ -319,10 +440,7 @@ func (r *run) loop(ctx context.Context) (Result, error) {
 				return Result{RunID: r.runID, WorkDir: r.workDir}, fmt.Errorf("runner: 读 FINAL: %w", err)
 			}
 			final := strings.TrimSpace(string(data))
-			if err := r.appendStep(ctx, traj.TypeFinal, final, nil); err != nil {
-				return Result{RunID: r.runID, WorkDir: r.workDir}, fmt.Errorf("runner: 写 FINAL: %w", err)
-			}
-			return Result{Final: final, Iterations: iteration, RunID: r.runID, WorkDir: r.workDir}, nil
+			return r.finish(ctx, final, "shell-final", iteration)
 		}
 
 		// 失速守卫：连续失败计数；同一命令以同一退出码失败两次

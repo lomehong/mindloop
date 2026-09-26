@@ -43,16 +43,18 @@ func newReplyFiles(t *testing.T, id *identity.Identity, replyTo, text string) {
 	}
 }
 
-// sseFrame 是客户端侧解析出的一个 SSE 帧。
-type sseFrame struct {
+// clientFrame 是客户端侧解析出的一个 SSE 帧（与生产侧事件帧
+// sseFrame 区分：这里只关心线上格式，无序号语义）。
+type clientFrame struct {
 	event     string
 	data      string
+	id        string
 	isComment bool
 }
 
 // readEvent 持续读帧直到事件类型命中 want 之一——测试只关心目标
 // 事件，对插在其他位置的 status/working/ping 帧宽容跳过。
-func readEvent(t *testing.T, r *bufio.Reader, want ...string) sseFrame {
+func readEvent(t *testing.T, r *bufio.Reader, want ...string) clientFrame {
 	t.Helper()
 	for {
 		f := readFrame(t, r)
@@ -66,9 +68,9 @@ func readEvent(t *testing.T, r *bufio.Reader, want ...string) sseFrame {
 
 // readFrame 从 SSE 流读取下一帧（以空行终结）。整体受 ctx 超时保护，
 // 读不到帧即 Fatal——流式测试不允许挂死。
-func readFrame(t *testing.T, r *bufio.Reader) sseFrame {
+func readFrame(t *testing.T, r *bufio.Reader) clientFrame {
 	t.Helper()
-	var f sseFrame
+	var f clientFrame
 	var sb strings.Builder
 	for {
 		line, err := r.ReadString('\n')
@@ -87,6 +89,8 @@ func readFrame(t *testing.T, r *bufio.Reader) sseFrame {
 		switch {
 		case strings.HasPrefix(line, ":"):
 			f.isComment = true
+		case strings.HasPrefix(line, "id: "):
+			f.id = strings.TrimPrefix(line, "id: ")
 		case strings.HasPrefix(line, "event: "):
 			f.event = strings.TrimPrefix(line, "event: ")
 		case strings.HasPrefix(line, "data: "):
@@ -154,6 +158,7 @@ func TestRepliesStreamStatusAndDelta(t *testing.T) {
 	var delta struct {
 		ReplyTo string `json:"reply_to"`
 		Text    string `json:"text"`
+		Offset  int    `json:"offset"`
 	}
 	if err := json.Unmarshal([]byte(dl.data), &delta); err != nil {
 		t.Fatalf("delta data 不是 JSON: %v (%q)", err, dl.data)
@@ -161,13 +166,13 @@ func TestRepliesStreamStatusAndDelta(t *testing.T) {
 	if delta.ReplyTo != replyTo {
 		t.Fatalf("delta.reply_to = %q，应为 %q", delta.ReplyTo, replyTo)
 	}
-	if delta.Text != full {
-		t.Fatalf("delta.text 应为累积全文（UTF-8 中文无截断）:\n got %q\nwant %q", delta.Text, full)
+	if delta.Offset != 0 || delta.Text != full {
+		t.Fatalf("首个 delta 应为全量快照（offset=0）:\n got offset=%d text=%q\nwant offset=0 text=%q", delta.Offset, delta.Text, full)
 	}
 }
 
-// TestRepliesStreamGrowsAndDone：旁路文件增长 → delta 重发全量；
-// 文件删除 → done 恰一次。
+// TestRepliesStreamGrowsAndDone：旁路文件增长 → delta 只发增量
+// （offset=上次末尾）；文件删除 → done 恰一次。
 func TestRepliesStreamGrowsAndDone(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("MINDLOOP_HOME", dir)
@@ -186,23 +191,31 @@ func TestRepliesStreamGrowsAndDone(t *testing.T) {
 
 	readEvent(t, r, "status") // 首帧 status
 	d1 := readEvent(t, r, "delta")
-	if !strings.Contains(d1.data, "第一段") {
-		t.Fatalf("首个 delta 错位: %q", d1.data)
+	var first struct {
+		Text   string `json:"text"`
+		Offset int    `json:"offset"`
+	}
+	if err := json.Unmarshal([]byte(d1.data), &first); err != nil {
+		t.Fatal(err)
+	}
+	if first.Offset != 0 || first.Text != "第一段" {
+		t.Fatalf("首个 delta 应为全量快照，得到 %+v", first)
 	}
 
-	// 追加增长 → delta 再次下发，text 仍为全量。
+	// 追加增长 → delta 只携带增量（offset=旧长度）。
 	if err := os.WriteFile(txt, []byte("第一段\n第二段追加"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	d2 := readEvent(t, r, "delta")
-	var delta struct {
-		Text string `json:"text"`
+	var second struct {
+		Text   string `json:"text"`
+		Offset int    `json:"offset"`
 	}
-	if err := json.Unmarshal([]byte(d2.data), &delta); err != nil {
+	if err := json.Unmarshal([]byte(d2.data), &second); err != nil {
 		t.Fatal(err)
 	}
-	if delta.Text != "第一段\n第二段追加" {
-		t.Fatalf("增长后 delta 应携带全量，得到 %q", delta.Text)
+	if second.Offset != len("第一段") || second.Text != "\n第二段追加" {
+		t.Fatalf("增长后应只发增量（offset=%d text=%q），得到 %+v", len("第一段"), "\n第二段追加", second)
 	}
 
 	// 删除旁路 → done 恰一次（后续不再重复）。

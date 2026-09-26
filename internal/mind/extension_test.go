@@ -12,15 +12,19 @@ import (
 	"mindloop/internal/traj"
 )
 
-// captureThinker 记录收到的系统提示——扩展段接线测试用。
+// captureThinker 记录收到的系统提示与消息——扩展段/预算接线测试用。
 type captureThinker struct {
 	mu     sync.Mutex
 	system string
+	msgs   []llm.Message
+	calls  int
 }
 
 func (c *captureThinker) Think(ctx context.Context, system string, msgs []llm.Message) (string, error) {
 	c.mu.Lock()
 	c.system = system
+	c.msgs = append([]llm.Message(nil), msgs...)
+	c.calls++
 	c.mu.Unlock()
 	return fence(`FINAL="IDLE"`), nil
 }
@@ -29,6 +33,18 @@ func (c *captureThinker) got() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.system
+}
+
+func (c *captureThinker) gotMsgs() []llm.Message {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]llm.Message(nil), c.msgs...)
+}
+
+func (c *captureThinker) gotCalls() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.calls
 }
 
 // TestMonolithSystemPromptExtensions：技能索引与 MCP 服务器清单

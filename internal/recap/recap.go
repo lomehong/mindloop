@@ -14,16 +14,21 @@ package recap
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"mindloop/internal/ids"
 	"mindloop/internal/llm"
+	"mindloop/internal/prompt"
 	"mindloop/internal/traj"
 )
 
@@ -138,7 +143,8 @@ func Windows(steps []NStep, gapClose time.Duration, maxSteps int, maxBytes int) 
 	return out
 }
 
-// Episode 是一条缓存的情节摘要。
+// Episode 是一条缓存的情节摘要。Fingerprint 是源窗口指纹：源日志
+// 被外部编辑后它变化，旧摘要不再被复用（旧缓存缺省为空）。
 type Episode struct {
 	Start         int    `json:"start"`
 	End           int    `json:"end"`
@@ -146,6 +152,7 @@ type Episode struct {
 	Summary       string `json:"summary"`
 	Model         string `json:"model"`
 	PromptVersion int    `json:"prompt_version"`
+	Fingerprint   string `json:"fingerprint,omitempty"`
 	Created       string `json:"created"`
 	StepFrom      string `json:"step_from"`
 	StepTo        string `json:"step_to"`
@@ -154,7 +161,8 @@ type Episode struct {
 // Cache 是摘要缓存文件（追加式 JSONL，带目录锁）。
 type Cache struct{ Path string }
 
-// Load 读取全部缓存摘要，按窗口起点升序。
+// Load 读取全部缓存摘要（文件追加顺序——同窗多代按写入先后排列，
+// 渲染侧据此保留最新一代）。
 func (c Cache) Load() ([]Episode, error) {
 	data, err := os.ReadFile(c.Path)
 	if err != nil {
@@ -202,8 +210,10 @@ func (c Cache) Append(ctx context.Context, e Episode) error {
 
 // Updater 负责补齐缺失的摘要。
 type Updater struct {
-	Timeline *traj.Timeline
-	Thinker  interface {
+	// Autonomous 使用排除聊天/委托的来源窗口及独立缓存，旧摘要不能绕过授权边界。
+	Autonomous bool
+	Timeline   *traj.Timeline
+	Thinker    interface {
 		Think(ctx context.Context, system string, msgs []llm.Message) (string, error)
 	}
 	GapClose     time.Duration
@@ -248,16 +258,22 @@ func (u *Updater) Update(ctx context.Context) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	covered := make(map[[2]int]bool)
+	// covered 的条件与摘要章一致：提示版本、模型、窗口范围与源
+	// 窗口指纹。任一项变化都意味着缓存不再代表源文本——过期摘要
+	// 不复用，逐步重新生成（下面的循环逐窗补，受成本阀约束）。
+	covered := make(map[[2]int]string)
 	for _, e := range cached {
-		if e.PromptVersion == PromptVersion {
-			covered[[2]int{e.Start, e.End}] = true
+		if e.PromptVersion == PromptVersion && e.Model == u.Model {
+			covered[[2]int{e.Start, e.End}] = e.Fingerprint
 		}
 	}
 
 	raw, err := timelineSteps(u.Timeline)
 	if err != nil {
 		return Report{}, fmt.Errorf("recap: %w", err)
+	}
+	if u.Autonomous {
+		raw = prompt.AutonomousSteps(raw)
 	}
 	steps := Filter(raw)
 	wins := Windows(steps, gap, maxSteps, maxBytes)
@@ -272,7 +288,7 @@ func (u *Updater) Update(ctx context.Context) (Report, error) {
 		}
 		rep.Windows++
 		key := [2]int{w.Start, w.End}
-		if covered[key] {
+		if covered[key] != "" && covered[key] == windowFingerprint(steps[w.Start:w.End]) {
 			rep.Cached++
 			continue
 		}
@@ -293,6 +309,9 @@ func (u *Updater) Update(ctx context.Context) (Report, error) {
 }
 
 func (u *Updater) cachePath() string {
+	if u.Autonomous {
+		return filepath.Join(u.Timeline.Dir, "recap", "autonomous-v1.jsonl")
+	}
 	return filepath.Join(u.Timeline.Dir, "recap", "episodes.jsonl")
 }
 
@@ -307,6 +326,7 @@ func (u *Updater) summarize(ctx context.Context, steps []NStep, w Window) (Episo
 		body.WriteString(s.Text)
 		body.WriteString("\n")
 	}
+	ctx = llm.WithAttrib(ctx, llm.Attrib{Thinker: "recap", Phase: "recap"})
 	text, err := u.Thinker.Think(ctx, system, []llm.Message{{Role: "user", Content: body.String()}})
 	if err != nil {
 		return Episode{}, fmt.Errorf("recap: 摘要调用: %w", err)
@@ -316,10 +336,25 @@ func (u *Updater) summarize(ctx context.Context, steps []NStep, w Window) (Episo
 		Start: w.Start, End: w.End,
 		Title: title, Summary: summary,
 		Model: u.Model, PromptVersion: PromptVersion,
-		Created:  traj.NowString(),
-		StepFrom: steps[0].StepID, StepTo: steps[len(steps)-1].StepID,
+		Fingerprint: windowFingerprint(steps),
+		Created:     traj.NowString(),
+		StepFrom:    steps[0].StepID, StepTo: steps[len(steps)-1].StepID,
 	}
 	return ep, nil
+}
+
+// windowFingerprint 是窗口源文本的指纹：步骤 ID 与渲染行的哈希。
+// 源日志被外部编辑后指纹变化——旧摘要即便窗口范围不变也不再被
+// 复用（修改源日志后不复用过期摘要）。
+func windowFingerprint(steps []NStep) string {
+	h := sha256.New()
+	for _, s := range steps {
+		io.WriteString(h, s.StepID)
+		h.Write([]byte{0})
+		io.WriteString(h, s.Text)
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
 // parseSummary 宽容解析：优先 JSON，失败则首行当标题、其余当摘要
@@ -346,19 +381,48 @@ func parseSummary(text string) (title, summary string) {
 // 调用——它将作为 monolith 上下文的粗层，细层由 prompt.Render 的
 // 原文尾窗承担。
 func RenderLife(timelineDir string, maxEpisodes int) (string, error) {
-	cached, err := (Cache{Path: filepath.Join(timelineDir, "recap", "episodes.jsonl")}).Load()
+	return renderLife(filepath.Join(timelineDir, "recap", "episodes.jsonl"), maxEpisodes)
+}
+
+// RenderAutonomousLife 只读取来源已排除聊天和委托的摘要。
+func RenderAutonomousLife(timelineDir string, maxEpisodes int) (string, error) {
+	return renderLife(filepath.Join(timelineDir, "recap", "autonomous-v1.jsonl"), maxEpisodes)
+}
+
+func renderLife(path string, maxEpisodes int) (string, error) {
+	cached, err := (Cache{Path: path}).Load()
 	if err != nil {
 		return "", err
 	}
-	if len(cached) == 0 {
+	// 过滤旧提示版本的缓存（摘要器升级后不混用）；同一窗口可能有
+	// 多代摘要（失效重生成），保留最后写入的一代；渲染按窗口起点
+	// 升序——乱序混代的"人生"比没有更误导。
+	latest := make(map[[2]int]Episode)
+	for _, e := range cached {
+		if e.PromptVersion != PromptVersion {
+			continue
+		}
+		latest[[2]int{e.Start, e.End}] = e
+	}
+	if len(latest) == 0 {
 		return "", nil
 	}
-	if maxEpisodes > 0 && len(cached) > maxEpisodes {
-		cached = cached[len(cached)-maxEpisodes:]
+	eps := make([]Episode, 0, len(latest))
+	for _, e := range latest {
+		eps = append(eps, e)
+	}
+	sort.Slice(eps, func(i, j int) bool {
+		if eps[i].Start != eps[j].Start {
+			return eps[i].Start < eps[j].Start
+		}
+		return eps[i].End < eps[j].End
+	})
+	if maxEpisodes > 0 && len(eps) > maxEpisodes {
+		eps = eps[len(eps)-maxEpisodes:]
 	}
 	var b strings.Builder
 	b.WriteString("=== 人生分集摘要（旧→新）===\n")
-	for i, e := range cached {
+	for i, e := range eps {
 		fmt.Fprintf(&b, "[第%d幕 %s] %s\n", i+1, e.Title, e.Summary)
 	}
 	return b.String(), nil

@@ -1,7 +1,8 @@
 import { useState } from "react";
 
 import { ScrollArea } from "~/components/ui/scroll-area";
-import { API_BASE } from "~/lib/api";
+import { AuthenticatedDownload } from "~/components/authenticated-download";
+import { API_BASE, fetchText } from "~/lib/api";
 import { useTrajContext } from "~/lib/traj-context";
 
 function kb(bytes: number): string {
@@ -39,9 +40,7 @@ export function BlobLoader({
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-      setContent(await response.text());
+      setContent(await fetchText(url));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -57,14 +56,15 @@ export function BlobLoader({
             {content}
           </pre>
         </ScrollArea>
-        <a
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-1 inline-block text-[11px] text-muted-foreground hover:underline"
+        <AuthenticatedDownload
+          url={url}
+          filename={name}
+          variant="link"
+          size="sm"
+          className="mt-1 h-auto p-0 text-[11px] text-muted-foreground"
         >
-          open raw ↗
-        </a>
+          下载原始输出
+        </AuthenticatedDownload>
       </div>
     );
   }

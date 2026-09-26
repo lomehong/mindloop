@@ -39,15 +39,36 @@ func UsageRecorder(dir, model, provider string, logf func(format string, args ..
 			TS               string `json:"ts"`
 			PromptTokens     int    `json:"prompt_tokens"`
 			CompletionTokens int    `json:"completion_tokens"`
-			Model            string `json:"model,omitempty"`
-			Provider         string `json:"provider,omitempty"`
-			Error            string `json:"error,omitempty"`
+			// 用量是否来自供应商（无 omitempty：未知要显式留下
+			// 痕迹，不能省略成"看起来像零"）。旧台账无此字段，
+			// 读方按"已知"处理以保持向后兼容。
+			UsageKnown bool   `json:"usage_known"`
+			LatencyMS  int64  `json:"latency_ms,omitempty"`
+			Retries    int    `json:"retries,omitempty"`
+			Model      string `json:"model,omitempty"`
+			Provider   string `json:"provider,omitempty"`
+			Task       string `json:"task,omitempty"`
+			Run        string `json:"run,omitempty"`
+			Attempt    int    `json:"attempt,omitempty"`
+			Thinker    string `json:"thinker,omitempty"`
+			Wake       string `json:"wake,omitempty"`
+			Phase      string `json:"phase,omitempty"`
+			Error      string `json:"error,omitempty"`
 		}{
 			TS:               traj.NowString(),
 			PromptTokens:     u.PromptTokens,
 			CompletionTokens: u.CompletionTokens,
+			UsageKnown:       u.Known,
+			LatencyMS:        u.LatencyMS,
+			Retries:          u.Retries,
 			Model:            model,
 			Provider:         provider,
+			Task:             u.Task,
+			Run:              u.Run,
+			Attempt:          u.Attempt,
+			Thinker:          u.Thinker,
+			Wake:             u.Wake,
+			Phase:            u.Phase,
 		}
 		if err != nil {
 			rec.Error = err.Error()

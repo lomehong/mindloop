@@ -23,18 +23,35 @@ var ErrLockTimeout = errors.New("mindloop: 等待锁超时")
 // 等待锁受两个信号约束：Timeline.LockTimeout（或默认值）与 ctx
 // 取消——心智循环的停机靠后者传播。
 func (t *Timeline) Append(ctx context.Context, step Step) error {
+	return t.AppendWithOptions(ctx, step, AppendOptions{})
+}
+
+// AppendOptions 控制关键事实的落盘；默认保持原有追加行为。
+type AppendOptions struct {
+	Durable bool
+}
+
+// AppendWithOptions 在同一轨迹锁内完成追加及可选同步。
+func (t *Timeline) AppendWithOptions(ctx context.Context, step Step, opts AppendOptions) error {
 	release, err := acquireDirLock(ctx, t.Path+".lock", t.lockTimeout())
 	if err != nil {
 		return err
 	}
 	defer release()
-	return t.writeStep(step)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return t.writeStepWithOptions(step, opts)
 }
 
 // writeStep 不加锁直接追加：用于刚创建、仍属私有的轨迹（新文件
 // 没有并发写者——与 Headlong 对 traj new 的豁免相同），以及已经
 // 持有锁的调用方。
 func (t *Timeline) writeStep(step Step) error {
+	return t.writeStepWithOptions(step, AppendOptions{})
+}
+
+func (t *Timeline) writeStepWithOptions(step Step, opts AppendOptions) error {
 	line, err := json.Marshal(step)
 	if err != nil {
 		return fmt.Errorf("mindloop: 序列化步骤: %w", err)
@@ -45,12 +62,27 @@ func (t *Timeline) writeStep(step Step) error {
 		return fmt.Errorf("mindloop: 打开 %s: %w", t.Path, err)
 	}
 	defer f.Close()
-	n, err := f.Write(line)
-	if err != nil {
+	if err := writeRecord(f, line, opts.Durable); err != nil {
 		return fmt.Errorf("mindloop: 追加 %s: %w", t.Path, err)
 	}
+	return f.Close()
+}
+
+type recordSink interface {
+	Write([]byte) (int, error)
+	Sync() error
+}
+
+func writeRecord(f recordSink, line []byte, durable bool) error {
+	n, err := f.Write(line)
+	if err != nil {
+		return err
+	}
 	if n != len(line) {
-		return fmt.Errorf("mindloop: 追加 %s: 短写（%d/%d 字节）", t.Path, n, len(line))
+		return fmt.Errorf("短写（%d/%d 字节）", n, len(line))
+	}
+	if durable {
+		return f.Sync()
 	}
 	return nil
 }

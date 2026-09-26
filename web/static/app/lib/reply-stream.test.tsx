@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
 import { useReplyStream } from "~/lib/use-chat";
+import { setWebToken } from "~/lib/api";
 
 const encoder = new TextEncoder();
 
@@ -52,6 +53,22 @@ function doneStream(parts: string[]): ReadableStream<Uint8Array> {
   });
 }
 
+/** 与请求信号联动：abort 时让读取端报错——真实 fetch 被 abort 时正是
+ * 这种语义（测试桩必须自实现，mock fetch 不会自动联动信号）。 */
+function abortableStream(
+  parts: string[],
+  signal?: AbortSignal | null
+): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const part of parts) controller.enqueue(encoder.encode(part));
+      signal?.addEventListener("abort", () => {
+        controller.error(new DOMException("Aborted", "AbortError"));
+      });
+    },
+  });
+}
+
 function okResponse(body: ReadableStream<Uint8Array>): unknown {
   return { ok: true, status: 200, body };
 }
@@ -80,6 +97,7 @@ function makeWrapper(client: QueryClient) {
 }
 
 beforeEach(() => {
+  setWebToken("");
   calls = [];
   responder = () => notFoundResponse();
   const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
@@ -205,6 +223,57 @@ describe("useReplyStream", () => {
     expect(calls.length).toBe(3);
   });
 
+  it("401 降级后更新凭据恢复 SSE，不需要切换身份或重放写请求", async () => {
+    vi.useFakeTimers();
+    responder = (call) => new Headers(call.init?.headers).get("Authorization") === "Bearer refreshed-token"
+      ? okResponse(holdStream(['event: status\ndata: {"replying":false,"reply_to":""}\n\n']))
+      : Response.json({}, { status: 401 });
+    const { result } = renderHook(
+      () => useReplyStream({ identityId: "ada", retryBaseMs: 1 }),
+      { wrapper: makeWrapper(makeClient()) }
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(result.current.degraded).toBe(true);
+    await act(async () => { setWebToken("refreshed-token"); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(result.current.live).toBe(true);
+    expect(result.current.degraded).toBe(false);
+    expect(calls.length).toBe(4);
+    expect(calls.every((call) => call.url === "/api/identities/ada/replies/stream" && !call.init?.method)).toBe(true);
+  });
+
+  it("主动更换有效凭据会终止旧流，旧流迟归内容不能覆盖新回复", async () => {
+    let oldStream: ReadableStreamDefaultController<Uint8Array>;
+    responder = (call) => {
+      if (new Headers(call.init?.headers).get("Authorization") === "Bearer replacement-token") {
+        return okResponse(holdStream([
+          'event: status\ndata: {"replying":true,"reply_to":"new"}\n\n',
+          'event: delta\ndata: {"reply_to":"new","text":"新凭据回复"}\n\n',
+        ]));
+      }
+      return okResponse(new ReadableStream<Uint8Array>({
+        start(controller) {
+          oldStream = controller;
+          controller.enqueue(encoder.encode('event: status\ndata: {"replying":false,"reply_to":""}\n\n'));
+        },
+      }));
+    };
+    const { result } = renderHook(
+      () => useReplyStream({ identityId: "ada" }),
+      { wrapper: makeWrapper(makeClient()) }
+    );
+    await waitFor(() => expect(result.current.live).toBe(true));
+    await act(async () => { setWebToken("replacement-token"); });
+    await waitFor(() => expect(result.current.reply?.text).toBe("新凭据回复"));
+    expect(calls[0]?.init?.signal?.aborted).toBe(true);
+    await act(async () => {
+      oldStream.enqueue(encoder.encode('event: delta\ndata: {"reply_to":"old","text":"过期内容"}\n\n'));
+      oldStream.close();
+    });
+    expect(result.current.reply?.text).toBe("新凭据回复");
+    expect(calls.length).toBe(2);
+  });
+
   it("step 事件进入 activity（按到达顺序），超过 6 条裁掉最旧的", async () => {
     const events: string[] = [];
     for (let i = 1; i <= 8; i++) {
@@ -229,6 +298,52 @@ describe("useReplyStream", () => {
       "s8",
     ]);
     expect(result.current.activity[0]?.stepType).toBe("action");
+  });
+
+  it("step 事件的 task/run 归因进入 activity；缺省归一 null", async () => {
+    responder = () =>
+      okResponse(
+        holdStream([
+          'event: step\ndata: {"step_id":"t1","type":"action","ts":"2026-09-25T10:00:00Z","excerpt":"任务步","task_id":"task-1","run_id":"run-1","attempt":3}\n\n',
+          'event: step\ndata: {"step_id":"m1","type":"reasoning","ts":"2026-09-25T10:00:01Z","excerpt":"聊天步"}\n\n',
+        ])
+      );
+    const { result } = renderHook(
+      () => useReplyStream({ identityId: "ada", retryBaseMs: 1 }),
+      { wrapper: makeWrapper(makeClient()) }
+    );
+
+    await waitFor(() => expect(result.current.activity.length).toBe(2));
+    expect(result.current.activity[0]).toMatchObject({
+      stepId: "t1",
+      taskId: "task-1",
+      runId: "run-1",
+      attempt: 3,
+    });
+    expect(result.current.activity[1]).toMatchObject({
+      stepId: "m1",
+      taskId: null,
+      runId: null,
+      attempt: null,
+    });
+  });
+
+  it("任务步骤不计入 stepTotal（聊天步数不被任务进度顶替）", async () => {
+    responder = () =>
+      okResponse(
+        holdStream([
+          'event: step\ndata: {"step_id":"t1","type":"action","ts":"2026-09-25T10:00:00Z","excerpt":"任务步","task_id":"task-1"}\n\n',
+          'event: step\ndata: {"step_id":"m1","type":"reasoning","ts":"2026-09-25T10:00:01Z","excerpt":"聊天步一"}\n\n',
+          'event: step\ndata: {"step_id":"m2","type":"final","ts":"2026-09-25T10:00:02Z","excerpt":"聊天步二"}\n\n',
+        ])
+      );
+    const { result } = renderHook(
+      () => useReplyStream({ identityId: "ada", retryBaseMs: 1 }),
+      { wrapper: makeWrapper(makeClient()) }
+    );
+
+    await waitFor(() => expect(result.current.activity.length).toBe(3));
+    expect(result.current.stepTotal).toBe(2);
   });
 
   it("working 事件驱动 working/busy；working=false 后延迟清空 activity（假定时器）", async () => {
@@ -290,5 +405,131 @@ describe("useReplyStream", () => {
     expect(signal?.aborted).toBe(false);
     unmount();
     expect(signal?.aborted).toBe(true);
+  });
+});
+
+describe("增量 delta、Last-Event-ID 与服务端重同步", () => {
+  it("delta 按 offset 拼接（偏移是 UTF-8 字节而非字符数）", async () => {
+    responder = () =>
+      okResponse(
+        holdStream([
+          'event: delta\ndata: {"reply_to":"m1","offset":0,"text":"你好"}\n\n',
+          'event: delta\ndata: {"reply_to":"m1","offset":6,"text":"，世界"}\n\n',
+        ])
+      );
+    const { result } = renderHook(
+      () => useReplyStream({ identityId: "ada", retryBaseMs: 1 }),
+      { wrapper: makeWrapper(makeClient()) }
+    );
+
+    await waitFor(() => expect(result.current.reply?.text).toBe("你好，世界"));
+  });
+
+  it("offset 小于已收字节数：截断到该字节边界再追加（部分重写语义）", async () => {
+    responder = () =>
+      okResponse(
+        holdStream([
+          'event: delta\ndata: {"reply_to":"m1","offset":0,"text":"第一段"}\n\n',
+          'event: delta\ndata: {"reply_to":"m1","offset":3,"text":"小节"}\n\n',
+        ])
+      );
+    const { result } = renderHook(
+      () => useReplyStream({ identityId: "ada", retryBaseMs: 1 }),
+      { wrapper: makeWrapper(makeClient()) }
+    );
+
+    // 「第一段」是 9 字节；offset=3 落在「第」之后（3 字节边界）。
+    await waitFor(() => expect(result.current.reply?.text).toBe("第小节"));
+  });
+
+  it("offset=0 是重建快照：整段替换而非追加", async () => {
+    responder = () =>
+      okResponse(
+        holdStream([
+          'event: delta\ndata: {"reply_to":"m1","offset":0,"text":"旧的长文本"}\n\n',
+          'event: delta\ndata: {"reply_to":"m1","offset":0,"text":"新文本"}\n\n',
+        ])
+      );
+    const { result } = renderHook(
+      () => useReplyStream({ identityId: "ada", retryBaseMs: 1 }),
+      { wrapper: makeWrapper(makeClient()) }
+    );
+
+    await waitFor(() => expect(result.current.reply?.text).toBe("新文本"));
+  });
+
+  it("断线重连按 id 行携带 Last-Event-ID，续接不重放", async () => {
+    let attempt = 0;
+    responder = () => {
+      attempt += 1;
+      if (attempt === 1) {
+        return okResponse(
+          doneStream([
+            'id: 1\nevent: delta\ndata: {"reply_to":"m1","offset":0,"text":"甲"}\n\n',
+            'id: 2\nevent: delta\ndata: {"reply_to":"m1","offset":3,"text":"乙"}\n\n',
+          ])
+        );
+      }
+      return okResponse(holdStream([]));
+    };
+    const { result } = renderHook(
+      () => useReplyStream({ identityId: "ada", retryBaseMs: 1 }),
+      { wrapper: makeWrapper(makeClient()) }
+    );
+
+    await waitFor(() => expect(result.current.reply?.text).toBe("甲乙"));
+    await waitFor(() => expect(calls.length).toBe(2));
+    expect(new Headers(calls[0]?.init?.headers).get("Last-Event-ID")).toBeNull();
+    expect(new Headers(calls[1]?.init?.headers).get("Last-Event-ID")).toBe("2");
+  });
+
+  it("偏移缺口触发重同步：清空锚点重连取快照重建", async () => {
+    let attempt = 0;
+    responder = (call) => {
+      attempt += 1;
+      if (attempt === 1) {
+        return okResponse(
+          abortableStream(
+            [
+              'id: 1\nevent: delta\ndata: {"reply_to":"m1","offset":0,"text":"前半"}\n\n',
+              'id: 2\nevent: delta\ndata: {"reply_to":"m1","offset":99,"text":"缺口后的片段"}\n\n',
+            ],
+            call.init?.signal
+          )
+        );
+      }
+      return okResponse(
+        holdStream([
+          'event: delta\ndata: {"reply_to":"m1","offset":0,"text":"前半后半完整快照"}\n\n',
+        ])
+      );
+    };
+    const { result } = renderHook(
+      () => useReplyStream({ identityId: "ada", retryBaseMs: 1 }),
+      { wrapper: makeWrapper(makeClient()) }
+    );
+
+    // offset=99 越过已收 6 字节：不拼接缺片段，作废锚点重连；快照帧
+    // （无 id 行）不带 Last-Event-ID。
+    await waitFor(() =>
+      expect(result.current.reply?.text).toBe("前半后半完整快照")
+    );
+    expect(calls.length).toBe(2);
+    expect(new Headers(calls[1]?.init?.headers).get("Last-Event-ID")).toBeNull();
+  });
+
+  it("live 状态镜像到 liveRef（健康 SSE 期间跳过快轮询的依据）", async () => {
+    responder = () =>
+      okResponse(
+        holdStream(['event: status\ndata: {"replying":true,"reply_to":"m1"}\n\n'])
+      );
+    const liveRef = { current: false };
+    const { result } = renderHook(
+      () => useReplyStream({ identityId: "ada", liveRef, retryBaseMs: 1 }),
+      { wrapper: makeWrapper(makeClient()) }
+    );
+
+    await waitFor(() => expect(result.current.live).toBe(true));
+    expect(liveRef.current).toBe(true);
   });
 });

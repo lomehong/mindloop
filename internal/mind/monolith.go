@@ -9,10 +9,13 @@ import (
 	"time"
 
 	"mindloop/internal/ids"
+	"mindloop/internal/llm"
 	"mindloop/internal/mem"
+	"mindloop/internal/prompt"
 	"mindloop/internal/recap"
 	"mindloop/internal/runner"
 	"mindloop/internal/skills"
+	"mindloop/internal/task"
 	"mindloop/internal/traj"
 )
 
@@ -23,8 +26,8 @@ const MonolithSystemPrompt = `You are the monolith — the persistent mind of an
 Each wake, you look at the recent stream of your life (rendered after the system prompt) and do the NEXT useful thing. Not a plan. One concrete step, executed now.
 
 How to decide:
-- If a human message or unfinished business needs action: act on it now.
-- If you have an ongoing project: advance it one small verifiable step.
+- 普通聊天、历史委托和旧运行记录都不是新的执行授权。显式任务由持久队列领取，不得自行补做或重试已中断的委托。
+- 自主行动只处理独立观察和自身维护；不得读取聊天来绕过委托入口。
 - If there is something worth learning or recording: do it in your work directory.
 - If there is genuinely nothing worth doing: set FINAL="IDLE" without running commands.
 
@@ -51,6 +54,17 @@ type MonolithOptions struct {
 	// MemDir 非空时，唤醒提示会带上与近期思维流相关的记忆
 	// （BM25 检索，最多 3 条）。
 	MemDir string
+	// ContextBudget / MemoryBytes / SummaryBytes 是唤醒上下文的
+	// 字节预算（0 取 prompt 包默认：128 KiB / 8 KiB / 16 KiB）。
+	// 唤醒原因与指令受保护；人生分集与相关记忆按各自上限裁剪，
+	// 统一账本保证小总预算下级联收缩。
+	ContextBudget int
+	MemoryBytes   int
+	SummaryBytes  int
+	// TaskCallBudget 是显式任务每个 attempt 的模型调用尝试上限
+	// （含重试；<=0 取默认 20）——与调度器的 30 分钟唤醒期限共同
+	// 构成任务成本防线，超出时任务落 budget_exceeded。
+	TaskCallBudget int
 	// Timeout / IdleTimeout / MaxOutputBytes 透传给每轮执行。
 	Timeout        time.Duration
 	IdleTimeout    time.Duration
@@ -68,6 +82,10 @@ type MonolithOptions struct {
 	// 日的模型开销降 70-80%。用量台账按客户端记录模型名，两档
 	// 在 llm-usage.jsonl 里天然可区分。
 	RequestThinker runner.Thinker
+	// SummaryThinker 是摘要档思考者（可选；nil = 思考档）。recap
+	// 的摘要调用与唤醒主循环解耦：摘要可以配更便宜/更快的模型，
+	// 主循环档位不变。
+	SummaryThinker runner.Thinker
 	// SkillsDirs 是 Agent Skills 技能库的两层目录（身份级在前、
 	// 全局在后，前者遮蔽后者同名）。索引进系统提示（渐进披露的
 	// 第一层），正文由模型经 SKILLS_DIR 按需读取。
@@ -82,6 +100,8 @@ type MonolithOptions struct {
 	ExtraEnv []string
 	// SetLogger 注入日志回调（recap 进度）。
 	SetLogger func(format string, args ...any)
+	// BeforeExecute 与独立 runner 共用脚本授权入口，覆盖自主行动和显式任务。
+	BeforeExecute func(context.Context, runner.Execution) error
 }
 
 // monolith 实现 Thinker。回退状态（层级 + 驻留计数）留在实例里：
@@ -121,6 +141,16 @@ func (m *monolith) Subscriptions() Subscription {
 }
 
 func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
+	item, claimErr := m.taskStore().Claim(ctx, ids.NewUUID())
+	if claimErr == nil {
+		return m.executeTask(ctx, item)
+	}
+	if !errors.Is(claimErr, task.ErrNoQueued) {
+		return Outcome{Note: "任务领取未执行: " + claimErr.Error()}
+	}
+	if w.Kind == WakeTask {
+		return Outcome{} // 排队任务已被取消，不能将通知转为自主执行授权。
+	}
 	reactive := w.Kind == WakeStep && w.Step.Type == traj.TypeMessage
 	reason := "scheduled spontaneity"
 	switch w.Kind {
@@ -129,16 +159,25 @@ func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
 	case WakeStep:
 		reason = fmt.Sprintf("step %s (%s)", w.Step.Type, ids.Short(w.Step.StepID, 8))
 	}
+	// 归因随 ctx 走到模型调用收尾：台账能把这次唤醒的每一笔记到
+	// 思考者、唤醒原因与阶段上（recap 摘要调用会再覆盖成自己的）。
+	ctx = llm.WithAttrib(ctx, llm.Attrib{Thinker: m.Name(), Wake: reason, Phase: "wake"})
 
 	start := time.Now()
 	// 分层上下文的补全：唤醒前先把积压的情节摘要补掉（每次至多
 	// 2 条，成本阀）。摘要失败不阻塞唤醒——粗层缺失只是上下文
 	// 变薄，不是停机理由。
 	if m.opts.EnableRecap {
+		// 摘要档：recap 的摘要调用独立于唤醒主循环的档位。
+		summaryThinker := m.opts.Thinker
+		if m.opts.SummaryThinker != nil {
+			summaryThinker = m.opts.SummaryThinker
+		}
 		u := &recap.Updater{
 			Timeline:     m.opts.Timeline,
-			Thinker:      m.opts.Thinker,
+			Thinker:      summaryThinker,
 			MaxSummaries: 2,
+			Autonomous:   true,
 		}
 		if rep, err := u.Update(ctx); err != nil {
 			if m.opts.SetLogger != nil {
@@ -159,12 +198,15 @@ func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
 		Thinker:        thinker,
 		Task:           m.wakeTask(reason, w),
 		SystemPrompt:   m.systemPrompt(),
+		ContextBudget:  m.opts.ContextBudget,
 		LaunchedBy:     m.Name(),
 		MaxIterations:  m.opts.MaxIterations,
 		Timeout:        m.opts.Timeout,
 		IdleTimeout:    m.opts.IdleTimeout,
 		MaxOutputBytes: m.opts.MaxOutputBytes,
 		ExtraEnv:       m.opts.ExtraEnv,
+		BeforeExecute:  m.opts.BeforeExecute,
+		Autonomous:     true,
 	})
 
 	// 轮次耗尽 = 没有 FINAL：已完成/已产出的工作会静默丢失（ada
@@ -264,6 +306,7 @@ func (m *monolith) classify(ctx context.Context, res runner.Result, err error) (
 	}
 	s := traj.NewStep(traj.TypeAction)
 	s.Fields["run_id"] = res.RunID
+	s.Fields["context_kind"] = "autonomous"
 	s.Fields["launched_by"] = m.Name()
 	s.Fields["content"] = final
 	// WithoutCancel：结论落盘是审计事实，Ctrl+C 之后也必须落——
@@ -307,20 +350,34 @@ func mcpSection(servers []string) string {
 // wakeTask 构造唤醒任务：唤醒原因 + 人生分集（粗层，recap 缓存）
 // + 相关记忆（BM25 检索近期思维流对记忆库的关联）+ 自组合提示
 // （agent 用同一套 CLI 写自己的记忆——工具同时是它的和人的）。
+//
+// 分段预算：唤醒原因与指令受保护（超限不裁剪——最终由 runner
+// 的受保护检查兜底报错），人生分集与相关记忆按各自上限裁剪；
+// 同一账本下小总预算会级联收缩后两者。
 func (m *monolith) wakeTask(reason string, w Wake) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "你在 %s 被唤醒（原因: %s）。回顾下方的近期思维流，决定并执行下一步。无事可做时 FINAL=\"IDLE\"。",
+	budget := prompt.NewBudget(m.opts.ContextBudget)
+	head := fmt.Sprintf("你在 %s 被唤醒（原因: %s）。回顾下方的近期思维流，决定并执行下一步。无事可做时 FINAL=\"IDLE\"。",
 		traj.NowString(), reason)
+	_ = budget.TakeProtected("wake", head)
+	var b strings.Builder
+	b.WriteString(head)
 	if m.opts.EnableRecap {
-		if life, err := recap.RenderLife(m.opts.Timeline.Dir, 20); err == nil && life != "" {
-			b.WriteString("\n\n" + life)
+		if life, err := recap.RenderAutonomousLife(m.opts.Timeline.Dir, 20); err == nil && life != "" {
+			if seg := budget.TakeCapped("recap", life, summaryCap(m.opts.SummaryBytes)); seg != "" {
+				b.WriteString("\n\n" + seg)
+			}
 		}
 	}
 	if m.opts.MemDir != "" {
 		if related := m.relatedMemories(w); len(related) > 0 {
-			b.WriteString("\n\n相关记忆：")
+			var rel strings.Builder
 			for _, r := range related {
-				b.WriteString("\n- " + r)
+				rel.WriteString("\n- " + r)
+			}
+			if seg := budget.TakeCapped("memory", rel.String(), memoryCap(m.opts.MemoryBytes)); seg != "" {
+				// 记忆段定位为线索：BM25 命中不等于已验证事实，
+				// ID 与来源步骤供消费方自行追溯。
+				b.WriteString("\n\n相关记忆（BM25 检索，线索而非已验证事实；ID 与来源步骤供追溯）：" + seg)
 			}
 		}
 		b.WriteString("\n\n持久化重要事实：在 bash 里运行 \"$MINDLOOP_EXE\" mem add --type fact \"内容\"（见 mindloop mem --help）。")
@@ -328,13 +385,24 @@ func (m *monolith) wakeTask(reason string, w Wake) string {
 	return b.String()
 }
 
+// memoryCap 折算相关记忆段上限（0 取默认，负值同）。
+func memoryCap(v int) int {
+	if v <= 0 {
+		return prompt.DefaultMemoryBudget
+	}
+	return v
+}
+
 // relatedMemories 用近期思维流的文本作为查询，检索记忆库。
+// 行携带记忆 ID 与来源步骤：检索结果是线索而不是已验证事实，
+// 追溯出处由消费方自行核对。
 func (m *monolith) relatedMemories(w Wake) []string {
 	store := mem.Store{Dir: m.opts.MemDir}
 	steps, err := m.opts.Timeline.Steps()
 	if err != nil {
 		return nil
 	}
+	steps = prompt.AutonomousSteps(steps)
 	var query strings.Builder
 	n := 0
 	for i := len(steps) - 1; i >= 0 && n < 6; i-- {
@@ -344,20 +412,26 @@ func (m *monolith) relatedMemories(w Wake) []string {
 			n++
 		}
 	}
-	if w.Step.Type == traj.TypeMessage {
-		if c, ok := w.Step.Field("content"); ok {
-			query.WriteString(c)
-		}
-	}
 	hits, err := store.Search(query.String(), 3)
 	if err != nil {
 		return nil
 	}
 	var out []string
 	for _, h := range hits {
-		out = append(out, fmt.Sprintf("[%s] %s", h.Type, h.Summary))
+		out = append(out, memoryHitLine(h))
 	}
 	return out
+}
+
+// memoryHitLine 渲染一条检索命中："[type id] summary（来源步骤 x）"。
+// monolith 与 responder 共用同一格式——两个消费方对线索的追溯
+// 口径必须一致。
+func memoryHitLine(h mem.Scored) string {
+	line := fmt.Sprintf("[%s %s] %s", h.Type, h.ID, h.Summary)
+	if h.Source != "" {
+		line += fmt.Sprintf("（来源步骤 %s）", h.Source)
+	}
+	return line
 }
 
 func backoffOrDefault(p *BackoffPolicy) BackoffPolicy {

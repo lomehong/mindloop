@@ -6,7 +6,9 @@ import { toast } from "sonner";
 
 import { IdentityTabs } from "~/components/identity-tabs";
 import { ModelConfigSection } from "~/components/model-config";
+import { ProviderProfilesSection } from "~/components/provider-profiles";
 import { QueryErrorBanner } from "~/components/query-error-banner";
+import { AuthenticatedDownload } from "~/components/authenticated-download";
 import { ConfirmDialog } from "~/components/confirm-dialog";
 import { useControlsEnabled } from "~/components/thinker-controls";
 import { Badge } from "~/components/ui/badge";
@@ -350,16 +352,16 @@ function ExportSection({ identityId }: { identityId: string }) {
                 className="flex flex-wrap items-center gap-3"
               >
                 {job.status === "done" ? (
-                  <Button size="sm" variant="secondary" asChild>
-                    <a
-                      href={exportJobDownloadUrl(job)}
-                      download={job.filename ?? undefined}
-                    >
-                      <Download className="size-3" />
-                      {job.filename}
-                      {job.size !== null && ` (${formatBytes(job.size)})`}
-                    </a>
-                  </Button>
+                  <AuthenticatedDownload
+                    size="sm"
+                    variant="secondary"
+                    url={exportJobDownloadUrl(job)}
+                    filename={job.filename ?? `${job.job_id}.tgz`}
+                  >
+                    <Download className="size-3" />
+                    {job.filename ?? "下载归档"}
+                    {job.size !== null && ` (${formatBytes(job.size)})`}
+                  </AuthenticatedDownload>
                 ) : (
                   <span
                     className={
@@ -443,6 +445,8 @@ export default function ConfigPage() {
         active="config"
       />
       <div className="mx-auto w-full max-w-4xl">
+
+      <ProviderProfilesSection identityId={identityId} />
 
       <ModelConfigSection identityId={identityId} env={env} />
 

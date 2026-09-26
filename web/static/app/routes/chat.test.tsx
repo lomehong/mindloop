@@ -23,6 +23,7 @@ const sendChat = vi.fn(
     ok: true,
     from,
     to: "ada",
+    step_id: "s-mock",
   })
 );
 
@@ -112,7 +113,12 @@ describe("chat composer", () => {
     fireEvent.change(box, { target: { value: "hello there" } });
     fireEvent.keyDown(box, { key: "Enter" });
     await waitFor(() => expect(sendChat).toHaveBeenCalledTimes(1));
-    expect(sendChat).toHaveBeenCalledWith("ada", "hello there", "you");
+    expect(sendChat).toHaveBeenCalledWith(
+      "ada",
+      "hello there",
+      "you",
+      expect.any(String)
+    );
     await waitFor(() =>
       expect((box as HTMLTextAreaElement).value).toBe("")
     );

@@ -1,3 +1,13 @@
+// model-config.tsx 模型档位区：三档（主/请求/摘要）各一行 =
+// 档案选择 + 模型选择。绑定写入身份 providers.json 的 tiers（候选 =
+// 档案的 models 清单；清单为空时回落常用建议）。显式环境变量
+// （MINDLOOP_MODEL 等）优先于 JSON 绑定——被覆盖的行显示警告并提供
+// 身份级清理（清理后回落到 providers.json 绑定）。
+//
+// 写语义（关键）：PUT 的 tiers 基线是 view.identity_tiers（身份文档
+// 原始档位）——读面 tiers 是两级合并结果，拿它回写会把全局档位固化
+// 进身份文档；profiles 只提交 origin=identity 的行。
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Info, RotateCcw } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -6,44 +16,57 @@ import { toast } from "sonner";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "~/components/ui/select";
+import { LoadingDots } from "~/components/ui/loading-dots";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "~/components/ui/tooltip";
 import { useControlsEnabled } from "~/components/thinker-controls";
-import { deleteEnvVar, fetchOpenRouterModels, putEnvVar } from "~/lib/api";
-import type { IdentityEnv, OpenRouterModels } from "~/lib/types";
+import {
+  deleteEnvVar,
+  fetchLlmConfig,
+  fetchLlmProviders,
+  fetchOpenRouterModels,
+  saveLlmProviders,
+} from "~/lib/api";
+import type {
+  EnvEntry,
+  IdentityEnv,
+  LlmProviderProfileInput,
+  LlmProviderProfileView,
+  LlmTierBinding,
+  LlmTierResolved,
+} from "~/lib/types";
 
-/* 旋钮语义对齐 mindloop 的真实配置面（.env.example）——这些键由
- * mind run / chat 启动时加载的身份 .env 提供值。 */
-const MODEL_KNOBS: { key: string; label: string; tip: string }[] = [
+/* 三档旋钮语义对齐 providers.json（tiers）与 .env 旧键：env 键非空
+ * 时优先于 JSON 绑定，与 CLI 解析器（config.ResolveTier）一致。 */
+const TIER_KNOBS: { tier: string; envKey: string; label: string; tip: string }[] = [
   {
-    key: "MINDLOOP_MODEL",
+    tier: "think",
+    envKey: "MINDLOOP_MODEL",
     label: "主模型",
-    tip: "所有模型调用的默认：monolith 行动、responder 回复、recap 摘要都用它。claude-* 自动走 Anthropic；echo 是本地占位（不联网）；glm-* 自动落到智谱端点，其余走 openai-compatible。",
+    tip: "所有模型调用的默认：monolith 行动、responder 回复等。绑定档案走 providers.json；显式环境变量 MINDLOOP_MODEL 优先。",
   },
   {
-    key: "MINDLOOP_REQUEST_MODEL",
-    label: "请求档模型",
-    tip: "反应式唤醒（人类来话、外部产物）用的模型；自发的空闲唤醒仍走主模型——分层后安静日的模型开销可降一大截。未设置或不可用时自动回落主模型。",
+    tier: "request",
+    envKey: "MINDLOOP_REQUEST_MODEL",
+    label: "请求档",
+    tip: "反应式唤醒（人类来话、外部产物）用的模型；自发的空闲唤醒仍走主模型。未绑定或不可用时自动回落主模型。",
+  },
+  {
+    tier: "summary",
+    envKey: "MINDLOOP_SUMMARY_MODEL",
+    label: "摘要档",
+    tip: "recap 摘要与记忆归纳用的模型；未绑定或不可用时自动回落主模型。",
   },
 ];
 
-/* 常用选择——可自由编辑；任何模型都能经"自定义"手动输入。
- * 供应商标识按模型名自动推断（glm-* → 智谱、claude-* → Anthropic）。 */
+/* 常用建议——档案未列模型清单时的兜底候选；任何模型都能经
+ * "自定义"手动输入。 */
 const MODEL_OPTIONS: { group: string; models: string[] }[] = [
   {
-    group: "智谱（直接，glm-* 自动端点）",
+    group: "智谱（glm-* 自动端点）",
     models: ["glm-5", "glm-4.5-air", "glm-4-flash"],
   },
   {
@@ -66,74 +89,80 @@ const MODEL_OPTIONS: { group: string; models: string[] }[] = [
 ];
 
 const CUSTOM = "__custom__";
-const ALL_OPTION_VALUES = new Set(
-  MODEL_OPTIONS.flatMap((g) => g.models)
-);
 const OPENROUTER_DATALIST_ID = "openrouter-model-ids";
 
-// 来源徽标的中文文案。
-const SOURCE_LABELS: Record<string, string> = {
-  identity: "身份级",
-  inherited: "继承",
-  default: "默认",
-};
+/** 档案视图 → PUT 输入（与 provider-profiles.tsx 的同名助手对齐：
+ * 两处都只提交身份级档案，全局档案不回写）。 */
+function viewToInput(p: LlmProviderProfileView): LlmProviderProfileInput {
+  const input: LlmProviderProfileInput = { id: p.id, base_url: p.base_url };
+  if (p.label) input.label = p.label;
+  if (p.provider) input.provider = p.provider;
+  if (p.api_key_env) input.api_key_env = p.api_key_env;
+  if (p.models.length) input.models = p.models;
+  return input;
+}
 
-function ModelRow({
-  identityId,
+function modelOptionLabel(model: { id: string }): string {
+  return model.id;
+}
+
+function TierRow({
   knob,
-  env,
-  catalog,
+  profiles,
+  binding,
+  inherited,
+  resolved,
+  identityEnvEntry,
+  controlsEnabled,
+  savePending,
+  onBind,
+  onClear,
+  onCleanupEnv,
 }: {
-  identityId: string;
-  knob: (typeof MODEL_KNOBS)[number];
-  env: IdentityEnv;
-  catalog?: OpenRouterModels;
+  knob: (typeof TIER_KNOBS)[number];
+  profiles: LlmProviderProfileView[];
+  binding?: LlmTierBinding;
+  inherited?: LlmTierBinding;
+  resolved?: LlmTierResolved;
+  identityEnvEntry?: EnvEntry;
+  controlsEnabled: boolean;
+  savePending: boolean;
+  onBind: (tier: string, binding: LlmTierBinding) => void;
+  onClear: (tier: string) => void;
+  onCleanupEnv: (key: string) => void;
 }) {
-  const controlsEnabled = useControlsEnabled();
-  const queryClient = useQueryClient();
-  const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: ["env", identityId] });
+  const [profileDraft, setProfileDraft] = useState<string | null>(null);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customDraft, setCustomDraft] = useState("");
 
-  const identityEntry = env.env.find((e) => e.key === knob.key);
-  const inheritedEntry = env.inherited.find((e) => e.key === knob.key);
-  const effective = identityEntry?.value ?? inheritedEntry?.value ?? "";
-  const source = identityEntry
-    ? "identity"
-    : inheritedEntry
-      ? "inherited"
-      : "default";
-
-  const [customDraft, setCustomDraft] = useState<string | null>(null);
-
-  // 只有目录是按 key 过滤的列表时才有意义：配置了的 OpenRouter 形
-  // 式模型（vendor/name）不在列表里就不可用。
-  const unavailable =
-    catalog?.source === "key" &&
-    effective.includes("/") &&
-    !catalog.models.some((m) => m.id === effective);
-
-  const save = useMutation({
-    mutationFn: (value: string) => putEnvVar(identityId, knob.key, value),
-    onSuccess: (entry) => {
-      toast.success(`已保存 ${entry.key}——重启思考者后生效`);
-      setCustomDraft(null);
-      invalidate();
-    },
-    onError: (error: Error) => toast.error(error.message),
-  });
-  const remove = useMutation({
-    mutationFn: () => deleteEnvVar(identityId, knob.key),
-    onSuccess: () => {
-      toast.success(`已清除 ${knob.key}`);
-      invalidate();
-    },
-    onError: (error: Error) => toast.error(error.message),
-  });
+  const profileId = profileDraft ?? binding?.profile ?? "";
+  const profile = profiles.find((p) => p.id === profileId);
+  // 候选：档案 models 清单；清单为空才回落常用建议（兜底）。
+  const fallback = profile !== undefined && profile.models.length === 0;
+  const groups =
+    profile === undefined
+      ? []
+      : fallback
+        ? MODEL_OPTIONS
+        : [
+            {
+              group: `${profile.label || profile.id}（档案清单）`,
+              models: profile.models,
+            },
+          ];
+  const modelInCandidates =
+    binding !== undefined &&
+    binding.profile === profileId &&
+    groups.some((g) => g.models.includes(binding.model));
+  const currentModel = binding?.profile === profileId ? binding.model : "";
 
   return (
     <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2 last:border-b-0">
-      <div className="flex w-56 items-center gap-1.5">
-        <span className="font-mono text-xs font-medium">{knob.key}</span>
+      <div className="flex w-52 items-center gap-1.5">
+        <span className="text-xs font-medium">{knob.label}</span>
+        <span className="font-mono text-[10px] text-muted-foreground">
+          {knob.envKey}
+        </span>
         <Tooltip>
           <TooltipTrigger asChild>
             <Info className="size-3 shrink-0 cursor-help text-muted-foreground" />
@@ -144,146 +173,190 @@ function ModelRow({
         </Tooltip>
       </div>
 
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        {customDraft !== null ? (
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <select
+          aria-label={`${knob.label} 档案选择`}
+          disabled={!controlsEnabled || savePending}
+          value={profileId}
+          onChange={(event) => {
+            setProfileDraft(event.target.value);
+            setCustomOpen(false);
+          }}
+          className="h-8 rounded-md border bg-transparent px-2 font-mono text-xs"
+        >
+          <option value="">（不绑定）</option>
+          {profiles.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label || p.id}
+              {p.origin === "global" ? "（全局）" : ""}
+            </option>
+          ))}
+        </select>
+
+        {customOpen ? (
           <form
-            className="flex flex-1 items-center gap-2"
+            className="flex items-center gap-2"
             onSubmit={(event) => {
               event.preventDefault();
-              if (customDraft.trim()) save.mutate(customDraft.trim());
+              if (customDraft.trim() && profile) {
+                onBind(knob.tier, {
+                  profile: profile.id,
+                  model: customDraft.trim(),
+                });
+                setCustomOpen(false);
+                setCustomDraft("");
+              }
             }}
           >
             <Input
               autoFocus
+              aria-label={`${knob.label} 自定义模型`}
               value={customDraft}
               onChange={(event) => setCustomDraft(event.target.value)}
-              placeholder={
-                catalog?.source === "key"
-                  ? `输入以搜索此 key 可用的 ${catalog.count} 个模型…`
-                  : "vendor/model 或 claude-…"
-              }
+              placeholder="模型 id，如 glm-4.6"
               list={OPENROUTER_DATALIST_ID}
-              className="h-8 flex-1 font-mono text-xs"
+              className="h-8 w-56 font-mono text-xs"
             />
-            <Button type="submit" size="sm" disabled={save.isPending}>
+            <Button type="submit" size="sm" disabled={savePending}>
               保存
             </Button>
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => setCustomDraft(null)}
+              onClick={() => {
+                setCustomOpen(false);
+                setCustomDraft("");
+              }}
             >
               取消
             </Button>
           </form>
         ) : (
-          <>
-            <Select
-              /* key 在值变化时强制重挂载——否则 Radix 会在 value 回到
-               * undefined 时保留上次的选择，清除后显示过期模型。 */
-              key={effective}
-              disabled={!controlsEnabled || save.isPending}
-              value={ALL_OPTION_VALUES.has(effective) ? effective : undefined}
-              onValueChange={(value) => {
-                if (value === CUSTOM) setCustomDraft(effective);
-                else if (value !== effective) save.mutate(value);
-              }}
-            >
-              <SelectTrigger size="sm" className="min-w-56 font-mono text-xs">
-                <SelectValue
-                  placeholder={
-                    effective || "（未设置——用内置默认）"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {MODEL_OPTIONS.map((group) => (
-                  <SelectGroup key={group.group}>
-                    <SelectLabel className="text-[11px]">{group.group}</SelectLabel>
-                    {group.models
-                      // key 过滤目录下，剔除该 key 用不了的 OpenRouter
-                      // 条目（vendor/name）。claude-* 不归 OpenRouter 管。
-                      .filter(
-                        (model) =>
-                          catalog?.source !== "key" ||
-                          !model.includes("/") ||
-                          catalog.models.some((m) => m.id === model)
-                      )
-                      .map((model) => (
-                        <SelectItem
-                          key={model}
-                          value={model}
-                          className="font-mono text-xs"
-                        >
-                          {model}
-                        </SelectItem>
-                      ))}
-                  </SelectGroup>
+          <select
+            aria-label={`${knob.label} 模型选择`}
+            disabled={!controlsEnabled || !profile || savePending}
+            value={modelInCandidates ? currentModel : ""}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (value === CUSTOM) {
+                setCustomOpen(true);
+                setCustomDraft(currentModel);
+                return;
+              }
+              if (value && profile) {
+                onBind(knob.tier, { profile: profile.id, model: value });
+              }
+            }}
+            className="h-8 min-w-56 rounded-md border bg-transparent px-2 font-mono text-xs"
+          >
+            <option value="" disabled>
+              {profile ? "选择模型…" : "绑定档案后可选模型"}
+            </option>
+            {groups.map((group) => (
+              <optgroup key={group.group} label={group.group}>
+                {group.models.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
                 ))}
-                <SelectItem value={CUSTOM} className="text-xs">
-                  自定义…
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <Badge variant="outline" className="text-[10px]">
-              {SOURCE_LABELS[source] ?? source}
-            </Badge>
-            {unavailable && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Badge variant="destructive" className="text-[10px]">
-                    此 key 不可用
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs text-xs">
-                  此 OpenRouter key 的模型列表里没有 {effective}
-                  ——检查模型 id，或组织层的模型/供应商设置。
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {controlsEnabled && identityEntry && (
+              </optgroup>
+            ))}
+            {profile && <option value={CUSTOM}>自定义…</option>}
+          </select>
+        )}
+
+        {fallback && (
+          <span className="text-[10px] text-muted-foreground">
+            档案未列模型清单——显示常用建议
+          </span>
+        )}
+        {!binding && inherited && (
+          <span className="text-[10px] text-muted-foreground">
+            继承全局绑定：{inherited.profile} / {inherited.model}
+          </span>
+        )}
+
+        {resolved?.error ? (
+          <span className="text-xs text-destructive">
+            配置错误：{resolved.error}
+          </span>
+        ) : resolved?.source === "env" ? (
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="destructive" className="text-[10px]">
+                  env 覆盖中
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-xs">
+                显式环境变量 {knob.envKey} 优先于 providers.json 绑定——
+                {identityEnvEntry
+                  ? "清除身份级覆盖后回落到 JSON 绑定。"
+                  : "由进程环境或服务根 .env 提供，请在对应处移除。"}
+              </TooltipContent>
+            </Tooltip>
+            <span className="font-mono text-[10px] text-muted-foreground">
+              生效 {resolved.model}
+            </span>
+            {identityEnvEntry && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    disabled={remove.isPending}
-                    onClick={() => remove.mutate()}
+                    aria-label={`清理覆盖 ${knob.label}`}
+                    disabled={savePending}
+                    onClick={() => onCleanupEnv(knob.envKey)}
                   >
                     <RotateCcw className="size-3" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent className="text-xs">
-                  清除身份级覆盖——回落到{" "}
-                  {inheritedEntry
-                    ? `继承值（${inheritedEntry.value}）`
-                    : "内置默认"}
+                  清除身份级 {knob.envKey}——回落到 providers.json 绑定
                 </TooltipContent>
               </Tooltip>
             )}
           </>
+        ) : resolved?.source === "providers.json" ? (
+          <>
+            <Badge variant="outline" className="text-[10px]">
+              providers.json
+            </Badge>
+            <span className="font-mono text-[10px] text-muted-foreground">
+              生效 {resolved.model}
+            </span>
+          </>
+        ) : (
+          <span className="text-[10px] text-muted-foreground">未配置</span>
+        )}
+
+        {binding && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={`清除绑定 ${knob.label}`}
+                disabled={savePending}
+                onClick={() => onClear(knob.tier)}
+              >
+                清除绑定
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="text-xs">
+              移除身份级 providers.json 的 {knob.tier} 档位条目
+              {inherited ? `——回落到全局绑定（${inherited.profile}）` : ""}
+            </TooltipContent>
+          </Tooltip>
         )}
       </div>
     </div>
   );
 }
 
-/** 快速模型配置：最常改的模型旋钮 + 常用候选，新身份不必手写
- * 环境变量。写入的正是下方表格编辑的同一份身份 .env。 */
-/* datalist 的 label 必须以 id 开头：Firefox 的弹出层只显示 label，
- * 详见原实现注释。 */
-function modelOptionLabel(model: OpenRouterModels["models"][number]): string {
-  const parts: string[] = [model.id];
-  if (model.prompt_usd_per_m != null && model.completion_usd_per_m != null)
-    parts.push(
-      `$${model.prompt_usd_per_m}/M 入 · $${model.completion_usd_per_m}/M 出`
-    );
-  if (model.context_length)
-    parts.push(`${Math.round(model.context_length / 1000)}k 上下文`);
-  return parts.join(" — ");
-}
-
+/** 模型档位区：档位绑定写入身份 providers.json（与「提供商档案」区
+ * 同一份文档、同一个 PUT 端点）。 */
 export function ModelConfigSection({
   identityId,
   env,
@@ -291,6 +364,17 @@ export function ModelConfigSection({
   identityId: string;
   env: IdentityEnv;
 }) {
+  const controlsEnabled = useControlsEnabled();
+  const queryClient = useQueryClient();
+
+  const { data: view } = useQuery({
+    queryKey: ["llm-providers", identityId],
+    queryFn: () => fetchLlmProviders(identityId),
+  });
+  const { data: config } = useQuery({
+    queryKey: ["llm-config", identityId],
+    queryFn: () => fetchLlmConfig(identityId),
+  });
   const { data: catalog } = useQuery({
     queryKey: ["openrouter-models"],
     queryFn: fetchOpenRouterModels,
@@ -298,46 +382,108 @@ export function ModelConfigSection({
     retry: 1,
   });
 
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["llm-providers", identityId] });
+    queryClient.invalidateQueries({ queryKey: ["llm-config", identityId] });
+    queryClient.invalidateQueries({ queryKey: ["env", identityId] });
+  };
+
+  // 写面基线是身份级原始档位：读面 tiers 是合并结果，不回写。
+  const save = useMutation({
+    mutationFn: (nextTiers: Record<string, LlmTierBinding>) =>
+      saveLlmProviders(identityId, {
+        version: view?.version ?? 1,
+        profiles: (view?.profiles ?? [])
+          .filter((p) => p.origin === "identity")
+          .map(viewToInput),
+        tiers: nextTiers,
+      }),
+    onSuccess: () => {
+      toast.success("档位绑定已保存——重启思考者后生效");
+      invalidate();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const cleanup = useMutation({
+    mutationFn: (key: string) => deleteEnvVar(identityId, key),
+    onSuccess: (entry) => {
+      toast.success(`已清除 ${entry.key}`);
+      invalidate();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const datalist = useMemo(
     () =>
       (catalog?.models ?? []).map((model) => (
-        <option
-          key={model.id}
-          value={model.id}
-          label={modelOptionLabel(model)}
-        />
+        <option key={model.id} value={model.id} label={modelOptionLabel(model)} />
       )),
     [catalog]
   );
 
-  const catalogNote =
-    catalog?.source === "key"
-      ? `此 key 可用 ${catalog.count} 个 OpenRouter 模型。`
-      : catalog?.source === "public"
-        ? `OpenRouter 公共目录共 ${catalog.count} 个模型（未配 key——可用性未校验）。`
-        : catalog?.error
-          ? "OpenRouter 目录不可达——仍可在“自定义”里手动输入。"
-          : null;
+  if (!view) {
+    return (
+      <section className="mb-8">
+        <div className="flex justify-center py-10">
+          <LoadingDots />
+        </div>
+      </section>
+    );
+  }
+
+  const identityTiers = view.identity_tiers;
+  const catalogNote = catalog?.error
+    ? "OpenRouter 目录不可达——自定义输入仍可用。"
+    : catalog
+      ? `自定义输入带 OpenRouter 公共目录 ${catalog.count} 个模型的自动补全。`
+      : null;
 
   return (
     <section className="mb-8">
       <div className="mb-2 flex items-baseline gap-3">
         <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          模型
+          模型档位
         </h2>
         <span className="text-[11px] text-muted-foreground">
-          常用模型配置（写入身份 .env，mind run / chat 启动时加载；显式环境变量优先）。
-          运行中的思考者保留启动时的环境——修改后需重启思考者。{catalogNote ? ` ${catalogNote}` : ""}
+          档位绑定写入身份 providers.json（候选来自「提供商档案」的模型清单）；
+          显式环境变量（MINDLOOP_MODEL 等）优先。运行中的思考者保留启动时的配置——修改后需重启思考者。
+          {catalogNote ? ` ${catalogNote}` : ""}
         </span>
       </div>
+
+      {view.error && (
+        <p
+          role="alert"
+          className="mb-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+        >
+          无法读取现有配置：{view.error}
+        </p>
+      )}
+
       <div className="rounded-lg border">
-        {MODEL_KNOBS.map((knob) => (
-          <ModelRow
-            key={knob.key}
-            identityId={identityId}
+        {TIER_KNOBS.map((knob) => (
+          <TierRow
+            key={knob.tier}
             knob={knob}
-            env={env}
-            catalog={catalog}
+            profiles={view.profiles}
+            binding={identityTiers[knob.tier]}
+            inherited={
+              identityTiers[knob.tier] ? undefined : view.tiers[knob.tier]
+            }
+            resolved={config?.tiers[knob.tier as "think" | "request" | "summary"]}
+            identityEnvEntry={env.env.find((e) => e.key === knob.envKey)}
+            controlsEnabled={controlsEnabled}
+            savePending={save.isPending || cleanup.isPending}
+            onBind={(tier, binding) =>
+              save.mutate({ ...identityTiers, [tier]: binding })
+            }
+            onClear={(tier) => {
+              const next = { ...identityTiers };
+              delete next[tier];
+              save.mutate(next);
+            }}
+            onCleanupEnv={(key) => cleanup.mutate(key)}
           />
         ))}
       </div>

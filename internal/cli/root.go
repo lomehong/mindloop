@@ -118,6 +118,7 @@ func (c *CLI) newRootCmd() *cobra.Command {
 		c.newTrajCmd(),
 		c.newPromptCmd(),
 		c.newRunCmd(),
+		c.newApproveCmd(),
 		c.newRecapCmd(),
 		c.newMindCmd(),
 		c.newIdentityCmd(),
@@ -126,6 +127,8 @@ func (c *CLI) newRootCmd() *cobra.Command {
 		c.newTailfCmd(),
 		c.newSkillsCmd(),
 		c.newMCPCmd(),
+		c.newTaskCmd(),
+		c.newLlmCmd(),
 		c.newVersionCmd(),
 	)
 	return root

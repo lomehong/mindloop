@@ -1,21 +1,31 @@
-import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, SendHorizontal } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Bot, ChevronLeft, ListTodo, SendHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
 import {
   ChatBubble,
   PendingChatBubble,
   StreamingChatBubble,
 } from "~/components/chat-bubble";
 import { PushBell } from "~/components/push-bell";
+import { CredentialControl } from "~/components/credential-control";
 import { useControlsEnabled } from "~/components/thinker-controls";
 import { Button } from "~/components/ui/button";
 import { LoadingDots } from "~/components/ui/loading-dots";
 import { Textarea } from "~/components/ui/textarea";
 import { useAutosizeTextarea } from "~/hooks/use-autosize-textarea";
-import { fetchThinkers } from "~/lib/api";
+import { fetchThinkers, submitTask } from "~/lib/api";
 import { getPwaName, pwaSender, setLastIdentity } from "~/lib/pwa";
-import { useChat, useNowTicker, useReplyStream, CHAT_DOTS_WINDOW_MS } from "~/lib/use-chat";
+import type { ChatMessage } from "~/lib/types";
+import {
+  newClientMessageId,
+  nonTaskActivity,
+  useChat,
+  useNowTicker,
+  useReplyStream,
+  CHAT_DOTS_WINDOW_MS,
+} from "~/lib/use-chat";
 import { WorkingCard } from "~/components/working-card";
 import {
   THINKERS_AWAITING_POLL_MS,
@@ -96,6 +106,7 @@ export default function TalkChat() {
     retry,
     isSending,
     isLoading,
+    streamLiveRef,
   } = useChat({
     identityId,
     myName,
@@ -103,7 +114,8 @@ export default function TalkChat() {
     enabled: !!myName,
   });
   // reply = 流式回复；working/activity/stepTotal = 心智干活期间的实时
-  // 活动进度卡；sentAt（lastSentAt）是耗时计时与步数起算的界定点。
+  // 活动进度卡；sentAt（lastSentAt）是耗时计时与步数起算的界定点；
+  // streamLiveRef 镜像 SSE 健康状态，健康期间轮询走慢节奏。
   const {
     reply,
     working,
@@ -113,9 +125,59 @@ export default function TalkChat() {
     identityId,
     enabled: !!myName,
     sentAt: lastSentAt,
+    liveRef: streamLiveRef,
   });
   // 进度可见期间每秒心跳：驱动 mm:ss 计时、点动画 4s 让位窗口。
-  const now = useNowTicker(lastSentAt !== null || working || activity.length > 0);
+  // 进度卡只消费非任务步骤：身份在跑任务时，任务进度不冒充聊天进度。
+  const chatActivity = nonTaskActivity(activity);
+  const now = useNowTicker(lastSentAt !== null || working || chatActivity.length > 0);
+
+  // 显式委托：带幂等键提交（失败重发复用同键，服务端返回原任务而不是
+  // 再落一份）；成功后跳任务页看真实状态，不在这里乐观推断。
+  const submitRef = useRef<{ content: string; clientMessageId: string } | null>(null);
+  const submitTaskMutation = useMutation({
+    mutationFn: (input: {
+      content: string;
+      clientMessageId: string;
+      sourceStepId?: string;
+    }) =>
+      submitTask(identityId, {
+        content: input.content,
+        fromName: myName,
+        clientMessageId: input.clientMessageId,
+        sourceStepId: input.sourceStepId,
+      }),
+    onSuccess: () => {
+      submitRef.current = null;
+      setDraft("");
+      toast.success("已交给 Agent 执行");
+      navigate(`/talk/${encodeURIComponent(identityId)}/tasks`);
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  /** 把当前草稿交给 Agent 执行（显式委托，不是聊天消息）。 */
+  const handoffToAgent = () => {
+    const trimmed = draft.trim();
+    if (!trimmed || submitTaskMutation.isPending) return;
+    const prev = submitRef.current;
+    const clientMessageId =
+      prev && prev.content === trimmed
+        ? prev.clientMessageId
+        : newClientMessageId();
+    submitRef.current = { content: trimmed, clientMessageId };
+    submitTaskMutation.mutate({ content: trimmed, clientMessageId });
+  };
+
+  /** 把已有消息转为任务，携带来源 step_id 保留关联。 */
+  const convertToTask = (message: ChatMessage) => {
+    if (!message.step_id || submitTaskMutation.isPending) return;
+    submitTaskMutation.mutate({
+      content: message.content,
+      clientMessageId: newClientMessageId(),
+      sourceStepId: message.step_id,
+    });
+  };
 
   // 统一指示器：点动画只允许「发送后 4s 内」的短窗口（空文本流式气泡
   // 的输入点），之后让位给进度卡——两者互斥。
@@ -191,7 +253,7 @@ export default function TalkChat() {
     reply !== null && (reply.text.length > 0 || dotsWindow);
   const showCard =
     !dotsActive &&
-    (working || activity.length > 0 || (waitingForReply && !dotsWindow));
+    (working || chatActivity.length > 0 || (waitingForReply && !dotsWindow));
 
   // Follow new messages only when already reading the latest ones; while
   // a reply streams in or the working card ticks, follow their growth too
@@ -212,7 +274,7 @@ export default function TalkChat() {
     if (nearBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }
-  }, [itemCount, reply?.text.length, activity.length]);
+  }, [itemCount, reply?.text.length, chatActivity.length]);
 
   const identityName = chat?.identity.name ?? identityId.split("~").pop();
 
@@ -221,7 +283,7 @@ export default function TalkChat() {
       className="flex h-dvh flex-col"
       style={{ height: "var(--talk-height, 100dvh)" }}
     >
-      <header className="flex select-none items-center gap-1 border-b px-2 pb-2 pt-[calc(env(safe-area-inset-top)+0.5rem)]">
+      <header className="flex shrink-0 select-none flex-wrap items-center gap-1 border-b px-2 pb-2 pt-[calc(env(safe-area-inset-top)+0.5rem)]">
         <Link
           to="/talk?pick=1"
           className="flex h-9 w-9 items-center justify-center rounded-full active:bg-accent"
@@ -239,6 +301,14 @@ export default function TalkChat() {
             title={chat?.live ? "live" : "idle"}
           />
         </div>
+        <Link
+          to={`/talk/${encodeURIComponent(identityId)}/tasks`}
+          className="flex h-9 w-9 items-center justify-center rounded-full active:bg-accent"
+          aria-label="任务"
+        >
+          <ListTodo className="size-5" />
+        </Link>
+        <CredentialControl />
         {myName && <PushBell name={myName} />}
         <span className="pr-2 font-mono text-[10px] text-muted-foreground">
           {myName}
@@ -277,6 +347,7 @@ export default function TalkChat() {
                 message={message}
                 mine={message.from === myName}
                 variant="talk"
+                onConvertToTask={() => convertToTask(message)}
               />
             ))}
             {visiblePending.map((message) => (
@@ -312,7 +383,7 @@ export default function TalkChat() {
           <WorkingCard
             name={identityName ?? identityId}
             working={working}
-            activity={activity}
+            activity={chatActivity}
             stepTotal={stepTotal}
             sentAt={lastSentAt}
             variant="talk"
@@ -341,6 +412,18 @@ export default function TalkChat() {
             className="max-h-40 min-h-10 flex-1 rounded-3xl px-4 py-2.5"
             autoComplete="off"
           />
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            className="h-10 w-10 shrink-0 rounded-full"
+            disabled={submitTaskMutation.isPending || !draft.trim()}
+            onClick={handoffToAgent}
+            aria-label="交给 Agent 执行"
+            title="交给 Agent 执行"
+          >
+            <Bot className="size-4" />
+          </Button>
           <Button
             type="submit"
             size="icon"

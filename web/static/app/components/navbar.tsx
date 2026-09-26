@@ -5,10 +5,10 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
+import { CredentialControl } from "~/components/credential-control";
 import { useControlsEnabled } from "~/components/thinker-controls";
 import { Button } from "~/components/ui/button";
 import {
-  API_BASE,
   fetchConfig,
   fetchLlmHealth,
   probeLlm,
@@ -48,13 +48,10 @@ function pollForNewBuild(oldCommit: string, timeoutMs = 5 * 60 * 1000) {
       return;
     }
     try {
-      const response = await fetch(`${API_BASE}/api/config`);
-      if (response.ok) {
-        const config = (await response.json()) as Config;
-        if (config.git_commit && config.git_commit !== oldCommit) {
-          window.location.reload();
-          return;
-        }
+      const config = await fetchConfig();
+      if (config.git_commit && config.git_commit !== oldCommit) {
+        window.location.reload();
+        return;
       }
     } catch {
       // server is restarting/rebuilding — keep waiting
@@ -314,6 +311,7 @@ export function Navbar() {
           mindloop
         </Link>
         <div className="flex items-center gap-3">
+          <CredentialControl />
           <LlmHealthChip />
           {config?.git_commit && <BuildMenu config={config} />}
           <ThemeToggle />

@@ -77,45 +77,52 @@ func (c *Cursor) Offset() int64 { return c.offset }
 // ReadNew 返回自上次调用以来追加的行对应的步骤。nil 切片加 nil
 // 错误表示没有新内容（或残缺的半行还没写完）。
 func (c *Cursor) ReadNew() ([]Step, error) {
+	steps, _, err := c.readNew()
+	return steps, err
+}
+
+// readNew 是 ReadNew 的核心；rewound 报告本批是否因文件被替换
+// 或截断而从零重读——侧索引据此整体重建，而不是静默错位。
+func (c *Cursor) readNew() (steps []Step, rewound bool, err error) {
 	f, err := os.Open(c.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, false, nil
 		}
-		return nil, err
+		return nil, false, err
 	}
 	defer f.Close()
 
 	id := fileIdentity(f)
 	fi, err := f.Stat()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if c.fileID != "" && (id != c.fileID || fi.Size() < c.offset) {
 		c.offset = 0 // 被重写或截断：从头重建
+		rewound = true
 	}
 	if id != "" {
 		c.fileID = id
 	}
 	if fi.Size() == c.offset {
-		return nil, nil
+		return nil, rewound, nil
 	}
 
 	if _, err := f.Seek(c.offset, io.SeekStart); err != nil {
-		return nil, err
+		return nil, rewound, err
 	}
 	buf, err := io.ReadAll(f)
 	if err != nil {
-		return nil, err
+		return nil, rewound, err
 	}
 	idx := bytes.LastIndexByte(buf, '\n')
 	if idx < 0 {
-		return nil, nil // 目前只有残缺的半行
+		return nil, rewound, nil // 目前只有残缺的半行
 	}
 	complete := buf[:idx+1]
 	c.offset += int64(len(complete))
 
-	var steps []Step
 	for _, ln := range bytes.Split(complete, []byte{'\n'}) {
 		ln = bytes.TrimSpace(ln)
 		if len(ln) == 0 {
@@ -127,5 +134,5 @@ func (c *Cursor) ReadNew() ([]Step, error) {
 		}
 		steps = append(steps, s)
 	}
-	return steps, nil
+	return steps, rewound, nil
 }

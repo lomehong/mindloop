@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"mindloop/internal/childenv"
 )
 
 // protocolVersion 是本客户端支持的 MCP 协议版本。握手时发送给
@@ -124,13 +126,27 @@ func (c *Client) notify(ctx context.Context, method string) error {
 
 // ListTools 返回服务器暴露的工具清单（MCP tools/list）。
 func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
-	var out struct {
-		Tools []Tool `json:"tools"`
+	tools := make([]Tool, 0)
+	params := map[string]any{}
+	seen := map[string]bool{}
+	for {
+		var out struct {
+			Tools      []Tool `json:"tools"`
+			NextCursor string `json:"nextCursor"`
+		}
+		if err := c.call(ctx, "tools/list", params, &out); err != nil {
+			return nil, fmt.Errorf("mcp: tools/list: %w", err)
+		}
+		tools = append(tools, out.Tools...)
+		if out.NextCursor == "" {
+			return tools, nil
+		}
+		if seen[out.NextCursor] {
+			return nil, fmt.Errorf("mcp: tools/list 返回重复 cursor %q", out.NextCursor)
+		}
+		seen[out.NextCursor] = true
+		params["cursor"] = out.NextCursor
 	}
-	if err := c.call(ctx, "tools/list", map[string]any{}, &out); err != nil {
-		return nil, fmt.Errorf("mcp: tools/list: %w", err)
-	}
-	return out.Tools, nil
 }
 
 // CallTool 调用一个工具（MCP tools/call），拼接 text 内容块为结果。
@@ -224,10 +240,10 @@ type stdioConn struct {
 
 func newStdioConn(ctx context.Context, name string, cfg ServerConfig) (*stdioConn, error) {
 	cmd := exec.Command(cfg.Command, cfg.Args...)
-	// 敏感环境变量不传给 MCP 子进程：服务器进程往往是第三方包
-	// （npx 拉来的），没有理由拿到模型网关与仪表盘的凭据。
-	// mcp.json 里显式配置的 env 在其后追加，仍可按需提供。
-	cmd.Env = append(sanitizedEnv(), flattenEnv(cfg.Env)...)
+	// MCP 子进程环境是白名单：服务器进程往往是第三方包（npx 拉来
+	// 的），只获得运行所需的基础变量与自己的显式配置凭据；父环境
+	// 里的模型网关与仪表盘凭据不下传。
+	cmd.Env = append(childenv.Inherit(os.Environ(), nil), flattenEnv(cfg.Env)...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -490,28 +506,6 @@ func (h *httpConn) notify(ctx context.Context, method string) error {
 }
 
 func (h *httpConn) close() error { return nil }
-
-// sensitiveEnvKeys 会被从 MCP 子进程环境中剔除的精确键名；带
-// *_API_KEY 后缀的键在 sanitizedEnv 里按后缀匹配。
-var sensitiveEnvKeys = map[string]bool{
-	"MINDLOOP_API_KEY":   true,
-	"ANTHROPIC_API_KEY":  true,
-	"OPENAI_API_KEY":     true,
-	"MINDLOOP_WEB_TOKEN": true,
-}
-
-// sanitizedEnv 返回剔除敏感凭据后的当前进程环境。
-func sanitizedEnv() []string {
-	out := make([]string, 0, len(os.Environ()))
-	for _, kv := range os.Environ() {
-		k, _, ok := strings.Cut(kv, "=")
-		if !ok || sensitiveEnvKeys[k] || strings.HasSuffix(k, "_API_KEY") {
-			continue
-		}
-		out = append(out, kv)
-	}
-	return out
-}
 
 func flattenEnv(env map[string]string) []string {
 	out := make([]string, 0, len(env))

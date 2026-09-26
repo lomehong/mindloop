@@ -74,3 +74,59 @@ func TestUsageRecorderReportsWriteFailure(t *testing.T) {
 		t.Fatal("写失败应经 logf 报告")
 	}
 }
+
+// TestUsageRecorderCarriesAttribution：台账一行携带归因、时延、重试
+// 与用量已知标记——审计时每笔账都能落到任务/运行/阶段。
+func TestUsageRecorderCarriesAttribution(t *testing.T) {
+	dir := t.TempDir()
+	rec := UsageRecorder(dir, "glm-5", "openai-compatible", nil)
+	rec(llm.Usage{
+		PromptTokens: 10, CompletionTokens: 5, Known: true,
+		LatencyMS: 1234, Retries: 2,
+		Task: "task-7", Run: "run-7", Attempt: 3,
+		Thinker: "monolith", Wake: "scheduled spontaneity", Phase: "task",
+	}, nil)
+
+	data, err := os.ReadFile(filepath.Join(dir, "usage", "llm-usage.jsonl"))
+	if err != nil {
+		t.Fatalf("台账未落盘: %v", err)
+	}
+	var line struct {
+		UsageKnown bool   `json:"usage_known"`
+		LatencyMS  int64  `json:"latency_ms"`
+		Retries    int    `json:"retries"`
+		Task       string `json:"task"`
+		Run        string `json:"run"`
+		Attempt    int    `json:"attempt"`
+		Thinker    string `json:"thinker"`
+		Wake       string `json:"wake"`
+		Phase      string `json:"phase"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(data))), &line); err != nil {
+		t.Fatalf("台账行不可解析: %v", err)
+	}
+	if !line.UsageKnown || line.LatencyMS != 1234 || line.Retries != 2 {
+		t.Fatalf("记账字段: %+v", line)
+	}
+	if line.Task != "task-7" || line.Run != "run-7" || line.Attempt != 3 ||
+		line.Thinker != "monolith" || line.Wake != "scheduled spontaneity" || line.Phase != "task" {
+		t.Fatalf("归因字段: %+v", line)
+	}
+}
+
+// TestUsageRecorderUnknownUsageExplicit：用量未知时 usage_known 显式
+// 写出 false（无 omitempty）——读方据此显示"未知"，而不是把缺字段
+// 与零混为一谈。
+func TestUsageRecorderUnknownUsageExplicit(t *testing.T) {
+	dir := t.TempDir()
+	rec := UsageRecorder(dir, "m", "echo", nil)
+	rec(llm.Usage{}, nil)
+
+	data, err := os.ReadFile(filepath.Join(dir, "usage", "llm-usage.jsonl"))
+	if err != nil {
+		t.Fatalf("台账未落盘: %v", err)
+	}
+	if !strings.Contains(string(data), `"usage_known":false`) {
+		t.Fatalf("未知用量应显式写出 usage_known:false: %s", data)
+	}
+}
