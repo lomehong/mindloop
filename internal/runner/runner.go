@@ -348,13 +348,13 @@ func (r *run) finish(ctx context.Context, final, kind string, iteration int) (Re
 func outputStepContent(ext extraction, res sandbox.Result) (string, map[string]any) {
 	var out strings.Builder
 	if ext.Notice != "" {
-		out.WriteString("〔" + ext.Notice + "〕\n\n")
+		fmt.Fprintf(&out, "〔%s〕\n\n", ext.Notice)
 	}
 	if strings.TrimSpace(res.Stdout) != "" {
 		out.WriteString(res.Stdout)
 	}
 	if strings.TrimSpace(res.Stderr) != "" {
-		out.WriteString("\n[stderr]\n" + res.Stderr)
+		fmt.Fprintf(&out, "\n[stderr]\n%s", res.Stderr)
 	}
 	if res.KillReason != "" {
 		out.WriteString(fmt.Sprintf("\n〔执行被终止: %s〕", res.KillReason))

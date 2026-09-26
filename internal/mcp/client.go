@@ -279,9 +279,14 @@ func newStdioConn(ctx context.Context, name string, cfg ServerConfig) (*stdioCon
 // pump 在后台读服务器输出，把响应按 id 分发到等待者，通知丢弃。
 func (c *stdioConn) pump(stdout io.ReadCloser) {
 	go func() {
+		var scanErr error
 		defer func() {
 			c.pending.Range(func(_, v any) bool {
-				v.(chan rpcResult) <- rpcResult{Err: fmt.Errorf("服务器进程已退出；stderr: %s", c.stderr.String())}
+				err := fmt.Errorf("服务器进程已退出；stderr: %s", c.stderr.String())
+				if scanErr != nil {
+					err = fmt.Errorf("%v；读取输出失败: %v", err, scanErr)
+				}
+				v.(chan rpcResult) <- rpcResult{Err: err}
 				return true
 			})
 		}()
@@ -308,6 +313,7 @@ func (c *stdioConn) pump(stdout io.ReadCloser) {
 				v.(chan rpcResult) <- res
 			}
 		}
+		scanErr = sc.Err()
 	}()
 }
 
@@ -492,6 +498,9 @@ func parseSSEResponse(body io.Reader, id int64) (json.RawMessage, error) {
 			return nil, msg.Error
 		}
 		return msg.Result, nil
+	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("mcp: 读 SSE 流失败: %w", err)
 	}
 	return nil, fmt.Errorf("mcp: SSE 流结束仍未收到 id=%d 的响应", id)
 }

@@ -343,7 +343,9 @@ func mcpSection(servers []string) string {
 	b.WriteString("Their tools are plain CLI calls:\n\n")
 	b.WriteString("  \"$MINDLOOP_EXE\" mcp tools <server>              # discover tools + input schemas\n")
 	b.WriteString("  \"$MINDLOOP_EXE\" mcp call <server> <tool> '<json-args>'\n\n")
-	b.WriteString("Configured servers: " + strings.Join(servers, ", ") + "\n")
+	b.WriteString("Configured servers: ")
+	b.WriteString(strings.Join(servers, ", "))
+	b.WriteString("\n")
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -356,7 +358,7 @@ func mcpSection(servers []string) string {
 // 同一账本下小总预算会级联收缩后两者。
 func (m *monolith) wakeTask(reason string, w Wake) string {
 	budget := prompt.NewBudget(m.opts.ContextBudget)
-	head := fmt.Sprintf("你在 %s 被唤醒（原因: %s）。回顾下方的近期思维流，决定并执行下一步。无事可做时 FINAL=\"IDLE\"。",
+	head := fmt.Sprintf("你在 %s 被唤醒（原因: %s）。回顾下方的近期思维流，决定并执行下一步。无事可做时，把 FINAL=\"IDLE\" 写进代码块内执行（写在块外不生效）。",
 		traj.NowString(), reason)
 	_ = budget.TakeProtected("wake", head)
 	var b strings.Builder
@@ -364,7 +366,8 @@ func (m *monolith) wakeTask(reason string, w Wake) string {
 	if m.opts.EnableRecap {
 		if life, err := recap.RenderAutonomousLife(m.opts.Timeline.Dir, 20); err == nil && life != "" {
 			if seg := budget.TakeCapped("recap", life, summaryCap(m.opts.SummaryBytes)); seg != "" {
-				b.WriteString("\n\n" + seg)
+				b.WriteString("\n\n")
+				b.WriteString(seg)
 			}
 		}
 	}
@@ -372,12 +375,14 @@ func (m *monolith) wakeTask(reason string, w Wake) string {
 		if related := m.relatedMemories(w); len(related) > 0 {
 			var rel strings.Builder
 			for _, r := range related {
-				rel.WriteString("\n- " + r)
+				rel.WriteString("\n- ")
+				rel.WriteString(r)
 			}
 			if seg := budget.TakeCapped("memory", rel.String(), memoryCap(m.opts.MemoryBytes)); seg != "" {
 				// 记忆段定位为线索：BM25 命中不等于已验证事实，
 				// ID 与来源步骤供消费方自行追溯。
-				b.WriteString("\n\n相关记忆（BM25 检索，线索而非已验证事实；ID 与来源步骤供追溯）：" + seg)
+				b.WriteString("\n\n相关记忆（BM25 检索，线索而非已验证事实；ID 与来源步骤供追溯）：")
+				b.WriteString(seg)
 			}
 		}
 		b.WriteString("\n\n持久化重要事实：在 bash 里运行 \"$MINDLOOP_EXE\" mem add --type fact \"内容\"（见 mindloop mem --help）。")

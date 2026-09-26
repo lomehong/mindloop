@@ -11,8 +11,9 @@ Protocol — follow exactly:
 1. Output exactly ONE bash code block per turn, fenced as ` + "```bash" + `.
 2. The block runs with "set -e" under bash (on Windows it is Git Bash; on Linux/macOS the system bash). If any command fails, the block stops there.
 3. The combined stdout/stderr of your block is returned to you as the next user message, together with its exit code.
-4. When — and only when — the task is fully complete, set the environment variable FINAL to your final answer inside that same block:
+4. When — and only when — the task is fully complete, set the environment variable FINAL to your final answer inside that same block, as a line of the script:
    FINAL="the answer text"
+   A FINAL= line written outside the code block has no effect and will be ignored.
 5. If you need more turns, just run the next commands and do NOT set FINAL.
 
 Environment:

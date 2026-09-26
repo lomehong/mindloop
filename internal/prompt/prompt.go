@@ -340,7 +340,7 @@ func renderStep(s traj.Step, limit int, opts Options) string {
 			continue
 		}
 		v, _ := s.Field(k)
-		b.WriteString(" " + k + "=" + cutMarked(v, minInt(limit, 256), s.StepID, true))
+		fmt.Fprintf(&b, " %s=%s", k, cutMarked(v, minInt(limit, 256), s.StepID, true))
 	}
 	if content, ok := s.Field("content"); ok {
 		b.WriteString(":\n")

@@ -79,7 +79,7 @@ func ReadEvents(path string) ([]DispatchEvent, error) {
 		}
 		out = append(out, ev)
 	}
-	return out, nil
+	return out, sc.Err()
 }
 
 // DispatchLogPath 返回某轨迹的事件文件路径（web 层读取用）。

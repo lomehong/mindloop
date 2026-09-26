@@ -25,6 +25,7 @@ func extractCode(text string) extraction {
 	closed := false
 	fenceCount := 0
 	heredocWord := ""
+	outsideFinal := false
 
 	flush := func() extraction {
 		if len(code) == 0 {
@@ -43,11 +44,17 @@ func extractCode(text string) extraction {
 				Notice: "你的回复里没有 ```bash 代码块，整段文本已被当作命令执行。之后请把要执行的命令放进恰好一个 ```bash 代码块。",
 			}
 		}
-		notice := ""
+		var notices []string
 		if fenceCount > 1 {
-			notice = "你的回复包含多个代码块，只有第一个被执行。请每轮只输出一个 ```bash 代码块。"
+			notices = append(notices, "你的回复包含多个代码块，只有第一个被执行。请每轮只输出一个 ```bash 代码块。")
 		}
-		return extraction{Code: strings.Join(code, "\n"), Notice: notice}
+		// 块外 FINAL= 声明不生效（只认块内声明与无块裸声明），但
+		// 不能静默：实测事故（mind 轨迹 5518efef）——模型每轮把
+		// FINAL= 写在代码块外，系统不认 → 收不了尾 → 轮次耗尽连环循环。
+		if outsideFinal {
+			notices = append(notices, "你的回复把 FINAL= 写在了代码块外，不会生效。收尾时必须把 FINAL=\"…\" 写进该 bash 代码块内，成为脚本里的一条语句。")
+		}
+		return extraction{Code: strings.Join(code, "\n"), Notice: strings.Join(notices, "\n")}
 	}
 
 	for _, line := range lines {
@@ -58,6 +65,8 @@ func extractCode(text string) extraction {
 		if closed {
 			if strings.HasPrefix(trimmed, "```") {
 				fenceCount++
+			} else if strings.HasPrefix(trimmed, "FINAL=") {
+				outsideFinal = true
 			}
 			continue
 		}
@@ -88,6 +97,11 @@ func extractCode(text string) extraction {
 			if w, ok := heredocOpener(line); ok {
 				heredocWord = w
 			}
+			continue
+		}
+		// 块外正文行：FINAL= 写在这里不会生效（见 flush 的教学反馈）。
+		if strings.HasPrefix(trimmed, "FINAL=") {
+			outsideFinal = true
 		}
 	}
 	return flush()

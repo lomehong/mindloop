@@ -288,7 +288,8 @@ func (r *Responder) relatedMemories(inbound string) string {
 	}
 	var b strings.Builder
 	for _, h := range hits {
-		b.WriteString("\n- " + memoryHitLine(h))
+		b.WriteString("\n- ")
+		b.WriteString(memoryHitLine(h))
 	}
 	return b.String()
 }

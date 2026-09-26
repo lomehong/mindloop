@@ -195,5 +195,9 @@ func parseUsageLedger(path string) ([]usageEntry, int) {
 			unknown:    rec.UsageKnown != nil && !*rec.UsageKnown && rec.Error == "",
 		})
 	}
+	if err := sc.Err(); err != nil {
+		// 半程读取失败：按已解析部分返回（聚合容忍不完整数据）。
+		return out, skipped
+	}
 	return out, skipped
 }
