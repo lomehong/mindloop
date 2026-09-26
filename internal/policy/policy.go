@@ -248,19 +248,18 @@ func short(hash string) string {
 func Announce(p PendingRequest, logf func(format string, args ...any)) {
 	var b strings.Builder
 	b.WriteString("━━ 脚本等待执行批准（MINDLOOP_EXEC_POLICY=ask）━━\n")
-	b.WriteString("hash: " + short(p.Hash) + "\n")
-	b.WriteString("工作目录: " + p.WorkDir + "\n")
+	fmt.Fprintf(&b, "hash: %s\n", short(p.Hash))
+	fmt.Fprintf(&b, "工作目录: %s\n", p.WorkDir)
 	if p.TaskID != "" {
 		fmt.Fprintf(&b, "任务: %s（attempt %d）\n", p.TaskID, p.Attempt)
 	}
-	b.WriteString("运行: " + p.RunID + "\n")
+	fmt.Fprintf(&b, "运行: %s\n", p.RunID)
 	for _, r := range p.Risks {
-		b.WriteString("⚠ " + r + "\n")
+		fmt.Fprintf(&b, "⚠ %s\n", r)
 	}
-	b.WriteString("有效期至 " + p.Expires.Local().Format("15:04:05") +
-		"；脚本变化、超时、取消或重启后需重新批准。\n")
-	b.WriteString("在另一终端批准: mindloop approve <traj> " + short(p.Hash) + "\n")
-	b.WriteString("拒绝:          mindloop approve <traj> " + short(p.Hash) + " --deny\n")
+	fmt.Fprintf(&b, "有效期至 %s；脚本变化、超时、取消或重启后需重新批准。\n", p.Expires.Local().Format("15:04:05"))
+	fmt.Fprintf(&b, "在另一终端批准: mindloop approve <traj> %s\n", short(p.Hash))
+	fmt.Fprintf(&b, "拒绝:          mindloop approve <traj> %s --deny\n", short(p.Hash))
 	b.WriteString("── 脚本正文 ──\n")
 	b.WriteString(p.Script)
 	logf("%s", b.String())

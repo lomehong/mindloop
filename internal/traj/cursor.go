@@ -68,7 +68,7 @@ func LoadCursor(cursorPath, path string) (*Cursor, error) {
 // Save 把 cursor 状态持久化为一行："<offset> <fileid>"——与
 // Headlong 的桥接保存的三元组记录（少一个 size）相同。
 func (c *Cursor) Save(cursorPath string) error {
-	return os.WriteFile(cursorPath, []byte(fmt.Sprintf("%d %s\n", c.offset, c.fileID)), 0o644)
+	return os.WriteFile(cursorPath, fmt.Appendf(nil, "%d %s\n", c.offset, c.fileID), 0o644)
 }
 
 // Offset 返回当前字节偏移量。

@@ -367,6 +367,9 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 		for sc.Scan() {
 			input <- sc.Text()
 		}
+		if err := sc.Err(); err != nil {
+			printLine("⚠ 读取输入失败: %v", err)
+		}
 		close(input)
 	}()
 
