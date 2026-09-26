@@ -37,6 +37,8 @@ func (c *CLI) newMemCmd() *cobra.Command {
 		c.newMemAddCmd(),
 		c.newMemListCmd(),
 		c.newMemSearchCmd(),
+		c.newMemReviseCmd(),
+		c.newMemInvalidateCmd(),
 		c.newMemForgetCmd(),
 	)
 	return cmd
@@ -57,11 +59,22 @@ func (c *CLI) newMemAddCmd() *cobra.Command {
 			if err != nil {
 				return c.fail(err)
 			}
-			m, err := store.Add(c.ctx, typ, args[0])
+			a, err := store.AddWith(c.ctx, typ, args[0], mem.AddOpts{})
 			if err != nil {
 				return c.fail(err)
 			}
-			fmt.Fprintf(c.stdout, "%s  %s\n", m.ID, m.Summary)
+			if a.Duplicate {
+				fmt.Fprintf(c.stdout, "已存在相同内容 %s（未重复写入）\n", a.Memory.ID)
+				return nil
+			}
+			fmt.Fprintf(c.stdout, "%s  %s\n", a.Memory.ID, a.Memory.Summary)
+			// 冲突候选进 stderr：stdout 保持机器可读（首字段 = id）。
+			if len(a.Conflicts) > 0 {
+				fmt.Fprintf(c.stderr, "⚠ 与 %d 条已有记忆高度相似（如需修正请用 mem revise <id> \"新内容\"）：\n", len(a.Conflicts))
+				for _, cf := range a.Conflicts {
+					fmt.Fprintf(c.stderr, "  %.2f  %s  %-10s %s\n", cf.Similarity, cf.Memory.ID, cf.Memory.Type, cf.Memory.Summary)
+				}
+			}
 			return nil
 		},
 	}
@@ -94,7 +107,11 @@ func (c *CLI) newMemListCmd() *cobra.Command {
 				all = all[:n]
 			}
 			for _, m := range all {
-				fmt.Fprintf(c.stdout, "%s  %-10s %s\n", m.ID, m.Type, m.Summary)
+				line := fmt.Sprintf("%s  %-10s %s", m.ID, m.Type, m.Summary)
+				if m.Status != "" && m.Status != mem.StatusActive {
+					line += "  [" + m.Status + "]"
+				}
+				fmt.Fprintln(c.stdout, line)
 			}
 			return nil
 		},
@@ -129,6 +146,53 @@ func (c *CLI) newMemSearchCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&identityName, "identity", "", "身份名（必填）")
 	cmd.Flags().IntVarP(&k, "top", "k", 5, "返回前 K 条")
+	return cmd
+}
+
+func (c *CLI) newMemReviseCmd() *cobra.Command {
+	var identityName string
+	cmd := &cobra.Command{
+		Use:     `revise --identity <名> <记忆id> "新内容"`,
+		Short:   "修订一条记忆（旧版本标记为被替代，保留在盘上可追溯）",
+		Example: `  mindloop mem revise --identity ada a1b2c3d4 "操作员搬到了上海"`,
+		Args:    exactArgs(2, `用法: mindloop mem revise --identity <名> <记忆id> "新内容"`),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store, err := c.resolveMemStore(identityName)
+			if err != nil {
+				return c.fail(err)
+			}
+			a, err := store.Revise(c.ctx, args[0], args[1])
+			if err != nil {
+				return c.fail(err)
+			}
+			fmt.Fprintf(c.stdout, "%s  %s（替代 %s）\n", a.Memory.ID, a.Memory.Summary, args[0])
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&identityName, "identity", "", "身份名（必填）")
+	return cmd
+}
+
+func (c *CLI) newMemInvalidateCmd() *cobra.Command {
+	var identityName string
+	cmd := &cobra.Command{
+		Use:     "invalidate --identity <名> <记忆id>",
+		Short:   "失效一条记忆（保留文件供审计，退出检索与被引用）",
+		Example: `  mindloop mem invalidate --identity ada a1b2c3d4`,
+		Args:    exactArgs(1, "用法: mindloop mem invalidate --identity <名> <记忆id>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store, err := c.resolveMemStore(identityName)
+			if err != nil {
+				return c.fail(err)
+			}
+			if err := store.Invalidate(c.ctx, args[0]); err != nil {
+				return c.fail(err)
+			}
+			fmt.Fprintf(c.stdout, "已失效 %s\n", args[0])
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&identityName, "identity", "", "身份名（必填）")
 	return cmd
 }
 

@@ -18,6 +18,7 @@ import {
 import { toast, Toaster } from "sonner";
 
 import { Navbar } from "~/components/navbar";
+import { AuthError } from "~/lib/api";
 
 import type { Route } from "./+types/root";
 import "./app.css";
@@ -27,8 +28,12 @@ import "./app.css";
 // 失败不会刷屏。写操作（useMutation）各自带 onError toast，不走这里。
 // 首屏主查询另配页面内 QueryErrorBanner（见 home/usage/config 等）。
 const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { retry: (count, error) => !(error instanceof AuthError) && count < 3 },
+  },
   queryCache: new QueryCache({
     onError: (error, query) => {
+      if (error instanceof AuthError) return;
       const message = error instanceof Error ? error.message : String(error);
       toast.error(`加载失败：${message}`, {
         id: `query:${JSON.stringify(query.queryKey)}`,

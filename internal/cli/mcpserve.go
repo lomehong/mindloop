@@ -194,13 +194,14 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
 		},
 		{
 			Name:        "mem_add",
-			Description: "为身份添加一条记忆（markdown + frontmatter 存储）",
+			Description: "为身份添加一条记忆（markdown + frontmatter 存储）。完全相同内容不重复写入；与已有记忆高度相似时返回候选——修正旧事实请用 mem revise <id> 显式替代",
 			InputSchema: json.RawMessage(`{
   "type": "object",
   "required": ["content"],
   "properties": {
     "content": { "type": "string" },
     "type": { "type": "string", "description": "fact/preference/todo 等（默认 fact）" },
+    "source": { "type": "string", "description": "来源轨迹步骤 ID（可选，供追溯）" },
     "identity": { "type": "string" }
   }
 }`),
@@ -208,6 +209,7 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
 				var a struct {
 					Content  string `json:"content"`
 					Type     string `json:"type"`
+					Source   string `json:"source"`
 					Identity string `json:"identity"`
 				}
 				if err := json.Unmarshal(args, &a); err != nil {
@@ -224,11 +226,21 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
 					a.Type = "fact"
 				}
 				store := mem.Store{Dir: filepath.Join(id.Dir, "memories")}
-				m, err := store.Add(ctx, a.Type, a.Content)
+				added, err := store.AddWith(ctx, a.Type, a.Content, mem.AddOpts{Source: a.Source})
 				if err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("已写入记忆 %s", m.ID), nil
+				if added.Duplicate {
+					return fmt.Sprintf("已存在相同内容 %s，未重复写入", added.Memory.ID), nil
+				}
+				msg := fmt.Sprintf("已写入记忆 %s", added.Memory.ID)
+				if len(added.Conflicts) > 0 {
+					msg += "；⚠ 与以下已有记忆高度相似，如需修正旧事实请由用户确认后用 mem revise <id> 显式替代（不要静默覆盖）："
+					for _, cf := range added.Conflicts {
+						msg += fmt.Sprintf("\n- %.2f  %s  %s", cf.Similarity, cf.Memory.ID, cf.Memory.Summary)
+					}
+				}
+				return msg, nil
 			},
 		},
 		{
@@ -265,7 +277,11 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
 				}
 				out := []map[string]any{}
 				for _, h := range hits {
-					out = append(out, map[string]any{"id": h.ID, "type": h.Type, "summary": h.Summary})
+					row := map[string]any{"id": h.ID, "type": h.Type, "summary": h.Summary}
+					if h.Source != "" {
+						row["source"] = h.Source
+					}
+					out = append(out, row)
 				}
 				data, _ := json.Marshal(out)
 				return string(data), nil
@@ -315,7 +331,6 @@ func lastStepTS(steps []traj.Step) string {
 // newMCPServeCmd：mindloop mcp serve——把上述工具经 stdio 暴露为
 // 标准 MCP 服务器。
 func (c *CLI) newMCPServeCmd() *cobra.Command {
-	var identityP string
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "把 mindloop 暴露为 MCP 服务器（stdio）——Claude Desktop / Cursor 可直接接入",
@@ -329,16 +344,18 @@ config.json）：
 工具的 identity 参数可省略（回落 --identity）。`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if identityP != "" {
-				if _, err := identity.Load(identityP); err != nil {
-					return c.fail(err)
-				}
+			id, err := c.extensionIdentity(cmd)
+			if err != nil {
+				return c.fail(err)
+			}
+			identityP := ""
+			if id != nil {
+				identityP = id.Name
 			}
 			ctx, cancel := context.WithCancel(c.ctx)
 			defer cancel()
 			return mcp.ServeStdio(ctx, "mindloop", Version, mcpServeTools(identityP))
 		},
 	}
-	cmd.Flags().StringVar(&identityP, "identity", "", "默认身份（工具未传 identity 参数时使用）")
 	return cmd
 }

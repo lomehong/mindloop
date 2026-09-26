@@ -10,6 +10,7 @@ import (
 	"mindloop/internal/llm"
 	"mindloop/internal/mind"
 	"mindloop/internal/obs"
+	"mindloop/internal/policy"
 	"mindloop/internal/runner"
 	"mindloop/internal/sandbox"
 	"mindloop/internal/traj"
@@ -36,7 +37,14 @@ func (c *CLI) newRunCmd() *cobra.Command {
 		Long: `单次任务运行。最终答案写 stdout，过程进度写 stderr，
 每一步（prompt/reasoning/shell-output/final）都作为步骤落进轨迹。
 
-退出码：0 完成；3 失速或轮次耗尽（运行的真实结局）。`,
+退出码：0 完成；3 失速或轮次耗尽（运行的真实结局）。
+
+执行授权（MINDLOOP_EXEC_POLICY=ask|trusted|deny）：
+  ask（缺省）：脚本执行前展示正文、工作目录与归属，并等待批准
+  （mindloop approve <traj> <hash> 批准，加 --deny 拒绝）；
+  trusted：直接执行；deny：禁止脚本执行（模型仍可思考）。
+  注意：trusted 是"启动授权与工作目录约定"，不是操作系统访问隔离——
+  bash 仍以当前用户权限运行，可能访问本用户可访问的文件与网络。`,
 		Example: `  mindloop run <id> "统计本目录下 go 文件的总行数"
   mindloop run <id> "清点当前目录" --max-iterations 4`,
 		Args: exactArgs(2, `用法: mindloop run <traj> "任务" [flags]`),
@@ -44,6 +52,12 @@ func (c *CLI) newRunCmd() *cobra.Command {
 			t, err := traj.Load(args[0])
 			if err != nil {
 				return c.fail(err)
+			}
+			// 统一执行授权：CLI run 与心智场景共用 policy.Gate
+			// （runner.BeforeExecute 的唯一实现面）。
+			gate := policy.NewGate(policy.Dir(t.Dir), policy.ModeFromEnv())
+			gate.Logger = func(format string, args ...any) {
+				fmt.Fprintf(c.stderr, format+"\n", args...)
 			}
 			client, err := llm.FromEnv()
 			if err != nil {
@@ -63,6 +77,7 @@ func (c *CLI) newRunCmd() *cobra.Command {
 				IdleTimeout:    idleP,
 				MaxOutputBytes: maxOutP,
 				WorkDir:        workdirP,
+				BeforeExecute:  gate.Authorize,
 				Progress: func(format string, args ...any) {
 					fmt.Fprintf(c.stderr, format+"\n", args...)
 				},

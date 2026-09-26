@@ -27,16 +27,33 @@ export function ChatBubble({
   message,
   mine,
   variant = "desktop",
+  onConvertToTask,
 }: {
   message: ChatMessage;
   mine: boolean;
   variant?: ChatBubbleVariant;
+  /** 提供时，自己的消息（有 step_id）显示「转为任务」入口——以该步
+   * 骤为 source_step_id 提交显式委托，保留来源关联。 */
+  onConvertToTask?: () => void;
 }) {
   const talk = variant === "talk";
   const sourceUrl =
     slackSourceUrl(message.source_url) ||
     slackConversationUrl(message.from) ||
     slackConversationUrl(message.to);
+  const convertAction =
+    onConvertToTask && mine && message.step_id ? (
+      <button
+        type="button"
+        onClick={onConvertToTask}
+        className={cn(
+          "font-mono text-[10px] underline underline-offset-2",
+          talk ? "text-primary-foreground/70" : "text-muted-foreground"
+        )}
+      >
+        转为任务
+      </button>
+    ) : null;
   return (
     <div
       className={cn(
@@ -85,11 +102,12 @@ export function ChatBubble({
         {talk ? (
           <div
             className={cn(
-              "mt-0.5 text-right font-mono text-[10px]",
+              "mt-0.5 flex items-center justify-end gap-2 font-mono text-[10px]",
               mine ? "text-primary-foreground/60" : "text-muted-foreground"
             )}
           >
-            {messageTime(message.ts)}
+            {convertAction}
+            <span>{messageTime(message.ts)}</span>
           </div>
         ) : (
           sourceUrl && (
@@ -102,6 +120,9 @@ export function ChatBubble({
               Open in Slack <ExternalLink className="h-3 w-3" />
             </a>
           )
+        )}
+        {!talk && convertAction && (
+          <div className="mt-1 flex justify-end">{convertAction}</div>
         )}
       </div>
     </div>

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { StartStopButtons, useControlsEnabled } from "~/components/thinker-controls";
 import { QueryErrorBanner } from "~/components/query-error-banner";
+import { AuthenticatedDownload } from "~/components/authenticated-download";
 import { ConfirmDialog } from "~/components/confirm-dialog";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -306,17 +307,16 @@ export default function Home() {
           {controlsEnabled && <NewIdentityForm />}
           {controlsEnabled && <ImportIdentityForm />}
           {(identities?.length ?? 0) > 0 && (
-            <Button
+            <AuthenticatedDownload
               variant="outline"
               size="sm"
-              asChild
               title="导出全部身份"
+              url={exportAllUrl()}
+              filename="mindloop-identities.tgz"
             >
-              <a href={exportAllUrl()} download>
-                <Download className="size-3" />
-                导出全部
-              </a>
-            </Button>
+              <Download className="size-3" />
+              导出全部
+            </AuthenticatedDownload>
           )}
           {controlsEnabled && <KillAllButton />}
         </div>

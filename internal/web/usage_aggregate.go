@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"mindloop/internal/identity"
+	"mindloop/internal/obs"
 )
 
 // handleUsage 返回 viewer Usage 契约——**即时聚合**，无缓存层：
@@ -17,6 +18,11 @@ import (
 // totals 永远与台账一致，pending_bytes 恒 0（没有缓存就不存在
 // "pending"），refreshing 恒 false。数据是真实的：recorder 把每次
 // 模型调用的 token 计数落盘在台账里。
+//
+// 用量已知性：供应商未返回 usage 的调用（usage_known=false）不计为
+// 零成本——totals/by_model 的 unknown_calls 与每天的 unknown 显式
+// 标出；旧台账行缺该字段按已知处理。admission 块报告每日预算与
+// 熔断状态（未设置时 daily_limit=0）。
 func (s *Server) handleUsage(w http.ResponseWriter, _ *http.Request, id *identity.Identity, _ []string) {
 	ledgerPath := filepath.Join(id.Dir, "usage", "llm-usage.jsonl")
 	entries, skipped := parseUsageLedger(ledgerPath)
@@ -28,16 +34,18 @@ func (s *Server) handleUsage(w http.ResponseWriter, _ *http.Request, id *identit
 		Runs      int    `json:"runs"`
 		Reasoning int    `json:"reasoning"`
 		Calls     int    `json:"calls"`
+		Unknown   int    `json:"unknown"`
 		In        int    `json:"in"`
 		Out       int    `json:"out"`
 		Think     int    `json:"think"`
 		Source    string `json:"source"`
 	}
 	type modelStats struct {
-		Calls int `json:"calls"`
-		In    int `json:"in"`
-		Out   int `json:"out"`
-		Think int `json:"think"`
+		Calls        int `json:"calls"`
+		In           int `json:"in"`
+		Out          int `json:"out"`
+		Think        int `json:"think"`
+		UnknownCalls int `json:"unknown_calls"`
 	}
 	daily := map[string]*dayStats{}
 	byModel := map[string]*modelStats{}
@@ -63,6 +71,9 @@ func (s *Server) handleUsage(w http.ResponseWriter, _ *http.Request, id *identit
 			d.In += e.prompt
 			d.Out += e.completion
 		}
+		if e.unknown {
+			d.Unknown++
+		}
 		m := byModel[e.model]
 		if m == nil {
 			m = &modelStats{}
@@ -71,9 +82,15 @@ func (s *Server) handleUsage(w http.ResponseWriter, _ *http.Request, id *identit
 		m.Calls++
 		m.In += e.prompt
 		m.Out += e.completion
+		if e.unknown {
+			m.UnknownCalls++
+		}
 		totals.Calls++
 		totals.In += e.prompt
 		totals.Out += e.completion
+		if e.unknown {
+			totals.UnknownCalls++
+		}
 	}
 
 	// viewer 期望 daily 为 [day, UsageDay][]——按日期升序。
@@ -115,6 +132,7 @@ func (s *Server) handleUsage(w http.ResponseWriter, _ *http.Request, id *identit
 		"daily":         dailyOut,
 		"by_model":      modelOut,
 		"totals":        totals,
+		"admission":     obs.LoadAdmission(id.Dir),
 	})
 }
 
@@ -124,10 +142,15 @@ type usageEntry struct {
 	prompt     int
 	completion int
 	failed     bool
+	// unknown = 成功调用但供应商未返回用量。失败行由 failed 单独
+	// 归类；旧行缺 usage_known 字段按已知处理。
+	unknown bool
 }
 
 // parseUsageLedger 解析台账：{ts,prompt_tokens,completion_tokens,
-// error?,model?}（v0.2 起 recorder 也记 model；旧数据 model=unknown）。
+// error?,model?,usage_known?}（v0.2 起 recorder 也记 model；旧数据
+// model=unknown）。usage_known 只有显式 false 才算未知——缺失是
+// 旧台账，按已知处理。
 func parseUsageLedger(path string) ([]usageEntry, int) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -149,6 +172,7 @@ func parseUsageLedger(path string) ([]usageEntry, int) {
 			CompletionTokens int    `json:"completion_tokens"`
 			Error            string `json:"error"`
 			Model            string `json:"model"`
+			UsageKnown       *bool  `json:"usage_known"`
 		}
 		if err := json.Unmarshal([]byte(line), &rec); err != nil || rec.TS == "" {
 			skipped++
@@ -168,6 +192,7 @@ func parseUsageLedger(path string) ([]usageEntry, int) {
 			prompt:     rec.PromptTokens,
 			completion: rec.CompletionTokens,
 			failed:     rec.Error != "",
+			unknown:    rec.UsageKnown != nil && !*rec.UsageKnown && rec.Error == "",
 		})
 	}
 	return out, skipped

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"mindloop/internal/identity"
@@ -13,6 +15,9 @@ import (
 	"mindloop/internal/mcp"
 	"mindloop/internal/mind"
 	"mindloop/internal/obs"
+	"mindloop/internal/policy"
+	"mindloop/internal/runner"
+	"mindloop/internal/task"
 	"mindloop/internal/traj"
 )
 
@@ -25,6 +30,8 @@ import (
 type mindStack struct {
 	dispatcher *mind.Dispatcher
 	client     *llm.Client // 思考档（run 命令的横幅要打印它的供应商/模型）
+	request    *llm.Client // 请求档（分层未设时与思考档同一指针）
+	summary    *llm.Client // 摘要档（分层未设时与思考档同一指针）
 }
 
 // mindStackOpts 是装配参数。零值字段即 chat 的历史行为（无回退
@@ -50,8 +57,20 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 	}
 	// 观测面：用量台账 + 健康标记（<身份目录>/ 下）。
 	client.OnDone = obs.UsageRecorder(id.Dir, client.Model, client.Provider, o.logger)
-	// 请求档（MINDLOOP_REQUEST_MODEL，未设则与思考档同一）。
-	requestClient := requestTierClient(client, id.Dir, o.logger)
+	// 准入守卫：熔断（连续失败冷却 + 单次探测）与身份每日 token
+	// 预算（MINDLOOP_DAILY_TOKENS，未设即不启用）。三个档位的
+	// 客户端共用一份守卫——同一身份的健康与用量是一条线。
+	guard := obs.NewGuard(id.Dir, o.logger)
+	guard.Attach(client)
+	// 请求档（MINDLOOP_REQUEST_MODEL 或 providers.json 的 request
+	// 绑定，皆无则与思考档同一）。
+	requestClient := requestTierClient(id.Dir, client, o.logger)
+	guard.Attach(requestClient)
+	// 摘要档（MINDLOOP_SUMMARY_MODEL 或 providers.json 的 summary
+	// 绑定，皆无则与思考档同一）——recap 的摘要调用与唤醒主循环
+	// 档位解耦。
+	summaryClient := summaryTierClient(id.Dir, client, o.logger)
+	guard.Attach(summaryClient)
 
 	// 扩展能力面：技能库 + MCP 服务器（配置坏则降级为警告，不拦启动）。
 	skillsDirs, mcpServers, extraEnv, extErr := identityExtension(id)
@@ -64,36 +83,79 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 		return nil, fmt.Errorf("mind: 加载 persona（人格残缺时拒绝启动心智）: %w", err)
 	}
 
+	// 上下文字节预算：总量 + 两个分段上限（未配置取默认语义）。
+	ctxBytes, memBytes, sumBytes := contextBudgets()
+
+	// 执行授权：自主行动与显式任务共用同一门（policy.Gate 实现
+	// runner.BeforeExecute）；等待审批时经 WaitHook 同步任务
+	// awaiting_approval 状态，chat 场景的审批提示经 o.logger 进终端。
+	gate := policy.NewGate(policy.Dir(id.Timeline.Dir), policy.ModeFromEnv())
+	gate.Logger = o.logger
+	gate.WaitHook = taskApprovalHook(id.Timeline, id.Name)
+
 	dispatcher := mind.NewDispatcher(id.Timeline, o.poll)
 	dispatcher.SetLogger(o.logger)
 	dispatcher.Register(mind.NewMonolith(mind.MonolithOptions{
 		Timeline:       id.Timeline,
 		Thinker:        mind.LLMThinker{Client: client},
 		RequestThinker: mind.LLMThinker{Client: requestClient},
+		SummaryThinker: mind.LLMThinker{Client: summaryClient},
 		Backoff:        o.backoff,
 		MaxIterations:  o.maxIterations,
 		Watchdog:       o.watchdog,
 		Persona:        persona,
 		SelfName:       id.Name, // 轮次耗尽的工作摘要以身份名署名投递 operator
 		MemDir:         filepath.Join(id.Dir, "memories"),
+		ContextBudget:  ctxBytes,
+		MemoryBytes:    memBytes,
+		SummaryBytes:   sumBytes,
 		EnableRecap:    true,
 		SkillsDirs:     skillsDirs,
 		MCPServers:     mcpServers,
 		ExtraEnv:       extraEnv,
 		SetLogger:      o.logger,
+		BeforeExecute:  gate.Authorize,
 	}))
 	// 流式回复：MINDLOOP_STREAM=0 整体关闭（无旁路文件、无 replying
 	// 状态，回复回退一次性补全）；缺省开启。流式只做 responder；
-	// monolith 的行动循环不流式。
+	// monolith 的行动循环不流式。responder 是对话面（人说一句、
+	// 立刻回一句），走请求档——与外部步骤触发的反应式唤醒同一档。
 	dispatcher.Register(mind.NewResponder(mind.ResponderOptions{
-		Timeline:  id.Timeline,
-		Thinker:   mind.LLMThinker{Client: client},
-		SelfName:  id.Name,
-		Persona:   persona,
-		Streaming: streamEnabled(),
-		StreamFn:  responderStreamFn(client),
+		Timeline:      id.Timeline,
+		Thinker:       mind.LLMThinker{Client: requestClient},
+		SelfName:      id.Name,
+		Persona:       persona,
+		ContextBudget: ctxBytes,
+		SummaryBudget: sumBytes,
+		// 记忆与 monolith 同源：对话里被问到做过的事时，
+		// BM25 召回相关记忆而不凭空否认。
+		MemDir:      filepath.Join(id.Dir, "memories"),
+		MemoryBytes: memBytes,
+		Streaming:   streamEnabled(),
+		StreamFn:    responderStreamFn(client),
 	}))
-	return &mindStack{dispatcher: dispatcher, client: client}, nil
+	return &mindStack{dispatcher: dispatcher, client: client, request: requestClient, summary: summaryClient}, nil
+}
+
+// contextBudgets 读取上下文预算环境变量：MINDLOOP_CONTEXT_BYTES
+// （单次请求输入总量）、MINDLOOP_MEMORY_BYTES（相关记忆段）、
+// MINDLOOP_SUMMARY_BYTES（摘要/分集段）。未设置或非法返回 0——
+// 默认语义，不因配置错误拦启动。
+func contextBudgets() (total, memory, summary int) {
+	return envBytes("MINDLOOP_CONTEXT_BYTES"), envBytes("MINDLOOP_MEMORY_BYTES"), envBytes("MINDLOOP_SUMMARY_BYTES")
+}
+
+// envBytes 解析正整数字节配置（空/非法/非正值均返回 0）。
+func envBytes(name string) int {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
 }
 
 // streamEnabled 折算 MINDLOOP_STREAM kill switch：环境变量非 "0" 即
@@ -110,6 +172,26 @@ func responderStreamFn(client *llm.Client) func(context.Context, string, []llm.M
 			return "", err
 		}
 		return res.Text, nil
+	}
+}
+
+// taskApprovalHook 把审批等待的进入/离开同步到任务状态机：等待 →
+// awaiting_approval（取消与续跑因此有据可依），离开 → running。
+// 无任务归属的执行（run 命令场景）不碰任务；转换被取消等竞态拒绝
+// 时保持已有事实——钩子是同步面，不是权威。
+func taskApprovalHook(tl *traj.Timeline, owner string) func(runner.Execution, bool) {
+	store := task.New(tl, owner)
+	return func(ex runner.Execution, waiting bool) {
+		if ex.TaskID == "" {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		state := task.Running
+		if waiting {
+			state = task.AwaitingApproval
+		}
+		_, _ = store.Advance(ctx, ex.TaskID, task.Event{State: state, Attempt: ex.Attempt, RunID: ex.RunID})
 	}
 }
 

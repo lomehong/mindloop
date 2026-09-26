@@ -2,6 +2,8 @@ package mind
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,6 +55,96 @@ func TestTryRunLockOwnership(t *testing.T) {
 		t.Fatal("释放后应可重新获取")
 	}
 	second.Release()
+}
+
+// runOwned 通过生产入口启动，缺失入口时直接报告行为尚未实现。
+func runOwned(d *Dispatcher, ctx context.Context, lock *RunLock) error {
+	owned, ok := any(d).(interface {
+		RunOwned(context.Context, *RunLock) error
+	})
+	if !ok {
+		return fmt.Errorf("尚无持锁运行入口")
+	}
+	return owned.RunOwned(ctx, lock)
+}
+
+func TestRunOwnedRetainsLockUntilWorkerExits(t *testing.T) {
+	tl := newTestTimeline(t)
+	lock, owned, err := TryRunLock(tl)
+	if err != nil || !owned {
+		t.Fatalf("获取运行锁: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	h := &hungThinker{name: "hung", sub: Subscription{Types: []string{traj.TypeMessage}}, release: make(chan struct{}), contexts: make(chan context.Context, 1)}
+	d := NewDispatcher(tl, time.Millisecond)
+	d.Register(h)
+	done := make(chan error, 1)
+	t.Cleanup(func() {
+		cancel()
+		close(h.release)
+		d.WaitIdle(time.Second)
+		lock.Release()
+	})
+	go func() { done <- runOwned(d, ctx, lock) }()
+	if err := tl.Append(ctx, traj.NewStep(traj.TypeMessage)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-h.contexts:
+	case err := <-done:
+		t.Fatalf("执行未启动: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("执行未启动")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("调度循环未退出")
+	}
+	lock.Release()
+	if d.WaitIdle(10 * time.Millisecond) {
+		t.Fatal("未退出的 worker 被误报为空闲")
+	}
+	other, acquired, err := TryRunLock(tl)
+	if acquired {
+		other.Release()
+		t.Fatal("旧执行未退出却释放了身份执行权")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	retryCtx, stop := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer stop()
+	if err := runOwned(NewDispatcher(tl, time.Millisecond), retryCtx, lock); err == nil || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("同一个锁不应被另一个调度器复用: %v", err)
+	}
+	h.release <- struct{}{}
+	if !d.WaitIdle(time.Second) {
+		t.Fatal("旧执行未退出")
+	}
+	next, acquired, err := TryRunLock(tl)
+	if err != nil || !acquired {
+		t.Fatalf("真实退出后运行锁未释放: %v", err)
+	}
+	next.Release()
+}
+
+func TestRunOwnedRejectsMissingOrForeignLock(t *testing.T) {
+	tl := newTestTimeline(t)
+	foreign, owned, err := TryRunLock(newTestTimeline(t))
+	if err != nil || !owned {
+		t.Fatal(err)
+	}
+	defer foreign.Release()
+	for _, lock := range []*RunLock{nil, foreign} {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		err := runOwned(NewDispatcher(tl, time.Millisecond), ctx, lock)
+		cancel()
+		if err == nil || errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("无身份运行权仍启动调度: %v", err)
+		}
+	}
 }
 
 // TestRequestStopDir：停机标志写到 run/stop 且幂等可写。

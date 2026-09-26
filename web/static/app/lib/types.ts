@@ -191,6 +191,84 @@ export interface IdentityEnv {
   note: string;
 }
 
+/** providers.json 有效视图（两级合并）里的单个提供商档案——
+ * 连接与模型清单非敏感；密钥只以键名与命中状态出场。 */
+export interface LlmProviderProfileView {
+  id: string;
+  label: string;
+  provider: string; // "" = 按模型名推断 | "anthropic" | "openai-compatible" | "echo"
+  base_url: string;
+  api_key_env: string; // 显式引用的 .env 键名；空 = 用约定键
+  models: string[];
+  key_env_name: string; // 实际查找的密钥键名（显式或约定）
+  has_key: boolean;
+  key_source: "" | "env" | "identity";
+  /** 档案归属层级：identity=身份级存在（含覆盖全局），
+   * global=仅全局级——后者删除会回潮，配置页据此禁用删除。 */
+  origin: "identity" | "global";
+}
+
+/** providers.json 的档位绑定（think/request/summary）。 */
+export interface LlmTierBinding {
+  profile: string;
+  model: string;
+}
+
+/** GET/PUT /llm/providers 的响应形态。 */
+export interface LlmProvidersView {
+  identity: { id: string; name: string };
+  version: number;
+  profiles: LlmProviderProfileView[];
+  /** 两级合并后的有效档位（读面：显示用）。 */
+  tiers: Record<string, LlmTierBinding>;
+  /** 身份文档的原始档位（写面基线）：PUT 时以此为底做最小
+   * 写入——合并视图里的全局档位不回写进身份文档。 */
+  identity_tiers: Record<string, LlmTierBinding>;
+  paths: { global: string; identity: string };
+  error?: string;
+}
+
+/** PUT /llm/providers 的档案输入——api_key 仅请求体存在，
+ * 服务端分流写入身份 .env，绝不落 providers.json。 */
+export interface LlmProviderProfileInput {
+  id: string;
+  label?: string;
+  provider?: string;
+  base_url: string;
+  api_key_env?: string;
+  models?: string[];
+  api_key?: string;
+}
+
+/** PUT /llm/providers 的请求体。 */
+export interface LlmProvidersSaveInput {
+  version?: number;
+  profiles: LlmProviderProfileInput[];
+  tiers: Record<string, LlmTierBinding>;
+}
+
+/** GET /llm/models 的探测结果（错误装 error 字段，非错误码）。 */
+export interface LlmModelsProbe {
+  profile: string;
+  models: string[];
+  source: "live" | "cache" | "";
+  error?: string;
+}
+
+/** 单个档位的有效解析（与 CLI 同一解析器）。 */
+export interface LlmTierResolved {
+  source: "" | "env" | "providers.json";
+  model: string;
+  profile: string;
+  error?: string;
+}
+
+/** GET /llm/config：think/request/summary 三档位解析结果。 */
+export interface LlmConfigView {
+  tiers: Record<"think" | "request" | "summary", LlmTierResolved>;
+  error?: string;
+}
+
 export interface KillallResult {
   ok: boolean;
   dry_run: boolean;
@@ -251,6 +329,9 @@ export interface UsageDay {
   runs: number;
   reasoning: number;
   calls: number;
+  /** Successful calls whose provider returned no usage (usage_known=false).
+   * Explicitly counted — never presented as zero-cost. */
+  unknown: number;
   in: number;
   out: number;
   think: number;
@@ -264,6 +345,18 @@ export interface UsageModel {
   in: number;
   out: number;
   think: number;
+  unknown_calls?: number;
+}
+
+/** Daily token budget and circuit-breaker state (obs.AdmissionStatus).
+ * daily_limit=0 means the budget is not configured. */
+export interface UsageAdmission {
+  daily_limit: number;
+  used_today: number;
+  consecutive_errors: number;
+  circuit_threshold: number;
+  /** RFC3339 deadline while the circuit is cooling; absent = not cooling. */
+  cooling_until?: string;
 }
 
 export interface Usage {
@@ -288,7 +381,10 @@ export interface Usage {
     in_msg: number;
     out_msg: number;
     runs: number;
+    unknown_calls?: number;
   };
+  /** Budget/circuit snapshot; absent on old data — page must not break. */
+  admission?: UsageAdmission;
 }
 
 export interface IdentityStatus {
@@ -555,4 +651,74 @@ export interface MemoryInfo {
   type: string;
   created: string | null;
   slug: string;
+  /** 空串或 "active" = 活动；invalid/superseded 已退出检索与显式操作。 */
+  status?: string;
+}
+
+// ---- 任务（显式委托）：字段口径与 internal/task/task.go 的 JSON 对齐 ----
+
+export type TaskState =
+  | "queued"
+  | "running"
+  | "awaiting_approval"
+  | "canceling"
+  | "succeeded"
+  | "failed"
+  | "canceled"
+  | "interrupted"
+  | "budget_exceeded";
+
+/** 状态变化及控制命令的收据（追加式事实，旧 attempt 的证据不被覆盖）。 */
+export interface TaskEvent {
+  step_id: string;
+  ts: string;
+  task_id: string;
+  status: TaskState;
+  attempt: number;
+  run_id?: string;
+  reason?: string;
+  result?: string;
+  result_kind?: string;
+  evidence_step_ids?: string[];
+  operation: string;
+  actor?: string;
+  request_id?: string;
+  base_attempt?: number;
+}
+
+/** 从根轨迹投影出的任务视图；status/result 是事实的最终呈现。 */
+export interface AgentTask {
+  task_id: string;
+  identity_id: string;
+  from: string;
+  client_message_id: string;
+  content: string;
+  source_step_id?: string;
+  status: TaskState;
+  attempt: number;
+  run_id?: string;
+  created_at: string;
+  updated_at: string;
+  reason?: string;
+  result?: string;
+  result_kind?: string;
+  evidence_step_ids?: string[];
+  events: TaskEvent[];
+}
+
+// ---- 执行授权（等待批准的脚本）：字段口径与 internal/policy/control.go
+// 的 PendingRequest JSON 对齐 ----
+
+/** 等待批准的脚本——审批控制面的展示载荷（正文完整呈现："执行前
+ * 展示正文"是 ask 策略的定义）。 */
+export interface PendingApproval {
+  hash: string;
+  script: string;
+  work_dir: string;
+  run_id: string;
+  task_id?: string;
+  attempt?: number;
+  created: string;
+  expires: string;
+  risks?: string[];
 }

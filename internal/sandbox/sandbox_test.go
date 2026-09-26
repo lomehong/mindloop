@@ -40,7 +40,8 @@ func TestBashPathReturnsWorkingBash(t *testing.T) {
 
 // TestRunScrubsSensitiveEnv：沙箱子进程环境不得携带模型 key 与 web
 // token——脚本一行 env 就能把密钥倒带出机器（密钥暴露缺陷：模型
-// 生成的脚本原本可见全部进程环境）；非敏感变量必须照常透传。
+// 生成的脚本原本可见全部进程环境）；扩展通道是显式键名
+// （MINDLOOP_SANDBOX_ENV）与显式值（req.Env）。
 func TestRunScrubsSensitiveEnv(t *testing.T) {
 	requireBash(t)
 	dir := newWorkDir(t)
@@ -49,9 +50,11 @@ func TestRunScrubsSensitiveEnv(t *testing.T) {
 	t.Setenv("ACME_API_KEY", "sk-acme-secret")
 	t.Setenv("MINDLOOP_WEB_TOKEN", "web-token-secret")
 	t.Setenv("MINDLOOP_KEEPME", "keepme-ok")
+	t.Setenv("MINDLOOP_SANDBOX_ENV", "mindloop_keepme") // 大小写变体也要点名得上
 	res, err := Run(context.Background(), Request{
 		Dir:    dir,
-		Script: `echo "ml=[$MINDLOOP_API_KEY] an=[$ANTHROPIC_API_KEY] ac=[$ACME_API_KEY] web=[$MINDLOOP_WEB_TOKEN] keep=[$MINDLOOP_KEEPME]"`,
+		Script: `echo "ml=[$MINDLOOP_API_KEY] an=[$ANTHROPIC_API_KEY] ac=[$ACME_API_KEY] web=[$MINDLOOP_WEB_TOKEN] keep=[$MINDLOOP_KEEPME] extra=[$MINDLOOP_REQEXTRA]"`,
+		Env:    []string{"MINDLOOP_REQEXTRA=via-req"},
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -62,7 +65,29 @@ func TestRunScrubsSensitiveEnv(t *testing.T) {
 		}
 	}
 	if !strings.Contains(res.Stdout, "keep=[keepme-ok]") {
-		t.Fatalf("非敏感变量被误删: %q", res.Stdout)
+		t.Fatalf("显式允许的扩展键应继承: %q", res.Stdout)
+	}
+	if !strings.Contains(res.Stdout, "extra=[via-req]") {
+		t.Fatalf("显式值应下传: %q", res.Stdout)
+	}
+}
+
+// TestRunEnvIsWhitelist：父环境默认是白名单——未被
+// MINDLOOP_SANDBOX_ENV 点名的变量不下传（脚本看不到无关进程环境）。
+func TestRunEnvIsWhitelist(t *testing.T) {
+	requireBash(t)
+	dir := newWorkDir(t)
+	t.Setenv("MINDLOOP_KEEPME", "keepme-ok")
+	t.Setenv("MINDLOOP_SANDBOX_ENV", "")
+	res, err := Run(context.Background(), Request{
+		Dir:    dir,
+		Script: `echo "keep=[$MINDLOOP_KEEPME]"`,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if strings.Contains(res.Stdout, "keepme-ok") {
+		t.Fatalf("白名单外的变量不应下传: %q", res.Stdout)
 	}
 }
 

@@ -1,12 +1,60 @@
 package cli
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
+
+	"github.com/spf13/cobra"
 
 	"mindloop/internal/identity"
 	"mindloop/internal/mcp"
 	"mindloop/internal/traj"
 )
+
+func extensionFlags(cmd *cobra.Command) {
+	cmd.PersistentFlags().String("identity", "", "身份名（省略时使用 MINDLOOP_IDENTITY_DIR，否则全局）")
+	cmd.PersistentFlags().Bool("global", false, "只操作全局层，忽略环境中的身份")
+	cmd.MarkFlagsMutuallyExclusive("identity", "global")
+}
+
+// extensionIdentity 在执行阶段读取解析后的标志，避免构造子命令时复制默认值。
+func (c *CLI) extensionIdentity(cmd *cobra.Command) (*identity.Identity, error) {
+	global, err := cmd.Flags().GetBool("global")
+	if err != nil {
+		return nil, err
+	}
+	if global {
+		return nil, nil
+	}
+	if cmd.Flags().Changed("identity") {
+		name, err := cmd.Flags().GetString("identity")
+		if err != nil {
+			return nil, err
+		}
+		return c.loadIdentity(name)
+	}
+	dir := os.Getenv("MINDLOOP_IDENTITY_DIR")
+	if dir == "" {
+		return nil, nil
+	}
+	id, err := c.loadIdentity(filepath.Base(filepath.Clean(dir)))
+	if err != nil {
+		return nil, fmt.Errorf("MINDLOOP_IDENTITY_DIR: %w", err)
+	}
+	actual, err := os.Stat(dir)
+	if err != nil {
+		return nil, fmt.Errorf("MINDLOOP_IDENTITY_DIR: %w", err)
+	}
+	expected, err := os.Stat(id.Dir)
+	if err != nil {
+		return nil, err
+	}
+	if !os.SameFile(actual, expected) {
+		return nil, fmt.Errorf("MINDLOOP_IDENTITY_DIR %q 不属于当前身份目录 %s", dir, identity.Home())
+	}
+	return id, nil
+}
 
 // identityExtension 装配身份的扩展能力面（Agent Skills 技能库 +
 // MCP 服务器），供 mind run / chat 一次性取齐：

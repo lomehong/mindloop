@@ -302,6 +302,17 @@ glm-5*、glm-4.5* 等思考型名单生效，名单见 `.env.example`）。
 `MINDLOOP_REASONING_MODELS`（逗号分隔前缀，只增不减）可为内置名单之外
 的新思考型模型套用 32768 预算分层。
 
+**多提供商档案**（可选）：多个提供商/端点并存、按档位各选模型时，用
+`providers.json` 声明档案（连接与模型清单，非敏感、可随身份导出）与
+档位绑定——全局住 `<home>/providers.json`，身份级住
+`<身份目录>/providers.json`（身份级覆盖：同名档案整体替换、
+tiers 逐档覆盖）。档案
+密钥按约定键 `MINDLOOP_PROFILE_<ID>_API_KEY`（或档案里 `api_key_env`
+引用任意键名）仍住 `.env`。**显式环境变量优先于 providers.json**：
+不写 JSON 时行为与上面完全一致。仪表盘「配置」页可可视化增删档案、
+从提供商拉取真实模型清单，并绑定主/请求/摘要三个档位——页面显示的
+解析结果就是 CLI 实际使用的配置；结构与优先级见 `.env.example`。
+
 ## 路线图
 
 1. **[x] 日志层**——属主检查锁、fork/merge、cursor、查询 CLI。

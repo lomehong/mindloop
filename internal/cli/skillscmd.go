@@ -15,25 +15,24 @@ import (
 // skillsStore 解析技能库的两层目录：--identity 给定时身份级优先，
 // 全局层（MINDLOOP_HOME/skills）永远在场。返回 Store 与"写入层"
 // （install/init 的落点）。
-func (c *CLI) skillsStore(identityP string) (skills.Store, string, error) {
-	dirs := []string{}
-	installDir := filepath.Join(traj.Home(), "skills")
-	if identityP != "" {
-		id, err := c.loadIdentity(identityP)
-		if err != nil {
-			return skills.Store{}, "", err
-		}
-		dirs = append(dirs, filepath.Join(id.Dir, "skills"))
-		installDir = dirs[0]
+func (c *CLI) skillsStore(cmd *cobra.Command) (skills.Store, string, error) {
+	id, err := c.extensionIdentity(cmd)
+	if err != nil {
+		return skills.Store{}, "", err
 	}
-	dirs = append(dirs, installDir)
+	global := filepath.Join(traj.Home(), "skills")
+	dirs := []string{global}
+	installDir := global
+	if id != nil {
+		installDir = filepath.Join(id.Dir, "skills")
+		dirs = []string{installDir, global}
+	}
 	return skills.Store{Dirs: dirs}, installDir, nil
 }
 
 // newSkillsCmd 是 Agent Skills 标准（SKILL.md）的技能库管理入口。
 // 模型侧经系统提示的索引段 + cat 正文渐进披露；这里是人的管理面。
 func (c *CLI) newSkillsCmd() *cobra.Command {
-	var identityP string
 	cmd := &cobra.Command{
 		Use:   "skills",
 		Short: "Agent Skills 标准技能库（SKILL.md）",
@@ -44,25 +43,25 @@ markdown 正文）。索引进系统提示，正文由模型按需读取。
 两层目录：身份级 <身份>/skills 覆盖全局 ~/.mindloop/skills 的同名
 技能。`,
 	}
-	cmd.PersistentFlags().StringVar(&identityP, "identity", "", "身份名（省略则只操作全局层）")
+	extensionFlags(cmd)
 
 	cmd.AddCommand(
-		c.newSkillsListCmd(identityP),
-		c.newSkillsShowCmd(identityP),
-		c.newSkillsPromptCmd(identityP),
-		c.newSkillsInstallCmd(identityP),
-		c.newSkillsInitCmd(identityP),
-		c.newSkillsRemoveCmd(identityP),
+		c.newSkillsListCmd(),
+		c.newSkillsShowCmd(),
+		c.newSkillsPromptCmd(),
+		c.newSkillsInstallCmd(),
+		c.newSkillsInitCmd(),
+		c.newSkillsRemoveCmd(),
 	)
 	return cmd
 }
 
-func (c *CLI) newSkillsListCmd(identityP string) *cobra.Command {
+func (c *CLI) newSkillsListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "列出全部技能（身份级遮蔽全局）",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, _, err := c.skillsStore(identityP)
+			store, _, err := c.skillsStore(cmd)
 			if err != nil {
 				return c.fail(err)
 			}
@@ -83,13 +82,13 @@ func (c *CLI) newSkillsListCmd(identityP string) *cobra.Command {
 	}
 }
 
-func (c *CLI) newSkillsShowCmd(identityP string) *cobra.Command {
+func (c *CLI) newSkillsShowCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <name>",
 		Short: "打印技能的完整 SKILL.md",
 		Args:  exactArgs(1, "用法: mindloop skills show <name> [--identity X]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, _, err := c.skillsStore(identityP)
+			store, _, err := c.skillsStore(cmd)
 			if err != nil {
 				return c.fail(err)
 			}
@@ -108,12 +107,12 @@ func (c *CLI) newSkillsShowCmd(identityP string) *cobra.Command {
 	}
 }
 
-func (c *CLI) newSkillsPromptCmd(identityP string) *cobra.Command {
+func (c *CLI) newSkillsPromptCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "prompt",
 		Short: "打印进系统提示的技能索引段（调试用）",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, _, err := c.skillsStore(identityP)
+			store, _, err := c.skillsStore(cmd)
 			if err != nil {
 				return c.fail(err)
 			}
@@ -123,7 +122,7 @@ func (c *CLI) newSkillsPromptCmd(identityP string) *cobra.Command {
 	}
 }
 
-func (c *CLI) newSkillsInstallCmd(identityP string) *cobra.Command {
+func (c *CLI) newSkillsInstallCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "install <本地目录|owner/repo>",
 		Short: "安装技能（本地目录或 GitHub 仓库）",
@@ -134,7 +133,7 @@ func (c *CLI) newSkillsInstallCmd(identityP string) *cobra.Command {
 安装前按标准校验，不合格零落盘；同名已存在时报错（先 remove）。`,
 		Args: exactArgs(1, "用法: mindloop skills install <目录|owner/repo> [--identity X]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, installDir, err := c.skillsStore(identityP)
+			_, installDir, err := c.skillsStore(cmd)
 			if err != nil {
 				return c.fail(err)
 			}
@@ -148,13 +147,13 @@ func (c *CLI) newSkillsInstallCmd(identityP string) *cobra.Command {
 	}
 }
 
-func (c *CLI) newSkillsInitCmd(identityP string) *cobra.Command {
+func (c *CLI) newSkillsInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init <name>",
 		Short: "脚手架一个新技能（标准 frontmatter 模板）",
 		Args:  exactArgs(1, "用法: mindloop skills init <name> [--identity X]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, installDir, err := c.skillsStore(identityP)
+			_, installDir, err := c.skillsStore(cmd)
 			if err != nil {
 				return c.fail(err)
 			}
@@ -168,17 +167,17 @@ func (c *CLI) newSkillsInitCmd(identityP string) *cobra.Command {
 	}
 }
 
-func (c *CLI) newSkillsRemoveCmd(identityP string) *cobra.Command {
+func (c *CLI) newSkillsRemoveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "remove <name>",
 		Short: "删除技能（身份级与全局同名时删高优先层）",
 		Args:  exactArgs(1, "用法: mindloop skills remove <name> [--identity X]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, _, err := c.skillsStore(identityP)
+			_, installDir, err := c.skillsStore(cmd)
 			if err != nil {
 				return c.fail(err)
 			}
-			dir, err := skills.Remove(store, args[0])
+			dir, err := skills.Remove(skills.Store{Dirs: []string{installDir}}, args[0])
 			if err != nil {
 				return c.fail(err)
 			}

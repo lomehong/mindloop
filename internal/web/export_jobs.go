@@ -193,12 +193,13 @@ func (s *Server) handleExportJobDownload(w http.ResponseWriter, r *http.Request)
 	jobID := r.PathValue("jobID")
 	exportJobsMu.Lock()
 	j, ok := exportJobs[jobID]
-	path, filename, status := j.path, j.Filename, j.Status
-	exportJobsMu.Unlock()
 	if !ok {
+		exportJobsMu.Unlock()
 		writeError(w, 404, "导出任务不存在")
 		return
 	}
+	path, filename, status := j.path, j.Filename, j.Status
+	exportJobsMu.Unlock()
 	if status != "done" || path == "" {
 		writeError(w, 409, "任务尚未完成（status="+status+"）")
 		return

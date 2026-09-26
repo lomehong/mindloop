@@ -4,6 +4,7 @@ export default [
   index("routes/home.tsx"),
   route("talk", "routes/talk.tsx"),
   route("talk/:identityId", "routes/talk-chat.tsx"),
+  route("talk/:identityId/tasks", "routes/tasks.tsx"),
   route("i/:identityId", "routes/timeline.tsx"),
   route("i/:identityId/recap", "routes/recap.tsx"),
   route("i/:identityId/mindlog", "routes/identity.tsx"),

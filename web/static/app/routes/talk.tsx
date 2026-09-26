@@ -3,6 +3,8 @@ import { ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { CredentialControl } from "~/components/credential-control";
+import { QueryErrorBanner } from "~/components/query-error-banner";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { LoadingDots } from "~/components/ui/loading-dots";
@@ -82,7 +84,7 @@ export default function TalkHome() {
     if (last) navigate(`/talk/${encodeURIComponent(last)}`, { replace: true });
   }, [name, picking, navigate]);
 
-  const { data: identities, isLoading } = useQuery({
+  const { data: identities, isLoading, error, refetch } = useQuery({
     queryKey: ["identities"],
     queryFn: fetchIdentities,
     refetchInterval: 10000,
@@ -91,17 +93,21 @@ export default function TalkHome() {
 
   if (!name) {
     return (
-      <NamePrompt
-        onDone={(picked) => {
-          setPwaName(picked);
-          setName(picked);
-        }}
-      />
+      <>
+        <div className="px-4 pt-[env(safe-area-inset-top)]"><CredentialControl /></div>
+        <NamePrompt
+          onDone={(picked) => {
+            setPwaName(picked);
+            setName(picked);
+          }}
+        />
+      </>
     );
   }
 
   return (
     <div className="mx-auto flex w-full max-w-lg flex-1 flex-col px-4 pt-[env(safe-area-inset-top)]">
+      <CredentialControl />
       <header className="flex items-center justify-between py-4">
         <h1 className="text-lg font-semibold">选择对话对象…</h1>
         <button
@@ -118,6 +124,8 @@ export default function TalkHome() {
         <div className="flex justify-center py-16">
           <LoadingDots />
         </div>
+      ) : error ? (
+        <QueryErrorBanner error={error} onRetry={() => void refetch()} />
       ) : !identities || identities.length === 0 ? (
         <p className="py-16 text-center text-sm text-muted-foreground">
           这台服务器上还没有身份。

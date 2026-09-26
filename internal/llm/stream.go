@@ -60,7 +60,10 @@ func (c *Client) CompleteStream(ctx context.Context, req Request, onDelta func(s
 	}
 	var res Result
 	var err error
+	start := time.Now()
 	defer func() {
+		res.Usage.LatencyMS = time.Since(start).Milliseconds()
+		res.Usage.applyAttrib(AttribFrom(ctx))
 		if c.OnDone != nil {
 			c.onDoneMu.Lock()
 			c.OnDone(res.Usage, err)
@@ -134,8 +137,20 @@ func (c *Client) anthropicStreamBody(req Request) map[string]any {
 // 一次尝试已经发出过增量，就绝不再重试。
 func (c *Client) doStream(ctx context.Context, headers map[string]string, body any, consume streamConsumer, onDelta func(string)) (Result, error) {
 	var lastErr error
+	var last Result
 	var retryAfter time.Duration
 	for attempt := 0; attempt <= c.MaxRetries; attempt++ {
+		// 准入守卫（熔断/每日预算）：拒绝的请求不算一次调用尝试，
+		// 不消耗配额。
+		if c.Gate != nil {
+			if err := c.Gate(ctx); err != nil {
+				return Result{}, err
+			}
+		}
+		// 每次真实尝试（含重试）过账调用配额；耗尽即停，不退避不重试。
+		if err := TakeCall(ctx); err != nil {
+			return Result{}, err
+		}
 		if attempt > 0 && c.Backoff > 0 {
 			select {
 			case <-ctx.Done():
@@ -144,6 +159,8 @@ func (c *Client) doStream(ctx context.Context, headers map[string]string, body a
 			}
 		}
 		res, emitted, retryable, suggested, err := c.streamAttempt(ctx, headers, body, consume, onDelta)
+		res.Usage.Retries = attempt
+		last = res
 		retryAfter = suggested
 		if err == nil {
 			return res, nil
@@ -151,14 +168,15 @@ func (c *Client) doStream(ctx context.Context, headers map[string]string, body a
 		lastErr = err
 		if emitted {
 			// 首增量之后：已发出的文本收不回来，重试必然重复拼接
-			// ——立即失败并把中断语义交给调用方。
-			return Result{}, fmt.Errorf("llm: 流式输出中断于首增量之后（已发出部分有效，本次调用失败）: %w", err)
+			// ——立即失败并把中断语义交给调用方（last 带回已采集
+			// 的 partial 用量，失败调用也要如实记账）。
+			return last, fmt.Errorf("llm: 流式输出中断于首增量之后（已发出部分有效，本次调用失败）: %w", err)
 		}
 		if !retryable {
-			return Result{}, err
+			return last, err
 		}
 	}
-	return Result{}, fmt.Errorf("llm: 重试 %d 次后仍失败: %w", c.MaxRetries, lastErr)
+	return last, fmt.Errorf("llm: 重试 %d 次后仍失败: %w", c.MaxRetries, lastErr)
 }
 
 // streamAttempt 发起一次流式请求并消费到流结束。emitted 报告本次
@@ -284,6 +302,7 @@ func (c *Client) parseOpenAIStream(r io.Reader, onDelta func(string)) (Result, e
 		}
 		if chunk.Usage != nil && (chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0) {
 			res.Usage = *chunk.Usage
+			res.Usage.Known = true
 		}
 		if len(chunk.Choices) == 0 {
 			continue
@@ -373,15 +392,21 @@ func (c *Client) parseAnthropicStream(r io.Reader, onDelta func(string)) (Result
 				onDelta(ev.Delta.Text)
 			}
 		case "message_start":
-			if ev.Message != nil && ev.Message.Usage.InputTokens > 0 {
-				res.Usage.PromptTokens = ev.Message.Usage.InputTokens
+			if ev.Message != nil {
+				res.Usage.Known = true
+				if ev.Message.Usage.InputTokens > 0 {
+					res.Usage.PromptTokens = ev.Message.Usage.InputTokens
+				}
 			}
 		case "message_delta":
 			if ev.Delta.StopReason != "" {
 				res.FinishReason = ev.Delta.StopReason
 			}
-			if ev.Usage != nil && ev.Usage.OutputTokens > 0 {
-				res.Usage.CompletionTokens = ev.Usage.OutputTokens
+			if ev.Usage != nil {
+				res.Usage.Known = true
+				if ev.Usage.OutputTokens > 0 {
+					res.Usage.CompletionTokens = ev.Usage.OutputTokens
+				}
 			}
 		case "message_stop":
 			stopped = true

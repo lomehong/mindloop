@@ -177,7 +177,7 @@ func (s *Server) handleLlmHealth(w http.ResponseWriter, _ *http.Request, id *ide
 	pathStats := map[string]any{"n": 0, "median_s": nil, "p90_s": nil}
 	writeJSON(w, 200, map[string]any{
 		"identity": map[string]string{"id": id.Name, "name": id.Name},
-		"activity": activityMap(id),
+		"activity": s.activityMap(id),
 		"responses": map[string]any{
 			"window_days": 7,
 			"replied":     replied,

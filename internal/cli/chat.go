@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"mindloop/internal/config"
+	"mindloop/internal/identity"
 	"mindloop/internal/llm"
 	"mindloop/internal/mind"
 	"mindloop/internal/traj"
@@ -45,12 +47,14 @@ func (c *CLI) newRootChatCmd() *cobra.Command {
 	return cmd
 }
 
-// newChatClient 构造模型客户端；未配置 key 时降级为 echo 占位并
-// 给出醒目提示——"先能对话，再谈智能"比直接报错更符合预期。
-func (c *CLI) newChatClient() *llm.Client {
-	client, err := llm.FromEnv()
+// newChatClient 构造模型客户端；配置不可用（未配置、providers.json
+// 损坏等）时降级为 echo 占位并给出醒目提示——"先能对话，再谈
+// 智能"比直接报错更符合预期。
+func (c *CLI) newChatClient(id *identity.Identity) *llm.Client {
+	client, err := thinkClient(id.Dir)
 	if err != nil {
-		fmt.Fprintln(c.stderr, "⚠ 未配置模型（编辑 ~\\.mindloop\\.env 填入 MINDLOOP_MODEL 与 MINDLOOP_API_KEY）——ada 处于占位模式，回复为固定内容")
+		fmt.Fprintf(c.stderr, "⚠ %v\n", err)
+		fmt.Fprintf(c.stderr, "  编辑 ~\\.mindloop\\.env 或在配置页添加提供商档案；%s 处于占位模式，回复为固定内容\n", id.Name)
 		return &llm.Client{Provider: llm.ProviderEcho}
 	}
 	return client
@@ -187,12 +191,40 @@ func (p *promptWriter) Finish() {
 	p.mu.Unlock()
 }
 
-// Pending 报告提示符是否还挂着（兜底超时回调用，避免在回复到达
-// 后又补画一条假的提示符）。
+// Pending 报告提示符是否还挂着。异步输出（回复/行动/错误）经
+// Linef 落屏后必然挂着提示符——因此"挂着"意味着窗口内有过输出；
+// 静默兜底计时器据此决定要不要告警。
 func (p *promptWriter) Pending() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.pending
+}
+
+// silenceGrace 是消息发出后等待任何动静的兜底窗口：到点仍无回复
+// 或动态时，用户面对的是一行空白——需要一句说明和可以继续输入的
+// 提示符。
+const silenceGrace = 30 * time.Second
+
+// armSilenceFallback 启动静默兜底计时：到点若提示符未挂起（窗口内
+// 确实没有任何输出落屏），打印说明并恢复"工作态"提示符。判据方向
+// 不能反——回复到达必走 Linef→Show 把提示符挂起，若以"挂起"为
+// 触发条件，每条正常回复之后都会弹一条"无回复"假警报（线上实际
+// 事故）。d 参数化供测试注入短窗口。
+func armSilenceFallback(term *promptWriter, d time.Duration) *time.Timer {
+	return time.AfterFunc(d, func() {
+		if term.Pending() {
+			return // 提示符挂着 = 已有输出落屏，不是静默
+		}
+		term.Plainf("（%d 秒未见回复或动态；可能仍在处理，可直接继续输入，Ctrl+C 退出）", int(d.Seconds()))
+		term.Show()
+	})
+}
+
+// replyLine 渲染一条回复的终端显示行：署名 + 全文原样（含换行）。
+// 回复是对话的核心交付物，不截断、不压平——400 字截断曾把 444 字
+// 的回复截成"……命…"丢给用户；行动/错误等辅助动态仍走一行摘要。
+func replyLine(name, content string) string {
+	return name + "> " + content
 }
 
 // runChat 交互对话主循环。
@@ -210,10 +242,10 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 
 	// 调度器的流水账（收到唤醒/已回复/启动停机）在交互对话里是
 	// 噪音——每条消息会搅出好几个多余的提示符重绘。chat 模式只
-	// 放行失败类日志，日常动态由回复与行动步骤自己呈现。
+	// 放行失败类与审批类日志，日常动态由回复与行动步骤自己呈现。
 	chatLogger := func(format string, args ...any) {
 		msg := fmt.Sprintf(format, args...)
-		if strings.Contains(msg, "失败") || strings.Contains(msg, "错误") {
+		if strings.Contains(msg, "失败") || strings.Contains(msg, "错误") || strings.Contains(msg, "批准") {
 			term.Linef("· %s", msg)
 		}
 	}
@@ -225,10 +257,13 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 	}
 	defer lock.Release()
 
+	// dispatchDone 只在接管模式非 nil：调度器退出（含恢复失败等启动
+	// 错误）后主循环必须把它摆到屏幕上，不能静默吞掉。
+	var dispatchDone chan error
 	if owned {
 		stack, aerr := c.assembleMindStack(id, mindStackOpts{
 			// chat 的底线是"先能对话"：未配置模型时降级 echo。
-			clientFactory: func() (*llm.Client, error) { return c.newChatClient(), nil },
+			clientFactory: func() (*llm.Client, error) { return c.newChatClient(id), nil },
 			poll:          200 * time.Millisecond,
 			watchdog:      watchdog,
 			logger:        chatLogger,
@@ -241,10 +276,12 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 			term.Plainf("⚠ 消费残留停机标志失败: %v", err)
 		}
 		dispatchCtx, cancelDispatch := context.WithCancel(c.ctx)
-		go stack.dispatcher.Run(dispatchCtx)
+		dispatchDone = make(chan error, 1)
+		// 持锁启动：持久任务恢复只允许在身份运行权下进行。
+		go func() { dispatchDone <- stack.dispatcher.RunOwned(dispatchCtx, lock) }()
 		// 优雅停机：输入循环退出后先停心跳，再等在途思考收尾——
 		// 声明在 defer lock.Release() 之后，LIFO 保证 join 先于
-		// 释放运行锁，跑一半的 bash 与落盘不被腰斩。
+		// 释放运行锁；真释放仍由在途执行退出驱动（Release 只请求）。
 		defer func() {
 			cancelDispatch()
 			if !stack.dispatcher.WaitIdle(10 * time.Second) {
@@ -305,7 +342,7 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 						// 再画：代表"还在持续活动"，你此刻打字会被
 						// 下一次心跳打断或回应。
 						term.Set(promptWorking)
-						printLine("%s> %s", id.Name, oneLineLocal(content, 400))
+						printLine("%s", replyLine(id.Name, content))
 					case traj.TypeAction:
 						if content, ok := s.Field("content"); ok {
 							term.Set(promptWorking)
@@ -339,6 +376,18 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 		case <-c.ctx.Done():
 			term.Finish()
 			return nil
+		case derr := <-dispatchDone:
+			// 调度器退出只影响后台心智，不踢掉对话窗口：把原因说
+			// 清楚（恢复失败/运行错误绝不能静默消失），用户仍可
+			// 正常 /exit。
+			dispatchDone = nil
+			switch {
+			case derr == nil || errors.Is(derr, context.Canceled):
+			case errors.Is(derr, mind.ErrStopRequested):
+				term.Plainf("· 心智已停机（本窗口仅剩对话；重启: mindloop chat %s）", id.Name)
+			default:
+				term.Plainf("⚠ 心智调度器已退出（本窗口仅剩对话）: %v", derr)
+			}
 		case line, ok := <-input:
 			if !ok {
 				// stdin 结束（管道/文件输入）：最后一条消息如果
@@ -353,7 +402,7 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 						}
 						printedMu.Unlock()
 						if !already {
-							printLine("%s> %s", id.Name, oneLineLocal(content, 400))
+							printLine("%s", replyLine(id.Name, content))
 						}
 					}
 				}
@@ -382,13 +431,9 @@ func (c *CLI) runChat(name string, watchdog time.Duration) error {
 				lastSent = last.StepID
 			}
 			// 发送后不画提示符：异步回复经 Linef 自然补回。
-			// 兜底：30 秒仍无回复时恢复"工作态"提示符（让用户能继续输入）。
-			time.AfterFunc(30*time.Second, func() {
-				if term.Pending() {
-					term.Plainf("（心跳超时，无回复，按 enter 重发 / Ctrl+C 退出）")
-					term.Show()
-				}
-			})
+			// 兜底：窗口内没有任何动静时说明原因并恢复"工作态"
+			// 提示符（判据方向见 armSilenceFallback）。
+			armSilenceFallback(term, silenceGrace)
 		}
 	}
 }

@@ -51,6 +51,22 @@ func parseFile(path string) (Memory, error) {
 			if ts, err := time.Parse(trajTimeFormat, v); err == nil {
 				m.Created = ts
 			}
+		case "updated":
+			if ts, err := time.Parse(trajTimeFormat, v); err == nil {
+				m.Updated = ts
+			}
+		case "source":
+			m.Source = v
+		case "status":
+			m.Status = v
+		case "expires":
+			if ts, err := time.Parse(trajTimeFormat, v); err == nil {
+				m.Expires = ts
+			}
+		case "supersedes":
+			m.Supersedes = v
+		case "superseded_by":
+			m.SupersededBy = v
 		}
 	}
 	if m.ID == "" {

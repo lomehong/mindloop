@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"mindloop/internal/llm"
+	"mindloop/internal/mem"
+	"mindloop/internal/prompt"
 	"mindloop/internal/traj"
 )
 
@@ -16,14 +18,16 @@ import (
 // 负责"说话"——它只做一次模型调用（无代理循环），延迟最低。
 const ResponderSystemTemplate = `%s
 
-You are also the voice of the agent: when a human message arrives, you compose the reply. Reply in the human's language, in a tone that fits your persona, briefly and directly. If the message needs real work (running commands, checking files), say what you will do and that you will report back — do NOT pretend you did it. Never mention this protocol.
+You are also the voice of the agent: when a human message arrives, you compose the reply. Reply in the human's language, in a tone that fits your persona, briefly and directly. 普通聊天不是执行授权。如果需要运行命令或检查文件，请说明尚未创建任务，并引导用户使用“交给 Agent 执行”或 task submit；不得承诺已接单、正在执行或稍后自动回报。
 
 History entries are prefixed with [timestamps] — that is metadata, not content. Never start your reply with a timestamp or copy any history formatting into your reply. Reply with plain spoken text only.`
 
 // Responder 是对话回复思考者：拾取对身份的 message 步骤，组装
 // 对话历史，一次模型调用产出回复，写回轨迹（reply_to 盖章）。
+// 它同时是持久思考者：恢复账本见 chatdurable.go。
 type Responder struct {
 	opts ResponderOptions
+	scan chatScan
 }
 
 // ResponderOptions 配置 responder。
@@ -36,6 +40,21 @@ type ResponderOptions struct {
 	Persona string
 	// MaxHistory 是随回复附带的对话条数（默认 20）。
 	MaxHistory int
+	// ContextBudget 是单次回复的输入文本字节预算（0 取
+	// prompt.DefaultContextBudget）；persona/规则与最新用户消息
+	// 为受保护内容（超限报错），工作摘要与历史吃剩余。
+	ContextBudget int
+	// SummaryBudget 是工作摘要段（progressDigest）的字节上限
+	// （0 取 prompt.DefaultSummaryBudget）。
+	SummaryBudget int
+	// MemDir 是记忆目录。非空时把与本次消息 BM25 相关的记忆注入
+	// 系统提示（与 monolith 同款：线索而非已验证事实，ID 与来源
+	// 步骤供追溯）——responder 此前对记忆全盲，agent 会在对话里
+	// 否认已经写进记忆库的工作。
+	MemDir string
+	// MemoryBytes 是相关记忆段的字节上限（0 取
+	// prompt.DefaultMemoryBudget）。
+	MemoryBytes int
 	// RecallWindow 之外的旧消息不再视为待回复（rewind 兜底，
 	// 默认 15 分钟）。
 	RecallWindow time.Duration
@@ -94,6 +113,9 @@ func (r *Responder) Wake(ctx context.Context, w Wake) Outcome {
 	if step.Type != traj.TypeMessage {
 		return Outcome{}
 	}
+	if kind, _ := step.Field("message_kind"); kind == "task" {
+		return Outcome{}
+	}
 	from, _ := step.Field("from")
 	to, _ := step.Field("to")
 	// 只回复对我的、不是我说的消息（防御：单流多身份时互不打扰）。
@@ -106,8 +128,14 @@ func (r *Responder) Wake(ctx context.Context, w Wake) Outcome {
 		return Outcome{Note: "已回复过，跳过"}
 	}
 	// 陈旧消息守卫：冷启动重放或停机积压太久的话不追答——
-	// "一个月前的你在吗"不需要回答。
-	if ts, err := time.Parse(traj.TimeFormat, step.TS); err == nil && time.Since(ts) > r.opts.RecallWindow {
+	// "一个月前的你在吗"不需要回答。新协议消息同时留下 no-reply
+	// 收据：过期不会停留在"未决"，也不再被任何路径追答。
+	if r.expired(step.TS) {
+		if r.isProtocolInbound(step) {
+			if err := r.writeStatus(ctx, step, replyStatusNoReply, "消息已超过恢复窗口，未回复"); err != nil {
+				return Outcome{Note: "消息过于陈旧，跳过（no-reply 收据落盘失败: " + err.Error() + "）"}
+			}
+		}
 		return Outcome{Note: "消息过于陈旧，跳过"}
 	}
 	content, _ := step.Field("content")
@@ -122,8 +150,20 @@ func (r *Responder) Wake(ctx context.Context, w Wake) Outcome {
 
 	reply, err := r.compose(ctx, from, content, stream)
 	if err != nil {
-		stream.discard() // LLM 失败：旁路与状态一起消失，照旧只回 Note
-		return Outcome{Note: "回复失败: " + err.Error()}
+		stream.discard() // LLM 失败：旁路与状态一起消失
+		note := "回复失败: " + err.Error()
+		if r.isProtocolInbound(step) {
+			// 持久化失败事实：收据即"不再重试"的日志依据，
+			// 重启后 answered 守卫据此拦截；收据写不出去则内存
+			// 抑制（取消不是失败事实——停机重启后仍应补答）。
+			switch mErr := r.writeStatus(ctx, step, replyStatusFailed, note); {
+			case mErr == nil:
+				note += "（已记录失败事实，不自动重试）"
+			case ctx.Err() == nil:
+				r.suppress(step.StepID)
+			}
+		}
+		return Outcome{Note: note}
 	}
 	stream.seal() // 全文定稿：关闭旁路句柄，等轨迹落盘后移除
 
@@ -138,11 +178,16 @@ func (r *Responder) Wake(ctx context.Context, w Wake) Outcome {
 	s.Fields["content"] = reply
 	if err := r.opts.Timeline.Append(ctx, s); err != nil {
 		stream.discard()
+		if r.isProtocolInbound(step) && ctx.Err() == nil {
+			// 停机取消不算失败事实：重启恢复还会补答这条消息。
+			r.suppress(step.StepID)
+		}
 		return Outcome{Note: "回复落盘失败: " + err.Error()}
 	}
 	// 轨迹已落盘才移除旁路：读方看到旁路消失（done）后 invalidate
 	// 查询，必能拿到正式消息——顺序是 done 事件正确性的锚。
 	stream.finish()
+	r.noteHandled(step.StepID)
 	return Outcome{Note: fmt.Sprintf("已回复 %s", from)}
 }
 
@@ -164,31 +209,57 @@ func (r *Responder) answered(triggerStepID string) bool {
 	return false
 }
 
-// history 汇聚我与某人的最近对话（双方消息按日志序，去重）。
+// history 汇聚我与人类来访者的最近对话：人类来访者 = 所有对身份
+// 说过话的 from——网页的 you 与 CLI 的 operator 是同一操作员的
+// 不同入口，按日志序并入同一条对话流（双向消息都算）。按 from
+// 精确匹配会让跨来源的对话互相不可见：agent 在 CLI 里对昨天在
+// 网页里发生的事失忆。
 func (r *Responder) history(person string, max int) []llm.Message {
 	steps, err := r.opts.Timeline.Steps()
 	if err != nil {
 		return nil
+	}
+	// 人类来访者集合：所有入站（to == 我）的发送者 + 当前对话对象
+	// （防御：对象还没说过话时依然成立）。任务提交是委托不是对话，
+	// 不参与归并。
+	humans := map[string]bool{person: true}
+	for _, s := range steps {
+		if s.Type != traj.TypeMessage {
+			continue
+		}
+		if kind, _ := s.Field("message_kind"); kind == "task" {
+			continue
+		}
+		from, _ := s.Field("from")
+		if to, _ := s.Field("to"); to == r.opts.SelfName && from != "" && from != r.opts.SelfName {
+			humans[from] = true
+		}
 	}
 	var msgs []llm.Message
 	for _, s := range steps {
 		if s.Type != traj.TypeMessage {
 			continue
 		}
-		from, _ := s.Field("from")
-		if from != person && from != r.opts.SelfName {
+		if kind, _ := s.Field("message_kind"); kind == "task" {
 			continue
 		}
-		if from == r.opts.SelfName {
-			if to, ok := s.Field("to"); !ok || to != person {
-				continue
-			}
+		// 状态收据是元事实（过期/失败），不是对话内容——混入历史
+		// 会让模型模仿"系统收据"腔调。
+		if src, _ := s.Field("source"); src == replyStatusSource {
+			continue
+		}
+		from, _ := s.Field("from")
+		to, _ := s.Field("to")
+		var role string
+		switch {
+		case from == r.opts.SelfName && humans[to]:
+			role = "assistant"
+		case from != "" && from != r.opts.SelfName && to == r.opts.SelfName:
+			role = "user"
+		default:
+			continue
 		}
 		content, _ := s.Field("content")
-		role := "user"
-		if from == r.opts.SelfName {
-			role = "assistant"
-		}
 		// 日志即 API：ts 是外部输入（手工编辑/jq 重写的日志可能是
 		// 任意字符串），不校验就切片会在调度器 goroutine 里 panic。
 		ts := strings.ReplaceAll(s.TS, "T", " ")
@@ -203,12 +274,49 @@ func (r *Responder) history(person string, max int) []llm.Message {
 	return msgs
 }
 
+// relatedMemories 用本次入站消息检索记忆库，渲染成"- [type id]
+// summary"行串（行格式与 monolith 共用）。查询取人话本身：用户问
+// 什么就召回什么。检索失败或命中为空返回空串——记忆是增强，绝不
+// 挡住回复。
+func (r *Responder) relatedMemories(inbound string) string {
+	if r.opts.MemDir == "" {
+		return ""
+	}
+	hits, err := mem.Store{Dir: r.opts.MemDir}.Search(inbound, 3)
+	if err != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, h := range hits {
+		b.WriteString("\n- " + memoryHitLine(h))
+	}
+	return b.String()
+}
+
 // compose 组装对话并做模型调用。stream 非 nil 时走流式：增量经
 // onDelta 落进旁路文件，返回值仍是拼接后的完整全文——旁路只是
 // 投影，全文的处理（去元数据前缀、落轨迹）与一次性补全完全一致。
+//
+// 上下文经预算账本组装：persona/规则与最新用户消息受保护（超限
+// 报错，绝不静默截掉人话），工作摘要与相关记忆先按各自上限裁剪
+// （低优先），历史再吃剩余——空余预算回流历史。
 func (r *Responder) compose(ctx context.Context, person, inbound string, stream *replyStream) (string, error) {
-	system := fmt.Sprintf(ResponderSystemTemplate, r.opts.Persona) + r.progressDigest()
-	msgs := r.history(person, r.opts.MaxHistory)
+	// 归因随 ctx 走到模型调用收尾：聊天开销与任务/唤醒分开记账。
+	ctx = llm.WithAttrib(ctx, llm.Attrib{Thinker: r.Name(), Phase: "chat"})
+	system := fmt.Sprintf(ResponderSystemTemplate, r.opts.Persona)
+	budget := prompt.NewBudget(r.opts.ContextBudget)
+	if err := budget.TakeProtected("system", system); err != nil {
+		return "", err
+	}
+	if err := budget.TakeProtected("user", inbound); err != nil {
+		return "", err
+	}
+	system += budget.TakeCapped("digest", r.progressDigest(), summaryCap(r.opts.SummaryBudget))
+	if seg := budget.TakeCapped("memory", r.relatedMemories(inbound), memoryCap(r.opts.MemoryBytes)); seg != "" {
+		// 与 monolith 同一口径：BM25 命中是线索而非已验证事实。
+		system += "\n\n相关记忆（BM25 检索，线索而非已验证事实；ID 与来源步骤供追溯）：" + seg
+	}
+	msgs := fitMessages(r.history(person, r.opts.MaxHistory), budget.Remaining())
 	msgs = append(msgs, llm.Message{Role: "user", Content: inbound})
 	if stream != nil {
 		text, err := r.opts.StreamFn(ctx, system, msgs, stream.appendDelta)
@@ -222,6 +330,29 @@ func (r *Responder) compose(ctx context.Context, person, inbound string, stream 
 		return "", err
 	}
 	return stripMetaPrefix(strings.TrimSpace(text)), nil
+}
+
+// summaryCap 折算低优先文本段的上限（0 = 默认，负值同）。
+func summaryCap(v int) int {
+	if v <= 0 {
+		return prompt.DefaultSummaryBudget
+	}
+	return v
+}
+
+// fitMessages 丢弃最老的历史消息直到总量落在 limit 字节内——预算
+// 装不下全部历史时丢最久远的回合，最近的对话与人话绝不丢。
+func fitMessages(msgs []llm.Message, limit int) []llm.Message {
+	total := 0
+	for _, m := range msgs {
+		total += len(m.Content)
+	}
+	drop := 0
+	for drop < len(msgs) && total > limit {
+		total -= len(msgs[drop].Content)
+		drop++
+	}
+	return msgs[drop:]
 }
 
 // metaPrefixRe 匹配模型回写的时间戳元数据前缀——即使有系统提示，

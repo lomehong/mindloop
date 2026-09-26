@@ -35,6 +35,7 @@ func workingPath(tlDir string) string { return filepath.Join(RunLockDir(tlDir), 
 
 // workingEntry 是忙集里的一条在途唤醒记录。
 type workingEntry struct {
+	State   string `json:"state,omitempty"` // quarantined 表示取消后尚未退出
 	Thinker string `json:"thinker"`
 	Wake    string `json:"wake"`  // step | watchdog | scheduled
 	Since   string `json:"since"` // RFC3339

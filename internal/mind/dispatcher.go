@@ -34,6 +34,8 @@ const (
 	WakeWatchdog WakeKind = "watchdog"
 	// WakeScheduled：思考者请求的未来唤醒到点（自发性）。
 	WakeScheduled WakeKind = "scheduled"
+	// WakeTask 来自持久化任务投影，不进入有界消息 FIFO。
+	WakeTask WakeKind = "task"
 )
 
 // monolithWakeType 是调度器合成唤醒（watchdog/自发性）的步骤类型
@@ -80,13 +82,15 @@ type Thinker interface {
 }
 
 // worker 是调度器内一个思考者的全部状态。
+type cancelWakeContextKey struct{}
+
 type worker struct {
 	t   Thinker
 	sub Subscription
 
 	mu        sync.Mutex
 	busy      bool
-	gen       uint64          // 工作槽位的代际号：期限强制释放会推进它
+	gen       uint64          // 取消推进代际以拒绝迟归结果，但不释放执行槽
 	fifo      []Wake          // message 类：FIFO，保序投递
 	coalesced map[string]Wake // 其余类型：last-wins 合并
 	wakeAt    time.Time       // 思考者预约的自发性唤醒时刻
@@ -139,20 +143,16 @@ type Dispatcher struct {
 	tlDir  string
 	logger func(format string, args ...any)
 
-	// WakeTimeout 是单次唤醒的调度器侧硬上限：到点即取消该次唤醒
-	// 的 ctx、强制释放工作槽位并打警告。没有它，一个忽略 ctx 取消
-	// 的思考者（bug 或卡死的网络调用）会永久占住 busy——watchdog
-	// 明确跳过 busy，活性兜底救不了"假忙"的思考者，该思考者从此
-	// 无人再投递、对话永久沉默。0 取默认（30 分钟）；负数禁用限制
-	// （测试与已知长任务）。
-	// 强制释放后迟归的 Wake 被代际号拦下，不再触碰槽位状态；真正
-	// 挂死的 Wake goroutine 仍会存活到进程退出——强杀不是超能力，
-	// 只是止损。
+	// WakeTimeout 到点取消 context；尚未退出的 worker 标记为
+	// quarantined 并继续占槽，直到真实退出或进程重启。
+	// generation 只拒绝迟归结果，不是执行终止的证据。
+	// 0 取默认 30 分钟，负数不设期限；停机取消始终有效。
 	WakeTimeout time.Duration
 
 	mu       sync.Mutex
 	workers  []*worker
 	inflight atomic.Int64 // 在途思考计数：WaitIdle 轮询它，不孵化监视 goroutine
+	running  atomic.Bool
 
 	// working 投影：忙集的文件化（<RunLockDir>/working）。记账点在
 	// deliver（入集）与两个 busy 释放点（出集），转换处重写/删除
@@ -202,6 +202,28 @@ func (d *Dispatcher) Register(t Thinker) {
 // Run 运行调度器直到 ctx 取消、收到停机标志或 feeder 出错。
 // 主循环只有非阻塞操作——心跳永不停摆。
 func (d *Dispatcher) Run(ctx context.Context) error {
+	if !d.running.CompareAndSwap(false, true) {
+		return errors.New("mind: 调度器已在运行")
+	}
+	defer d.running.Store(false)
+	if d.inflight.Load() != 0 {
+		return errors.New("mind: 旧执行仍在途，禁止重新启动")
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	d.mu.Lock()
+	workers := append([]*worker(nil), d.workers...)
+	d.mu.Unlock()
+	for _, w := range workers {
+		if durable, ok := w.t.(durableThinker); ok {
+			if _, owned := ctx.Value(runLockContextKey{}).(*RunLock); !owned {
+				return errors.New("mind: 持久任务恢复必须使用 RunOwned")
+			}
+			if err := durable.Recover(ctx); err != nil {
+				return fmt.Errorf("mind: 恢复 %s 失败: %w", w.t.Name(), err)
+			}
+		}
+	}
 	// 启动清场：调用方持运行锁才会走到这里，此刻无调度器在跑，
 	// stream/ 旁路与 replying 状态的残留必为崩溃垃圾（与
 	// ClearStopFlag 的启动清理同模式）。
@@ -232,6 +254,35 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 
 // step 是一次心跳：控制面 → feeder → watchdog/自发性 → 投递。
 func (d *Dispatcher) step(ctx context.Context) error {
+	// 持久待办优先，锁外读取投影；没有通知也能处理停机期间的提交。
+	d.mu.Lock()
+	workers := append([]*worker(nil), d.workers...)
+	d.mu.Unlock()
+	disabled := readDisabled(d.tlDir)
+	for _, w := range workers {
+		if w.isBusy() {
+			continue
+		}
+		skip := false
+		for _, name := range disabled {
+			if name == w.t.Name() {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+		if durable, ok := w.t.(durableThinker); ok {
+			wake, pending, err := durable.Pending(ctx)
+			if err != nil {
+				return fmt.Errorf("mind: 读取 %s 待办失败: %w", w.t.Name(), err)
+			}
+			if pending {
+				d.deliver(ctx, w, wake)
+			}
+		}
+	}
 	// 0. 控制面：消费 web/CLI 发来的手动唤醒信号（读完即删）。
 	// 忙碌的思考者不投递——信号写回文件下个心跳再消费，手动唤醒
 	// 绝不被静默丢弃（monolith 依赖"同一思考者至多一次唤醒在跑"）。
@@ -377,9 +428,13 @@ func (d *Dispatcher) route(step traj.Step) {
 // deliver 投递一次唤醒到独立 goroutine，并预约下次。
 func (d *Dispatcher) deliver(ctx context.Context, w *worker, wake Wake) {
 	w.mu.Lock()
+	if w.busy || ctx.Err() != nil {
+		w.mu.Unlock()
+		return
+	}
 	w.busy = true
 	w.lastUsed = time.Now()
-	gen := w.gen // 代际号：期限强制释放会推进它，迟归的旧 Wake 靠它识别自己已过期
+	gen := w.gen
 	name := w.t.Name()
 	w.mu.Unlock()
 	d.logf("→ %s 收到 %s 唤醒（%s）", name, wake.Kind, wake.Step.Type)
@@ -396,38 +451,42 @@ func (d *Dispatcher) deliver(ctx context.Context, w *worker, wake Wake) {
 		})
 	}
 	d.inflight.Add(1)
+	lock, _ := ctx.Value(runLockContextKey{}).(*RunLock)
+	if lock != nil {
+		lock.retain()
+	}
 	go func() {
 		defer d.inflight.Add(-1)
+		if lock != nil {
+			defer lock.drop()
+		}
 
-		// 调度器侧硬期限：wakeCtx 到点取消（尊重 ctx 的思考者自己
-		// 退场）；期限看门狗负责强制释放槽位——思考者不体面退场
-		// 时，调度器也不能被它永久占住。
-		wakeCtx := ctx
+		wakeCtx, cancelWake := context.WithCancelCause(ctx)
+		defer cancelWake(nil)
+		wakeCtx = context.WithValue(wakeCtx, cancelWakeContextKey{}, cancelWake)
 		if timeout := d.wakeTimeout(); timeout > 0 {
 			var cancel context.CancelFunc
 			wakeCtx, cancel = context.WithTimeout(ctx, timeout)
 			defer cancel()
-			timer := time.AfterFunc(timeout, func() {
-				w.mu.Lock()
-				forced := w.busy && w.gen == gen
-				if forced {
-					w.busy = false
-					w.gen++
-				}
-				w.mu.Unlock()
-				if forced {
-					d.logf("!! %s 的唤醒超过 %v 仍未返回——工作槽位被强制释放（思考者可能没有尊重 ctx 取消）", name, timeout)
-					d.workingMark(name, false, "")
-					if d.evlog != nil {
-						d.evlog.Append(DispatchEvent{
-							Kind: "other", Type: wake.Step.Type, Thinker: name,
-							Reason: fmt.Sprintf("wake-timeout(%v)", timeout), TS: traj.NowString(),
-						})
-					}
-				}
-			})
-			defer timer.Stop()
 		}
+		watchDone := make(chan struct{})
+		stopWatch := context.AfterFunc(wakeCtx, func() {
+			defer close(watchDone)
+			w.mu.Lock()
+			quarantined := w.busy && w.gen == gen
+			if quarantined {
+				w.gen++
+				d.workingQuarantine(name)
+			}
+			w.mu.Unlock()
+			if quarantined {
+				d.logf("!! %s 取消后尚未退出，quarantined：保留执行槽", name)
+				if d.evlog != nil {
+					d.evlog.Append(DispatchEvent{Kind: "other", Type: wake.Step.Type, Thinker: name,
+						Reason: "quarantined: " + wakeCtx.Err().Error(), TS: traj.NowString()})
+				}
+			}
+		})
 
 		// panic 防护：思考者的 panic 绝不能带走调度器进程，也绝不能
 		// 把 busy 永久卡死（否则该思考者再也不被投递）。
@@ -442,11 +501,16 @@ func (d *Dispatcher) deliver(ctx context.Context, w *worker, wake Wake) {
 					})
 				}
 			}
+			// 等待取消回调结束，避免迟归诊断覆盖下一次运行的投影。
+			if !stopWatch() {
+				<-watchDone
+			}
 			w.mu.Lock()
 			current := w.gen
-			if current == gen {
-				// 常规收尾：槽位仍属于本轮，正常释放并预约下次。
-				w.busy = false
+			accept := current == gen && wakeCtx.Err() == nil
+			w.busy = false
+			d.workingMark(name, false, "")
+			if accept {
 				if outcome.WantWake {
 					delay := outcome.NextWakeIn
 					const minGap = time.Second // 防紧密自旋的最小间隔
@@ -457,15 +521,10 @@ func (d *Dispatcher) deliver(ctx context.Context, w *worker, wake Wake) {
 				}
 			}
 			w.mu.Unlock()
-			if current == gen {
-				d.workingMark(name, false, "") // 常规释放：同步摘除忙集投影
-			}
-			if outcome.Note != "" && current == gen {
+			if outcome.Note != "" && accept {
 				d.logf("← %s: %s", name, outcome.Note)
 			}
-			// current != gen：槽位已被期限看门狗强制释放并推进代际。
-			// 迟归的 Wake 一律放弃 outcome——它的预约若被采纳，会与
-			// 强制释放后已经开跑的新一轮唤醒打架。
+			// 仅在 Wake 真实返回后释放槽位；取消后的预约和结论不再采纳。
 		}()
 		outcome = w.t.Wake(wakeCtx, wake)
 	}()
@@ -489,8 +548,7 @@ func (d *Dispatcher) wakeTimeout() time.Duration {
 // 语义是"文件存在 ⇔ 有思考者正在工作"。投影写失败容忍：控制面
 // 信号不值得打断调度，读方最多少看一轮状态。
 //
-// 调用点即 busy 记账点：deliver（入集）、常规释放与期限强制释放
-// （出集）。代际号保证迟归的旧 Wake 不会误摘新一轮的同名条目。
+// deliver 入集、Wake 返回出集；取消只改变诊断状态，不能冒充退出。
 func (d *Dispatcher) workingMark(name string, on bool, wake WakeKind) {
 	d.workingMu.Lock()
 	defer d.workingMu.Unlock()
@@ -518,6 +576,18 @@ func (d *Dispatcher) workingMark(name string, on bool, wake WakeKind) {
 		return
 	}
 	writeWorkingFile(d.tl.Dir, d.workingBusy)
+}
+
+func (d *Dispatcher) workingQuarantine(name string) {
+	d.workingMu.Lock()
+	defer d.workingMu.Unlock()
+	for i := range d.workingBusy {
+		if d.workingBusy[i].Thinker == name {
+			d.workingBusy[i].State = "quarantined"
+			writeWorkingFile(d.tl.Dir, d.workingBusy)
+			return
+		}
+	}
 }
 
 // WaitIdle 等待全部在途思考收尾（优雅停机的最后一步）。超过

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
 	"time"
@@ -59,6 +60,10 @@ func memStore(identityDir string) memStoreIface {
 type memStoreIface interface {
 	List() ([]memoryRow, error)
 	Search(query string, topK int) ([]memoryRow, error)
+	// Revise 修订一条记忆：写新版本、旧版本标记为被替代，返回新 id。
+	Revise(ctx context.Context, id, content string) (string, error)
+	// Invalidate 显式失效一条记忆（文件保留供审计，退出检索）。
+	Invalidate(ctx context.Context, id string) error
 }
 
 type memoryRow struct {
@@ -68,4 +73,7 @@ type memoryRow struct {
 	Content string
 	Created time.Time
 	Path    string
+	// Status 空串或 "active" = 活动；invalid/superseded 已退出
+	// 检索与显式操作（与 mem.Status* 口径一致）。
+	Status string
 }

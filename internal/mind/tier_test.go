@@ -89,3 +89,37 @@ func TestMonolithSingleTierFallback(t *testing.T) {
 		t.Fatalf("单档时全部唤醒应走 Thinker（2 次），实际 %v", got)
 	}
 }
+
+// TestMonolithRecapUsesSummaryTier：摘要档独立配置时，唤醒前的
+// recap 补全走摘要档，主循环仍走思考档（两张档互不串线）。
+func TestMonolithRecapUsesSummaryTier(t *testing.T) {
+	tl := newTestTimeline(t)
+	// 造 101 步观察（间隔 1 秒）：recap 的 100 步窗口闭合 1 个。
+	base := time.Now()
+	for i := 0; i < 101; i++ {
+		s := traj.NewStep(traj.TypeObservation)
+		s.TS = base.Add(time.Duration(i) * time.Second).UTC().Format(traj.TimeFormat)
+		s.Fields["content"] = "观察"
+		if err := tl.Append(context.Background(), s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	respond := fence(`FINAL="IDLE"`)
+	think := &taggingThinker{tag: "think", inner: &scriptThinker{responses: []string{respond}}}
+	summary := &taggingThinker{tag: "summary", inner: &scriptThinker{responses: []string{`{"title":"t","summary":"s"}`}}}
+	th := NewMonolith(MonolithOptions{
+		Timeline:       tl,
+		Thinker:        think,
+		SummaryThinker: summary,
+		EnableRecap:    true,
+		Backoff:        &BackoffPolicy{Base: time.Second, Max: time.Minute, ThoughtCap: 30 * time.Second},
+	})
+	th.Wake(context.Background(), Wake{Step: syntheticStep("monolith-wake"), Kind: WakeScheduled})
+
+	if got := summary.called(); len(got) == 0 {
+		t.Fatalf("recap 摘要应走摘要档，实际 %v（think=%v）", got, think.called())
+	}
+	if got := think.called(); len(got) == 0 {
+		t.Fatal("主循环应走思考档")
+	}
+}

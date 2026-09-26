@@ -1,7 +1,6 @@
 package web
 
 import (
-	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -21,7 +20,8 @@ import (
 // live 状态从心智运行锁存在性近似（dispatcher.pid 文件）。其他
 // 字段先取心智的实际信息，再补 0 值——viewer 缺字段只是显示空。
 // activityMap 组装 IdentityActivity 数据（/activity 与 /health 共用）。
-func activityMap(id *identity.Identity) map[string]any {
+// busy_thinkers 取自共享侧索引的最后一条 launched_by 投影。
+func (s *Server) activityMap(id *identity.Identity) map[string]any {
 	live := isIdentityLive(id.Timeline.Dir)
 	state := "idle"
 	if live {
@@ -43,12 +43,10 @@ func activityMap(id *identity.Identity) map[string]any {
 		out["last_step_ts"] = fi.ModTime().UTC().Format(traj.TimeFormat)
 		out["last_step_age_s"] = int(time.Since(fi.ModTime()).Seconds())
 	}
-	if steps, err := id.Timeline.Steps(); err == nil {
-		for i := len(steps) - 1; i >= 0; i-- {
-			if by, ok := steps[i].Field("launched_by"); ok && by != "" {
-				out["busy_thinkers"] = []string{by}
-				break
-			}
+	// 索引不可用时保持空数组——与无记录等价。
+	if ix, err := s.indexes.get(id.Timeline); err == nil {
+		if by, ok, err := ix.LastLaunchedBy(); err == nil && ok {
+			out["busy_thinkers"] = []string{by}
 		}
 	}
 	return out
@@ -56,7 +54,7 @@ func activityMap(id *identity.Identity) map[string]any {
 
 // handleActivity 返回主页面的 IdentityActivity 契约。
 func (s *Server) handleActivity(w http.ResponseWriter, _ *http.Request, id *identity.Identity, _ []string) {
-	writeJSON(w, 200, activityMap(id))
+	writeJSON(w, 200, s.activityMap(id))
 }
 
 // handleTree 返回 fork-tree 侧栏——headlong viewer 用它画子轨迹的
@@ -71,18 +69,33 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request, id *identity
 			depth = n
 		}
 	}
+	// 根节点的计数/旗标来自共享侧索引；空轨迹或首步无时间戳时
+	// StartedTs 退回文件 mtime（与旧 identityCreateTime 的兜底一致）。
+	var started string
+	var count int
+	var hasFinal bool
+	if ix, err := s.indexes.get(id.Timeline); err == nil {
+		if sum, err := ix.Summary(); err == nil {
+			started, count, hasFinal = sum.FirstTS, sum.StepCount, sum.HasFinal
+		}
+	}
+	if started == "" {
+		if fi, err := os.Stat(id.Timeline.Path); err == nil {
+			started = fi.ModTime().UTC().Format(traj.TimeFormat)
+		}
+	}
 	root := treeNode{
 		TrajID:     id.Timeline.ID,
 		Slug:       id.Name,
-		StartedTs:  identityCreateTime(id),
+		StartedTs:  started,
 		LastTs:     identityLastTime(id),
-		StepCount:  stepCount(id),
-		HasFinal:   hasFinalStep(id),
+		StepCount:  count,
+		HasFinal:   hasFinal,
 		ChildCount: 0,
 	}
 	// 一层深度：列出直接子轨迹。深度 0 = 仅当前。
 	if depth >= 1 {
-		kids := childTrajectories(id)
+		kids := s.childTrajectories(id)
 		root.ChildCount = len(kids)
 		if len(kids) > 0 {
 			cs := make([]treeNode, 0, len(kids))
@@ -120,24 +133,22 @@ type childTrajInfo struct {
 	hasFinal          bool
 }
 
-// childTrajectories 列出 id 的直接子轨迹——通过读根轨迹里
-// fork 步骤的 child_ref 字段获得相对路径（headlong 同款机制）。
-func childTrajectories(id *identity.Identity) []childTrajInfo {
-	steps, err := id.Timeline.Steps()
+// childTrajectories 列出 id 的直接子轨迹——经共享侧索引读根轨迹的
+// fork 步骤 child_ref（headlong 同款机制）；子轨迹的步数/末步/final
+// 由其各自的侧索引给出（同一 store，同尺寸替换/截断由 Index 重建覆盖）。
+func (s *Server) childTrajectories(id *identity.Identity) []childTrajInfo {
+	ix, err := s.indexes.get(id.Timeline)
+	if err != nil {
+		return nil
+	}
+	refs, err := ix.ForkRefs()
 	if err != nil {
 		return nil
 	}
 	tlDir := filepath.Dir(id.Timeline.Path)
 	seen := map[string]bool{}
 	var out []childTrajInfo
-	for _, s := range steps {
-		if s.Type != traj.TypeFork {
-			continue
-		}
-		ref, _ := s.Field("child_ref")
-		if ref == "" {
-			continue
-		}
+	for _, ref := range refs {
 		// child_ref 是相对 tlDir 的路径；解绝对路径。ref 来自轨迹
 		// 内容（traj append --field 可任意写入），解析结果必须仍在
 		// 轨迹目录之内——越界引用直接跳过，绝不 Stat/读文件。
@@ -157,9 +168,17 @@ func childTrajectories(id *identity.Identity) []childTrajInfo {
 		if ts != nil {
 			started = ts.ModTime().UTC().Format("2006-01-02T15:04:05Z")
 		}
-		ci := readTrajectoryMeta(childDir)
-		if ci.last != "" {
-			last = ci.last
+		childTL := &traj.Timeline{Dir: childDir, Path: filepath.Join(childDir, "trajectory.jsonl")}
+		var steps int
+		var hasFinal bool
+		if cix, err := s.indexes.get(childTL); err == nil {
+			if sum, err := cix.Summary(); err == nil {
+				steps = sum.StepCount
+				hasFinal = sum.HasFinal
+			}
+			if lt, err := cix.LastTS(); err == nil && lt != "" {
+				last = lt
+			}
 		}
 		if last == "" && ts != nil {
 			last = started
@@ -167,71 +186,30 @@ func childTrajectories(id *identity.Identity) []childTrajInfo {
 		out = append(out, childTrajInfo{
 			id: filepath.Base(childDir), slug: filepath.Base(childDir),
 			started: started, last: last,
-			steps: ci.steps, hasFinal: ci.hasFinal,
+			steps: steps, hasFinal: hasFinal,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].started < out[j].started })
 	return out
 }
 
-type trajMeta struct {
-	steps    int
-	last     string
-	hasFinal bool
-}
-
-func readTrajectoryMeta(dir string) trajMeta {
-	data, err := os.ReadFile(filepath.Join(dir, "trajectory.jsonl"))
-	if err != nil {
-		return trajMeta{}
-	}
-	m := trajMeta{}
-	for _, ln := range splitNonEmptyLines(string(data)) {
-		var s struct {
-			Type string `json:"type"`
-			TS   string `json:"ts"`
-		}
-		if err := json.Unmarshal([]byte(ln), &s); err != nil {
-			continue
-		}
-		if s.TS != "" {
-			m.last = s.TS
-		}
-		m.steps++
-		if s.Type == traj.TypeFinal {
-			m.hasFinal = true
-		}
-	}
-	return m
-}
-
 // handleThinkers 返回 ThinkersStatus 契约：dispatcher 状态、所有
 // thinker 列表、busy/disabled 统计。
 func (s *Server) handleThinkers(w http.ResponseWriter, _ *http.Request, id *identity.Identity, _ []string) {
-	steps, _ := id.Timeline.Steps()
 	live := isIdentityLive(id.Timeline.Dir)
-	// thinkers 列表：从轨迹的 launched_by 提炼，状态据最近活跃时间推断。
-	seen := map[string]*thinkerLiveInfo{}
-	for _, s := range steps {
-		by, ok := s.Field("launched_by")
-		if !ok || by == "" {
-			continue
-		}
-		t, exists := seen[by]
-		if !exists {
-			t = &thinkerLiveInfo{Name: by}
-			seen[by] = t
-		}
-		t.WakeCount++
-		if s.TS != "" && s.TS > t.LastTS {
-			t.LastTS = s.TS
+	// thinkers 列表：从侧索引的 launched_by 聚合提炼（计数与最近
+	// 活跃时间戳），状态据最近活跃时间推断；索引不可用时空列表。
+	var stats []traj.ThinkerStat
+	if ix, err := s.indexes.get(id.Timeline); err == nil {
+		if list, err := ix.Thinkers(); err == nil {
+			stats = list
 		}
 	}
 	var thinkInfos []map[string]any
 	now := time.Now().UTC()
-	total := len(seen)
+	total := len(stats)
 	disabled := 0
-	for _, t := range seen {
+	for _, t := range stats {
 		state := "idle"
 		if mind.IsThinkerDisabled(id.Timeline.Dir, t.Name) {
 			state = "disabled"
@@ -277,12 +255,6 @@ func (s *Server) handleThinkers(w http.ResponseWriter, _ *http.Request, id *iden
 		// 与条目级字段一并删除（契约漂移清理的延伸，前端同步）。
 		"thinkers": thinkInfos,
 	})
-}
-
-type thinkerLiveInfo struct {
-	Name      string
-	LastTS    string
-	WakeCount int
 }
 
 // handleLogs 返回日志文件列表——viewer Thinkers 页用。
@@ -370,6 +342,56 @@ func (s *Server) handleSubTrajectory(w http.ResponseWriter, _ *http.Request, id 
 	writeJSON(w, 200, out)
 }
 
+// handleTrajectoryBlob 读取旧轨迹中保留的完整输出；不接受任意文件或跨轨迹路径。
+func (s *Server) handleTrajectoryBlob(w http.ResponseWriter, r *http.Request, id *identity.Identity, rest []string) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	if len(rest) != 3 || rest[0] != id.Timeline.ID {
+		writeError(w, 404, "输出文件不存在")
+		return
+	}
+	name := rest[2]
+	if name == "" || strings.ContainsAny(name, `/\:`) || strings.HasPrefix(name, ".") ||
+		(!strings.HasSuffix(name, ".stdout") && !strings.HasSuffix(name, ".stderr")) {
+		writeError(w, 404, "输出文件不存在")
+		return
+	}
+	rel, err := filepath.Rel(id.Dir, id.Timeline.Dir)
+	if err != nil || !filepath.IsLocal(rel) {
+		writeError(w, 404, "输出文件不存在")
+		return
+	}
+	// Root 在打开时约束路径和符号链接，避免检查后替换链接的逃逸窗口。
+	root, err := os.OpenRoot(id.Dir)
+	if err != nil {
+		writeError(w, 404, "输出文件不存在")
+		return
+	}
+	defer root.Close()
+	blobs, err := root.OpenRoot(filepath.Join(rel, "blobs"))
+	if err != nil {
+		writeError(w, 404, "输出文件不存在")
+		return
+	}
+	defer blobs.Close()
+	f, err := blobs.Open(name)
+	if err != nil {
+		writeError(w, 404, "输出文件不存在")
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		writeError(w, 404, "输出文件不存在")
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeContent(w, r, name, info.ModTime(), f)
+}
+
 type subTrajectory struct {
 	Mindlog    mindlogNormalized `json:"mindlog"`
 	Breadcrumb []subCrumb        `json:"breadcrumb,omitempty"`
@@ -386,41 +408,10 @@ type subParentRef struct {
 	StepID *string `json:"step_id"`
 }
 
-// identityCreateTime 返回身份创建时间（轨迹头行 ts）。
-func identityCreateTime(id *identity.Identity) string {
-	if steps, err := id.Timeline.Steps(); err == nil && len(steps) > 0 {
-		return steps[0].TS
-	}
-	if fi, err := os.Stat(id.Timeline.Path); err == nil {
-		return fi.ModTime().UTC().Format(traj.TimeFormat)
-	}
-	return ""
-}
-
 // identityLastTime 返回轨迹文件 mtime。
 func identityLastTime(id *identity.Identity) string {
 	if fi, err := os.Stat(id.Timeline.Path); err == nil {
 		return fi.ModTime().UTC().Format(traj.TimeFormat)
 	}
 	return ""
-}
-
-// stepCount 返回轨迹的步数（含头行）。
-func stepCount(id *identity.Identity) int {
-	if steps, err := id.Timeline.Steps(); err == nil {
-		return len(steps)
-	}
-	return 0
-}
-
-// hasFinalStep 检查轨迹是否含 final 步骤。
-func hasFinalStep(id *identity.Identity) bool {
-	if steps, err := id.Timeline.Steps(); err == nil {
-		for _, s := range steps {
-			if s.Type == traj.TypeFinal {
-				return true
-			}
-		}
-	}
-	return false
 }

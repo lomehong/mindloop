@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"mindloop/internal/traj"
 )
@@ -18,6 +19,9 @@ var ErrStopRequested = errors.New("mind: 收到停机请求")
 type RunLock struct {
 	dir     string
 	release func() error
+	mu      sync.Mutex
+	refs    int
+	closing bool
 }
 
 // TryRunLock 尝试获取心智运行锁（<轨迹目录>/run/dispatcher.lock）。
@@ -32,11 +36,60 @@ func TryRunLock(tl *traj.Timeline) (*RunLock, bool, error) {
 	return &RunLock{dir: dir, release: release}, owned, nil
 }
 
-// Release 释放运行锁。
+// Release 请求释放运行锁；调度循环和在途执行全部退出后才真正释放。
 func (l *RunLock) Release() {
-	if l != nil && l.release != nil {
-		l.release()
+	if l == nil {
+		return
 	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.closing = true
+	l.releaseIfIdle()
+}
+
+func (l *RunLock) releaseIfIdle() {
+	if l.closing && l.refs == 0 && l.release != nil {
+		if l.release() == nil {
+			l.release = nil
+		}
+	}
+}
+
+func (l *RunLock) begin(tlDir string) error {
+	if l == nil {
+		return errors.New("mind: 缺少身份运行锁")
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.dir != RunLockDir(tlDir) || l.release == nil || l.closing || l.refs != 0 {
+		return errors.New("mind: 运行锁无效或仍有执行占用")
+	}
+	l.refs++
+	return nil
+}
+
+func (l *RunLock) retain() {
+	l.mu.Lock()
+	l.refs++
+	l.mu.Unlock()
+}
+
+func (l *RunLock) drop() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.refs--
+	l.releaseIfIdle()
+}
+
+type runLockContextKey struct{}
+
+// RunOwned 将身份运行权绑定到整个执行生命周期，取消不是释放锁的证据。
+func (d *Dispatcher) RunOwned(ctx context.Context, lock *RunLock) error {
+	if err := lock.begin(d.tl.Dir); err != nil {
+		return err
+	}
+	defer lock.drop()
+	return d.Run(context.WithValue(ctx, runLockContextKey{}, lock))
 }
 
 // RequestStop 向运行中的调度器投递停机标志。调度器在下一次心跳

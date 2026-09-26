@@ -1,10 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Pencil, Search, ShieldOff } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useParams } from "react-router";
+import { toast } from "sonner";
 
+import { ConfirmDialog } from "~/components/confirm-dialog";
 import { IdentityTabs } from "~/components/identity-tabs";
 import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
 import {
   Empty,
   EmptyDescription,
@@ -14,6 +17,7 @@ import {
 import { LoadingDots } from "~/components/ui/loading-dots";
 import { Input } from "~/components/ui/input";
 import { Markdown } from "~/components/ui/markdown";
+import { Textarea } from "~/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -25,7 +29,9 @@ import {
   fetchIdentityStatus,
   fetchMemories,
   fetchMemory,
+  invalidateMemory,
   pollWhileLive,
+  reviseMemory,
 } from "~/lib/api";
 import { formatDateTime } from "~/lib/format";
 import { cn } from "~/lib/utils";
@@ -52,15 +58,33 @@ function memoryBody(content: string) {
   return lines.slice(closing + 2).join("\n").replace(/^\s+/, "");
 }
 
+// 记忆状态：空串与 "active" 都算活动；invalid/superseded 已退出
+// 检索与显式操作（后端只在非活动时写入 status 字段）。
+function isActive(status?: string) {
+  return !status || status === "active";
+}
+
+function statusLabel(status?: string) {
+  if (status === "superseded") return "已被替代";
+  if (status === "invalid") return "已失效";
+  return null;
+}
+
 export function meta() {
   return [{ title: "mindloop · 记忆" }];
 }
 
 export default function MemoriesPage() {
   const { identityId = "" } = useParams();
+  const queryClient = useQueryClient();
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState(ALL_TYPES);
+  // 修订编辑态：draft 是正文（frontmatter 之上的 Markdown）；
+  // reviseTarget 绑定条目名——切走条目自动退出编辑（草稿不跨越）。
+  const [reviseTarget, setReviseTarget] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [confirmInvalidate, setConfirmInvalidate] = useState(false);
 
   const { data: status } = useQuery({
     queryKey: ["status", identityId],
@@ -105,6 +129,36 @@ export default function MemoriesPage() {
     queryFn: () => fetchMemory(identityId, active as string),
     enabled: !!active,
   });
+
+  // 切换条目退出编辑态——草稿属于当前条目，不能跨越。
+  const revising = reviseTarget !== null && reviseTarget === active;
+
+  const revise = useMutation({
+    mutationFn: (memId: string) => reviseMemory(identityId, memId, draft),
+    onSuccess: (result) => {
+      toast.success(`已修订为新版本 ${result.id}`);
+      setReviseTarget(null);
+      queryClient.invalidateQueries({ queryKey: ["memories", identityId] });
+      queryClient.invalidateQueries({ queryKey: ["memory", identityId] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const invalidate = useMutation({
+    mutationFn: (memId: string) => invalidateMemory(identityId, memId),
+    onSuccess: () => {
+      toast.success("已失效——退出检索，文件保留供审计");
+      queryClient.invalidateQueries({ queryKey: ["memories", identityId] });
+      queryClient.invalidateQueries({ queryKey: ["memory", identityId] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const beginRevise = () => {
+    if (!memory || !active) return;
+    setDraft(memoryBody(memory.content).trim());
+    setReviseTarget(active);
+  };
 
   if (isLoading) {
     return (
@@ -174,7 +228,8 @@ export default function MemoriesPage() {
                     onClick={() => setSelected(mem.name)}
                     className={cn(
                       "block w-full border-b px-3 py-2.5 text-left last:border-b-0 hover:bg-accent",
-                      mem.name === active && "bg-accent"
+                      mem.name === active && "bg-accent",
+                      !isActive(mem.status) && "opacity-60"
                     )}
                     title={mem.name}
                   >
@@ -185,6 +240,14 @@ export default function MemoriesPage() {
                       >
                         {mem.type}
                       </Badge>
+                      {statusLabel(mem.status) && (
+                        <Badge
+                          variant="outline"
+                          className="shrink-0 text-[10px] text-muted-foreground"
+                        >
+                          {statusLabel(mem.status)}
+                        </Badge>
+                      )}
                       <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground">
                         {memoryDate(mem.created, mem.mtime)}
                       </span>
@@ -213,6 +276,14 @@ export default function MemoriesPage() {
                   <div className="mb-5 border-b pb-4">
                     <div className="mb-2 flex flex-wrap items-center gap-2">
                       <Badge variant="secondary">{activeInfo.type}</Badge>
+                      {statusLabel(activeInfo.status) && (
+                        <Badge
+                          variant="outline"
+                          className="text-muted-foreground"
+                        >
+                          {statusLabel(activeInfo.status)}
+                        </Badge>
+                      )}
                       <span className="text-xs text-muted-foreground">
                         {memoryDate(activeInfo.created, activeInfo.mtime)}
                       </span>
@@ -221,13 +292,59 @@ export default function MemoriesPage() {
                           {activeInfo.id}
                         </span>
                       )}
+                      {!revising && isActive(activeInfo.status) && activeInfo.id && (
+                        <span className="ml-auto flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={beginRevise}
+                          >
+                            <Pencil /> 修订
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setConfirmInvalidate(true)}
+                          >
+                            <ShieldOff /> 失效
+                          </Button>
+                        </span>
+                      )}
                     </div>
                     <h2 className="text-lg font-semibold leading-snug">
                       {activeInfo.summary || readableSlug(activeInfo.slug)}
                     </h2>
                   </div>
                 )}
-                <Markdown className="max-w-none">{memoryBody(memory.content)}</Markdown>
+                {revising ? (
+                  <div className="space-y-3">
+                    <Textarea
+                      aria-label="修订内容"
+                      value={draft}
+                      onChange={(event) => setDraft(event.target.value)}
+                      rows={14}
+                      className="min-h-60 font-mono text-sm leading-relaxed"
+                    />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        onClick={() =>
+                          activeInfo?.id && revise.mutate(activeInfo.id)
+                        }
+                        disabled={revise.isPending || !draft.trim()}
+                      >
+                        保存修订
+                      </Button>
+                      <Button variant="ghost" onClick={() => setReviseTarget(null)}>
+                        取消
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        旧版本保留在盘上并标记为“已被替代”；检索只命中新版本。
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <Markdown className="max-w-none">{memoryBody(memory.content)}</Markdown>
+                )}
               </>
             ) : (
               <LoadingDots />
@@ -235,6 +352,17 @@ export default function MemoriesPage() {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={confirmInvalidate}
+        onOpenChange={setConfirmInvalidate}
+        tone="danger"
+        title="失效这条记忆？"
+        description="失效后它退出检索与引用（模型不再看到），文件保留在盘上供审计。此操作不可撤销。"
+        confirmText="确认失效"
+        onConfirm={() => {
+          if (activeInfo?.id) invalidate.mutate(activeInfo.id);
+        }}
+      />
     </div>
   );
 }

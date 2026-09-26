@@ -26,6 +26,7 @@ import {
 } from "~/lib/api";
 import {
   CHAT_DOTS_WINDOW_MS,
+  nonTaskActivity,
   useChat,
   useNowTicker,
   useReplyStream,
@@ -96,13 +97,17 @@ export default function ChatPage() {
     retry,
     isSending,
     lastSentAt,
+    streamLiveRef,
   } = useChat({ identityId, myName });
   const { reply, working, activity, stepTotal } = useReplyStream({
     identityId,
     sentAt: lastSentAt,
+    liveRef: streamLiveRef,
   });
+  // 进度卡只显示非任务步骤：身份在跑别的任务时，任务进度不冒充聊天进度。
+  const chatActivity = nonTaskActivity(activity);
   // 进度可见期间每秒心跳：驱动 mm:ss 计时、点动画 4s 让位窗口。
-  const now = useNowTicker(lastSentAt !== null || working || activity.length > 0);
+  const now = useNowTicker(lastSentAt !== null || working || chatActivity.length > 0);
 
   // 统一指示器：点动画只允许「发送后 4s 内」的短窗口，之后进度卡接管
   // ——两者互斥（判定公式与 talk-chat 完全一致）。
@@ -120,7 +125,7 @@ export default function ChatPage() {
         messages[messages.length - 1]?.from === myName));
   const showCard =
     !dotsActive &&
-    (working || activity.length > 0 || (waitingForReply && !dotsWindow));
+    (working || chatActivity.length > 0 || (waitingForReply && !dotsWindow));
 
   const { data: thinkerStatus } = useQuery({
     queryKey: ["thinkers", identityId],
@@ -138,7 +143,7 @@ export default function ChatPage() {
     (showCard ? 1 : 0);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [itemCount, reply?.text.length, activity.length]);
+  }, [itemCount, reply?.text.length, chatActivity.length]);
 
   return (
     <div className="mx-auto w-full max-w-7xl">
@@ -192,7 +197,7 @@ export default function ChatPage() {
         <WorkingCard
           name={identityName ?? identityId}
           working={working}
-          activity={activity}
+          activity={chatActivity}
           stepTotal={stepTotal}
           sentAt={lastSentAt}
           variant="desktop"

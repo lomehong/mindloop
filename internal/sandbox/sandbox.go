@@ -22,6 +22,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"mindloop/internal/childenv"
 )
 
 // 默认防线参数。
@@ -41,7 +43,8 @@ type Request struct {
 	Script string
 	// Dir 是工作目录；脚本与产物都落在这里。必填。
 	Dir string
-	// Env 追加到进程环境（NAME=VALUE）。
+	// Env 是显式追加的进程环境值（NAME=VALUE）：调用方明确构造的
+	// 业务面（MINDLOOP_EXE、SKILLS_DIR 等），不受父环境白名单限制。
 	Env []string
 	// FinalPath 是 FINAL 哨兵文件路径；脚本里 set FINAL=... 即可
 	// 生效。空串表示本次不检查 FINAL。
@@ -155,27 +158,6 @@ func bashFallbackPaths() []string {
 	return candidates
 }
 
-// sensitiveKeys 是无条件剔除的完整键名；再加上任意 *_API_KEY 后缀
-// 规则，覆盖第三方 provider 的 key 变体。
-func scrubEnv(env []string) []string {
-	out := make([]string, 0, len(env))
-	for _, kv := range env {
-		if k, _, ok := strings.Cut(kv, "="); ok && sensitiveEnvKey(k) {
-			continue
-		}
-		out = append(out, kv)
-	}
-	return out
-}
-
-func sensitiveEnvKey(key string) bool {
-	switch key {
-	case "MINDLOOP_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "MINDLOOP_WEB_TOKEN":
-		return true
-	}
-	return strings.HasSuffix(key, "_API_KEY")
-}
-
 // capture 是并发安全的带上限输出缓冲：内容截断保留、字节照常
 // 计数、记录最后写入时刻供空闲判定。Write 永不阻塞、永不报错
 // ——输出管道的背压不该干扰被监控的进程。
@@ -270,12 +252,14 @@ func Run(ctx context.Context, req Request) (Result, error) {
 
 	cmd := exec.Command(bash, scriptPath)
 	cmd.Dir = req.Dir
-	// 子进程环境先过敏感键筛子：模型 API key 与 web token 在沙箱里
-	// 没有任何用途，脚本一行 env 就能把它们倒带出机器——模型生成
-	// 的脚本原本可见全部进程环境，密钥对它完全暴露。显式追加的
-	// req.Env 也过同一把筛子——MINDLOOP_EXE、MINDLOOP_IDENTITY_DIR、
-	// SKILLS_DIR、FINAL 等业务变量不受影响。
-	cmd.Env = scrubEnv(append(os.Environ(), req.Env...))
+	// 子进程环境是白名单 + 显式扩展：父环境里的敏感键（模型 key、
+	// web token 等）与未列入的变量都不下传——模型生成的脚本一行
+	// env 就能把整个进程环境倒带出机器。扩展通道有两个：显式键名
+	// （MINDLOOP_SANDBOX_ENV，从父环境继承点名键）与显式值
+	// （req.Env——MINDLOOP_EXE、SKILLS_DIR 等业务面走这里）。敏感
+	// 键即使被点名也不继承：凭据的通道只有显式值。
+	cmd.Env = childenv.Inherit(os.Environ(), childenv.List(os.Getenv("MINDLOOP_SANDBOX_ENV")))
+	cmd.Env = append(cmd.Env, req.Env...)
 	if req.FinalPath != "" {
 		cmd.Env = append(cmd.Env, "FINAL_PATH="+req.FinalPath)
 	}

@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -41,10 +42,23 @@ type Server struct {
 	mux *http.ServeMux
 	srv *http.Server
 
+	// indexes 是进程内共享的侧索引存储（键：Timeline.Path）——
+	// 高流量端点复用同一份增量观察，避免每次请求全量扫描。
+	indexes *indexStore
+
+	// streams 是进程内共享的 SSE 观察器中心：同一身份多个连接
+	// 共享一套文件观察与广播，无订阅者时释放。
+	streams *streamHub
+
 	// replies 流式端点的轮询/心跳节奏（New 给默认值；测试可收窄
 	// 加速，不影响生产行为）。
 	replyPollEvery time.Duration
 	replyPingEvery time.Duration
+
+	// llmModelsMu/llmModelsCache 是模型目录探测的进程内 TTL 缓存
+	// （键：身份目录+档案+连接，见 llm_providers.go）。
+	llmModelsMu    sync.Mutex
+	llmModelsCache map[string]llmModelsEntry
 }
 
 // New 创建仪表盘服务并装载所有路由。安全默认值：
@@ -69,9 +83,12 @@ func New(cfg Config) (*Server, error) {
 	s := &Server{
 		cfg:            cfg,
 		mux:            http.NewServeMux(),
+		indexes:        newIndexStore(),
+		llmModelsCache: map[string]llmModelsEntry{},
 		replyPollEvery: 200 * time.Millisecond,
 		replyPingEvery: 15 * time.Second,
 	}
+	s.streams = newStreamHub(s)
 	s.routes()
 	s.srv = &http.Server{
 		Addr:              cfg.Addr,

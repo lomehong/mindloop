@@ -39,10 +39,23 @@ monolith 唤醒时的上下文 = 人生分集摘要（本命令的缓存，粗�
 					return c.fail(err)
 				}
 				client.OnDone = obs.UsageRecorder(t.Dir, client.Model, client.Provider, nil)
+				// 准入守卫：熔断与每日预算对 CLI 重算同样生效（与
+				// 唤醒路径、web 重算同一份健康标记与台账）。
+				guard := obs.NewGuard(t.Dir, nil)
+				guard.Attach(client)
+				// 摘要档：MINDLOOP_SUMMARY_MODEL 优先，否则全局
+				// providers.json 的 summary 绑定；任意轨迹没有可靠的
+				// 身份归属，身份级档案不参与。
+				summaryClient := summaryTierGlobal(t.Dir, client, nil)
 				u := &recap.Updater{
 					Timeline: t,
-					Thinker:  mind.LLMThinker{Client: client},
-					Flush:    flushP,
+					// 摘要档：recap 命令与唤醒路径同一口径
+					// （MINDLOOP_SUMMARY_MODEL，未设回落思考档）。
+					Thinker: mind.LLMThinker{Client: guard.Attach(summaryClient)},
+					Flush:   flushP,
+					// 摘要章的模型参与缓存覆盖：换模型后旧摘要逐步重算，
+					// 不让两代文风混在同一份"人生"里。
+					Model: summaryClient.Model,
 				}
 				rep, err := u.Update(c.ctx)
 				if err != nil {

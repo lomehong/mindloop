@@ -148,6 +148,88 @@ func TestStreamableHTTPSSE(t *testing.T) {
 	}
 }
 
+func TestListToolsPagination(t *testing.T) {
+	for _, mode := range []string{"json", "sse", "repeat", "timeout", "failure"} {
+		t.Run(mode, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req struct {
+					ID     *int64 `json:"id"`
+					Method string `json:"method"`
+					Params struct {
+						Cursor string `json:"cursor"`
+					} `json:"params"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Error(err)
+					return
+				}
+				if req.ID == nil {
+					w.WriteHeader(http.StatusAccepted)
+					return
+				}
+				result := map[string]any{"protocolVersion": protocolVersion}
+				if req.Method == "tools/list" {
+					name := "first"
+					result = map[string]any{"nextCursor": "page-2"}
+					if req.Params.Cursor != "" {
+						if req.Params.Cursor != "page-2" {
+							t.Errorf("游标未按原值回传: %q", req.Params.Cursor)
+						}
+						if mode == "timeout" {
+							select {
+							case <-r.Context().Done():
+								return
+							case <-time.After(time.Second):
+							}
+						}
+						if mode == "failure" {
+							http.Error(w, "page unavailable", http.StatusServiceUnavailable)
+							return
+						}
+						name = "second"
+						if mode != "repeat" {
+							delete(result, "nextCursor")
+						}
+					}
+					result["tools"] = []Tool{{Name: name, Description: "完整描述", InputSchema: json.RawMessage(`{"type":"object","required":["query"],"properties":{"query":{"type":"string"}}}`)}}
+				}
+				body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": result})
+				if mode == "sse" {
+					w.Header().Set("Content-Type", "text/event-stream")
+					fmt.Fprintf(w, "event: message\ndata: %s\n\n", body)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.Write(body)
+			}))
+			defer srv.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			defer cancel()
+			client, err := Start(ctx, "paged", ServerConfig{URL: srv.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			tools, err := client.ListTools(ctx)
+			if mode == "repeat" || mode == "timeout" || mode == "failure" {
+				if err == nil || tools != nil {
+					t.Fatalf("异常分页不应伪装完整清单: tools=%+v err=%v", tools, err)
+				}
+				if mode == "repeat" && !strings.Contains(err.Error(), "cursor") {
+					t.Fatalf("应拒绝重复游标而不是等待超时: %v", err)
+				}
+				return
+			}
+			if err != nil || len(tools) != 2 || tools[0].Name != "first" || tools[1].Name != "second" {
+				t.Fatalf("分页清单不完整: %+v %v", tools, err)
+			}
+			if !strings.Contains(string(tools[1].InputSchema), `"required":["query"]`) {
+				t.Fatalf("schema 丢失: %s", tools[1].InputSchema)
+			}
+		})
+	}
+}
+
 // TestHTTPHeadersPassthrough：配置的 headers 原样到达服务器
 // （鉴权头是远程 MCP 服务器的普遍前置条件）。
 func TestHTTPHeadersPassthrough(t *testing.T) {

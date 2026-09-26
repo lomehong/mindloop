@@ -28,10 +28,12 @@ type fakeThinker struct {
 	responses []string
 	calls     int
 	system    string
+	lastMsgs  []llm.Message
 }
 
 func (f *fakeThinker) Think(ctx context.Context, system string, msgs []llm.Message) (string, error) {
 	f.system = system
+	f.lastMsgs = append([]llm.Message(nil), msgs...)
 	if f.calls >= len(f.responses) {
 		t := f.responses[len(f.responses)-1]
 		f.calls++

@@ -10,24 +10,27 @@ import (
 // hungThinker 模拟一个不尊重 ctx 取消的坏思考者：Wake 永远挂着
 // （直到测试放行），调用方等不到它返回。
 type hungThinker struct {
-	name    string
-	sub     Subscription
-	release chan struct{}
-	wakes   atomic.Int32
+	name     string
+	sub      Subscription
+	release  chan struct{}
+	wakes    atomic.Int32
+	contexts chan context.Context
+	outcome  Outcome
 }
 
 func (h *hungThinker) Name() string                { return h.name }
 func (h *hungThinker) Subscriptions() Subscription { return h.sub }
 func (h *hungThinker) Wake(ctx context.Context, w Wake) Outcome {
 	h.wakes.Add(1)
+	if h.contexts != nil {
+		h.contexts <- ctx
+	}
 	<-h.release // 无视 ctx：正是 WakeTimeout 要防的坏公民
-	return Outcome{}
+	return h.outcome
 }
 
-// TestDispatcherWakeTimeoutForceReleases：调度器侧硬期限必须能把
-// 挂死的思考者从 busy 里摘出来，让后续唤醒照常投递。修复前：busy
-// 永真，watchdog 又明确跳过 busy，该思考者从此失联且无任何诊断。
-func TestDispatcherWakeTimeoutForceReleases(t *testing.T) {
+// 期限取消不能证明执行退出；旧执行仍占槽，迟归预约不能生效。
+func TestDispatcherWakeTimeoutQuarantinesUntilExit(t *testing.T) {
 	d, tl := newTestDispatcher(t)
 	d.WakeTimeout = 80 * time.Millisecond
 	h := &hungThinker{
@@ -35,24 +38,107 @@ func TestDispatcherWakeTimeoutForceReleases(t *testing.T) {
 		sub:     Subscription{Types: []string{"message"}},
 		release: make(chan struct{}),
 	}
+	h.contexts = make(chan context.Context, 2)
+	h.outcome = Outcome{WantWake: true, NextWakeIn: time.Second}
+	d.Register(h)
+	other := &recorderThinker{name: "responder", sub: Subscription{Types: []string{"observation"}}}
+	d.Register(other)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel(); close(h.release); d.WaitIdle(time.Second) })
+	appendStep(t, tl, "message", "")
+	appendStep(t, tl, "message", "")
+	if err := d.step(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var wakeCtx context.Context
+	select {
+	case wakeCtx = <-h.contexts:
+	case <-time.After(time.Second):
+		t.Fatal("未投递")
+	}
+	select {
+	case <-wakeCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("期限未取消 context")
+	}
+	if d.WaitIdle(30 * time.Millisecond) {
+		t.Fatal("旧执行未退出却报告空闲")
+	}
+	appendStep(t, tl, "observation", "")
+	for i := 0; i < 5; i++ {
+		if err := d.step(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitFor(t, time.Second, func() bool { return other.wakeCount() == 1 })
+	if got := h.wakes.Load(); got != 1 {
+		t.Fatalf("旧执行未退出却投递下一次: %d", got)
+	}
+	h.release <- struct{}{}
+	if !d.WaitIdle(time.Second) {
+		t.Fatal("旧执行退出后未释放")
+	}
+	d.workers[0].mu.Lock()
+	wakeAt := d.workers[0].wakeAt
+	d.workers[0].mu.Unlock()
+	if !wakeAt.IsZero() {
+		t.Fatal("采用了超时旧执行的预约")
+	}
+	if err := d.step(ctx); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, time.Second, func() bool { return h.wakes.Load() == 2 })
+}
+
+type cancellationThinker struct {
+	started chan struct{}
+	stopped chan struct{}
+}
+
+func (h *cancellationThinker) Name() string { return "cancel-aware" }
+func (h *cancellationThinker) Subscriptions() Subscription {
+	return Subscription{Types: []string{"message"}}
+}
+func (h *cancellationThinker) Wake(ctx context.Context, _ Wake) Outcome {
+	close(h.started)
+	<-ctx.Done()
+	close(h.stopped)
+	return Outcome{}
+}
+
+func TestDispatcherStopCancelsInflightWake(t *testing.T) {
+	d, tl := newTestDispatcher(t)
+	h := &cancellationThinker{started: make(chan struct{}), stopped: make(chan struct{})}
 	d.Register(h)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go d.Run(ctx)
-
-	// 两条消息：第一条唤醒挂死并吃到强制释放；槽位空出后，FIFO 里
-	// 的第二条消息必须照常投递——这正是"挂死思考者不再拖死调度"
-	// 的核心断言。
+	done := make(chan error, 1)
+	go func() { done <- d.Run(ctx) }()
+	t.Cleanup(func() { cancel(); d.WaitIdle(time.Second) })
 	appendStep(t, tl, "message", "")
-	appendStep(t, tl, "message", "")
-	waitFor(t, 2*time.Second, func() bool { return h.wakes.Load() >= 1 })
-	// 期限（80ms）+ 心跳（10ms）：第一次挂死的唤醒被强制释放后，
-	// 第二次唤醒应照常到来。
-	waitFor(t, 3*time.Second, func() bool { return h.wakes.Load() >= 2 })
-	// 放行全部挂死的 Wake：迟归者被代际号拦下，不得影响槽位状态；
-	// 在途清零后 WaitIdle 必须为真（顺带覆盖轮询版 WaitIdle）。
-	close(h.release)
-	waitFor(t, 2*time.Second, func() bool { return d.WaitIdle(time.Second) })
+	select {
+	case <-h.started:
+	case <-time.After(time.Second):
+		t.Fatal("未启动")
+	}
+	if err := RequestStop(tl); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != ErrStopRequested {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("未处理停止")
+	}
+	select {
+	case <-h.stopped:
+	case <-time.After(time.Second):
+		t.Fatal("停止未传播到在途执行")
+	}
+	if !d.WaitIdle(time.Second) {
+		t.Fatal("取消后未收尾")
+	}
 }
 
 // TestDispatcherNegativeWakeTimeoutDisables：负值禁用期限（测试与
