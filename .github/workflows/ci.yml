@@ -29,19 +29,29 @@ jobs:
         shell: bash
         run: test -z "$(gofmt -l .)"
       - name: go test（ubuntu 加 -race 检测数据竞争）
-        # 失败现场写进 ::error:: 注解——注解匿名可读（API 日志
-        # 要 admin），CI 红时本地复现不用猜。
+        # 失败现场写进 ::error:: 注解 + Step Summary + 工件——三者
+        # 匿名可读（API 日志要 admin），CI 红时本地复现不用猜。
         shell: bash
         run: |
           set -o pipefail
           go test ${{ matrix.os == 'ubuntu-latest' && '-race' || '' }} ./... 2>&1 | tee go-test.log
           status=$?
+          {
+            echo "### go test 退出码 $status"
+            grep -E "^--- FAIL|^FAIL|^panic:|fatal error:" go-test.log | head -40
+            echo '```'
+            tail -60 go-test.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
           grep -E "^--- FAIL|^FAIL|^panic:" go-test.log | head -30 | while IFS= read -r line; do echo "::error::$line"; done
-          if [ $status -ne 0 ] && ! grep -qE "^--- FAIL" go-test.log; then
-            echo "::error::go test 失败但无 FAIL 行（退出码 $status），日志尾部："
-            tail -40 go-test.log | while IFS= read -r line; do echo "::error::$line"; done
-          fi
           exit $status
+      - name: 上传 go test 日志（失败时）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-test-log-${{ matrix.os }}
+          path: go-test.log
+          retention-days: 14
 
   viewer:
     runs-on: ubuntu-latest
