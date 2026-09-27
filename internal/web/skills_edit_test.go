@@ -134,8 +134,8 @@ func TestSkillsUpdateRejectsInvalid(t *testing.T) {
 	cases := map[string]string{
 		"缺 description": "---\nname: greet\n---\n正文\n",
 		"name 与目录不一致":   "---\nname: other\ndescription: x\n---\n正文\n",
-		"无 frontmatter":  "随便一段文字\n",
-		"非法 name 语法":     "---\nname: Greet!\ndescription: x\n---\n正文\n",
+		"无 frontmatter": "随便一段文字\n",
+		"非法 name 语法":    "---\nname: Greet!\ndescription: x\n---\n正文\n",
 	}
 	for label, content := range cases {
 		resp, err := putJSON(ts.URL+"/api/identities/ada/skills/greet", map[string]string{"content": content})
