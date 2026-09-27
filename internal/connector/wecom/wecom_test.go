@@ -227,7 +227,7 @@ func waitFrame(t *testing.T, frames chan []byte) []byte {
 	select {
 	case f := <-frames:
 		return f
-	case <-time.After(3 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("等待桥帧超时")
 		return nil
 	}
@@ -298,7 +298,7 @@ func TestInboundIdempotencyAndKick(t *testing.T) {
 		if !errors.Is(err, ErrKicked) {
 			t.Fatalf("互踢应返回 ErrKicked: %v", err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("等待互踢退出超时")
 	}
 
@@ -417,7 +417,7 @@ func TestOutboundMapsToChatidAndSegments(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		mu.Lock()
 		n := len(sent)

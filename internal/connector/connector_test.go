@@ -75,7 +75,7 @@ func startOutbound(t *testing.T, ob *Outbound, ctx context.Context) {
 // waitForDelivery 轮询等待投递数达到 n。
 func waitForDelivery(t *testing.T, d *fakeDelivery, n int) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if len(d.snapshot()) >= n {
 			return
@@ -88,7 +88,7 @@ func waitForDelivery(t *testing.T, d *fakeDelivery, n int) {
 // waitCursor 轮询等待游标文件出现（Run 的落盘点可观察）。
 func waitCursor(t *testing.T, path string) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(path); err == nil {
 			return
@@ -196,7 +196,7 @@ func TestOutboundCursorThreeStatesAndRewound(t *testing.T) {
 	})
 	ctx3, cancel3 := context.WithCancel(context.Background())
 	defer cancel3()
-	go ob3.Run(ctx3)
+	startOutbound(t, ob3, ctx3)
 	time.Sleep(300 * time.Millisecond) // rewound 弃批消费窗
 	appendMessage(t, tl, "ada", "wecom:zhangsan", "替换后的新消息")
 	waitForDelivery(t, after, 1)

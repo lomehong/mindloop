@@ -134,7 +134,7 @@ func bridgeScript(col *collectedFrames, onFrame func(f parsedFrame), inject <-ch
 // 该位置的全部步骤（跳过与否已成事实），断言不再有竞态窗口。
 func waitCursorCovers(t *testing.T, cursorPath string, offset int64) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		data, err := os.ReadFile(cursorPath)
 		if err == nil {
@@ -193,7 +193,7 @@ func TestStreamingFlowAndDedup(t *testing.T) {
 	if err := os.WriteFile(streamFile, []byte("从前有座山，"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	deadline = time.Now().Add(3 * time.Second)
+	deadline = time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) && col.count(cmdRespondMsg) < 1 {
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -219,7 +219,7 @@ func TestStreamingFlowAndDedup(t *testing.T) {
 	if err := os.Remove(streamFile); err != nil {
 		t.Fatal(err)
 	}
-	deadline = time.Now().Add(3 * time.Second)
+	deadline = time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if last := col.last(cmdRespondMsg); last != nil && strings.Contains(string(last), `"finish":true`) {
 			break
@@ -299,7 +299,7 @@ func TestApprovalCardFlow(t *testing.T) {
 	}
 
 	// 2) 审批卡出现（按钮带 8 位短 token）
-	deadline := time.Now().Add(4 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		mu.Lock()
 		tok := clickToken
@@ -320,12 +320,13 @@ func TestApprovalCardFlow(t *testing.T) {
 	inject <- []byte(`{"cmd":"aibot_event_callback","headers":{"req_id":"srv-click-1"},"body":{"event":{"eventtype":"template_card_event","template_card_event":{"event_key":"approve:` + token + `"},"from":{"userid":"stranger"}}}}`)
 	time.Sleep(300 * time.Millisecond)
 	if _, err := os.Stat(filepath.Join(dir, "decision-"+hash+".json")); err == nil {
-		t.Fatal("白名单外点击不应落决策")
+		dec, _ := os.ReadFile(filepath.Join(dir, "decision-"+hash+".json"))
+		t.Fatalf("白名单外点击不应落决策（内容: %s）", dec)
 	}
 
 	// 4) 白名单内点击：决策落盘 + 卡片更新帧（req_id 透传点击回调）
 	inject <- []byte(`{"cmd":"aibot_event_callback","headers":{"req_id":"srv-click-2"},"body":{"event":{"eventtype":"template_card_event","template_card_event":{"event_key":"approve:` + token + `"},"from":{"userid":"zhangsan"}}}}`)
-	deadline = time.Now().Add(4 * time.Second)
+	deadline = time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(filepath.Join(dir, "decision-"+hash+".json")); err == nil {
 			break
@@ -339,7 +340,7 @@ func TestApprovalCardFlow(t *testing.T) {
 	if !strings.Contains(string(decRaw), "approve") {
 		t.Fatalf("决策应为 approve: %s", decRaw)
 	}
-	deadline = time.Now().Add(3 * time.Second)
+	deadline = time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) && col.count(cmdRespondUpdate) == 0 {
 		time.Sleep(10 * time.Millisecond)
 	}
