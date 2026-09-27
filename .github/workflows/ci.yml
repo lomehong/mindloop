@@ -29,7 +29,13 @@ jobs:
         shell: bash
         run: test -z "$(gofmt -l .)"
       - name: go test（ubuntu 加 -race 检测数据竞争）
-        run: go test ${{ matrix.os == 'ubuntu-latest' && '-race' || '' }} ./...
+        # 失败测试名写进 ::error:: 注解——注解匿名可读（API 日志
+        # 要 admin），CI 红时本地复现不用猜。
+        shell: bash
+        run: |
+          set -o pipefail
+          go test ${{ matrix.os == 'ubuntu-latest' && '-race' || '' }} ./... 2>&1 | tee go-test.log
+          grep -E "^--- FAIL|^FAIL|^panic:" go-test.log | head -30 | while IFS= read -r line; do echo "::error::$line"; done || true
 
   viewer:
     runs-on: ubuntu-latest
