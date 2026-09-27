@@ -35,6 +35,10 @@ jobs:
         # 下游命令的状态，与 go test 本身语义脱钩。
         shell: bash
         run: |
+          # shell: bash 实为 bash -eo pipefail——诊断用的 grep 无匹配
+          # 会以 1 中止脚本，把全绿的 go test 打成失败（实证踩坑），
+          # 先关掉 errexit，退出码全部显式取自 go test。
+          set +e
           go test ${{ matrix.os == 'ubuntu-latest' && '-race' || '' }} ./... > go-test.log 2>&1
           status=$?
           cat go-test.log
