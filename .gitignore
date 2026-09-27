@@ -19,3 +19,4 @@ web/static/.react-router/
 
 # 临时文件
 .tmp_*
+go-test.zip
