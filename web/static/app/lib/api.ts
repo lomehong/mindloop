@@ -2,6 +2,8 @@ import type {
   AgentTask,
   ChatLog,
   Config,
+  ChannelEntry,
+  ConnectorsView,
   ControlResult,
   DispatchEvent,
   EnvEntry,
@@ -26,8 +28,13 @@ import type {
   OpenRouterModels,
   PendingApproval,
   Recap,
+  ScheduleRemoveResult,
+  ScheduleRunResult,
+  ScheduleToggleResult,
+  ScheduleView,
   Usage,
   SelfUpdateResult,
+  SkillContent,
   SkillsView,
   StepDetail,
   SubTrajectory,
@@ -106,6 +113,21 @@ async function sendJson<T>(
 
 function postJson<T>(path: string, body: unknown): Promise<T> {
   return sendJson("POST", path, body ?? {});
+}
+
+function putJson<T>(path: string, body: unknown): Promise<T> {
+  return sendJson("PUT", path, body ?? {});
+}
+
+/** 保存企微渠道配置；secret 留空 = 保持既有值（后端不回显凭据）。 */
+export function updateWecomChannel(
+  identityId: string,
+  body: { bot_id?: string; secret?: string; allow?: string[] }
+): Promise<ChannelEntry> {
+  return putJson(
+    `/api/identities/${encodeURIComponent(identityId)}/channels/wecom`,
+    body
+  );
 }
 
 export function fetchConfig(): Promise<Config> {
@@ -247,6 +269,75 @@ export function removeSkill(
     "DELETE",
     `/api/identities/${encodeURIComponent(identityId)}/skills/${encodeURIComponent(name)}`,
     undefined
+  );
+}
+
+/** 技能正文：SKILL.md 全文（编辑器先读后写；全局层返回只读）。 */
+export function fetchSkillContent(
+  identityId: string,
+  name: string
+): Promise<SkillContent> {
+  return getJson(
+    `/api/identities/${encodeURIComponent(identityId)}/skills/${encodeURIComponent(name)}`
+  );
+}
+
+/** 保存技能正文：全文替换 SKILL.md（后端校验失败时返回 400 且不落盘）。 */
+export function updateSkill(
+  identityId: string,
+  name: string,
+  content: string
+): Promise<{ ok: boolean; saved: string }> {
+  return putJson(
+    `/api/identities/${encodeURIComponent(identityId)}/skills/${encodeURIComponent(name)}`,
+    { content }
+  );
+}
+
+/** 日程：条目列表（解析结果 + 状态投影 + mind_running）。 */
+export function fetchSchedule(identityId: string): Promise<ScheduleView> {
+  return getJson(`/api/identities/${encodeURIComponent(identityId)}/schedule`);
+}
+
+/** 日程：启用/禁用一条（只翻转 enabled 字段，改前整体读作保护）。 */
+export function toggleScheduleEntry(
+  identityId: string,
+  entryId: string,
+  enabled: boolean
+): Promise<ScheduleToggleResult> {
+  return postJson(
+    `/api/identities/${encodeURIComponent(identityId)}/schedule/${encodeURIComponent(entryId)}/toggle`,
+    { enabled }
+  );
+}
+
+/** 日程：手动触发一次（exec 同步执行上限 25s；task 按今天幂等提交）。 */
+export function runScheduleEntry(
+  identityId: string,
+  entryId: string
+): Promise<ScheduleRunResult> {
+  return postJson(
+    `/api/identities/${encodeURIComponent(identityId)}/schedule/${encodeURIComponent(entryId)}/run`,
+    undefined
+  );
+}
+
+/** 日程：删除一条（已产生的任务与日志保留）。 */
+export function deleteScheduleEntry(
+  identityId: string,
+  entryId: string
+): Promise<ScheduleRemoveResult> {
+  return sendJson(
+    "DELETE",
+    `/api/identities/${encodeURIComponent(identityId)}/schedule/${encodeURIComponent(entryId)}`,
+    undefined
+  );
+}
+
+/** 外部连接：MCP 服务器清单（env/headers 只给键名，值不回显）。 */
+export function fetchConnections(identityId: string): Promise<ConnectorsView> {
+  return getJson(
+    `/api/identities/${encodeURIComponent(identityId)}/connections`
   );
 }
 

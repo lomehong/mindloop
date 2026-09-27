@@ -228,3 +228,16 @@ func TestMetaFieldsExcluded(t *testing.T) {
 		t.Fatal("正常字段被误删")
 	}
 }
+
+// TestAutonomousStepsIncludeAlerts 告警是代码写入的系统事实，与独立
+// 观察同组：进 monolith 的自主上下文（否则叫醒了却看不见告警内容）。
+func TestAutonomousStepsIncludeAlerts(t *testing.T) {
+	a := traj.NewStep("alert")
+	a.Fields["content"] = "exec 失败"
+	m := traj.NewStep("message")
+	m.Fields["content"] = "聊天不进自主上下文"
+	out := AutonomousSteps([]traj.Step{a, m})
+	if len(out) != 1 || out[0].Type != "alert" {
+		t.Fatalf("自主上下文 = %v，应只含 alert", out)
+	}
+}

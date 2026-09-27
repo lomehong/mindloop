@@ -94,6 +94,11 @@ type MonolithOptions struct {
 	// 披露），工具清单由模型经 $MINDLOOP_EXE mcp tools/call 按需
 	// 探索，避免大而全的工具表把上下文撑爆。
 	MCPServers []string
+	// ConnectorAddresses 是已就绪渠道桥的可投递地址（如
+	// "wecom:HongYan"）——渐进披露：模型需要知道哪些 to 地址有效
+	// 才能正确路由主动汇报（proactive-reporting.md §5）。空 = 未
+	// 配置渠道桥，系统提示不出现披露段。
+	ConnectorAddresses []string
 	// ExtraEnv 追加给沙箱进程的环境变量（SKILLS_DIR、
 	// MINDLOOP_IDENTITY_DIR 等）——agent 在 bash 里用同一套 CLI
 	// 探索技能与 MCP 工具。
@@ -123,9 +128,12 @@ func NewMonolith(opts MonolithOptions) Thinker {
 func (m *monolith) Name() string { return monolithName }
 
 func (m *monolith) Subscriptions() Subscription {
-	// 订阅外部产物与合成唤醒。人类 message 归 responder（分工：
-	// monolith 行动，responder 说话）；不订阅自己产出的任何类型
-	// ——包括 classify 写下的 action（测试钉死这条不变量）。
+	// 订阅外部产物、系统告警与合成唤醒。alert 是代码写入的告警
+	//（schedule exec 失败等）：无 launched_by 章，TriggerSelf=false
+	// 照常触发；monolith 自产步骤带作者章，被守卫自动拦截——告警
+	// 唤醒走 coalesced 合并槽，思考档评估。人类 message 归 responder
+	//（分工：monolith 行动，responder 说话）；不订阅自己产出的任何
+	// 类型——包括 classify 写下的 action（测试钉死这条不变量）。
 	// launched_by 守卫是第二道防线；Watchdog 是活性兜底：哪怕
 	// 预约机制整个失灵，也会被周期性唤醒——活性由调度器保证，
 	// 不靠 thinker 自身代码路径。
@@ -134,7 +142,7 @@ func (m *monolith) Subscriptions() Subscription {
 		watchdog = 5 * time.Minute
 	}
 	return Subscription{
-		Types:       []string{traj.TypeObservation, traj.TypeMerge, monolithWakeType},
+		Types:       []string{traj.TypeObservation, traj.TypeMerge, traj.TypeAlert, monolithWakeType},
 		TriggerSelf: false,
 		Watchdog:    watchdog,
 	}
@@ -331,7 +339,25 @@ func (m *monolith) systemPrompt() string {
 	if len(m.opts.MCPServers) > 0 {
 		base += "\n\n" + mcpSection(m.opts.MCPServers)
 	}
+	if len(m.opts.ConnectorAddresses) > 0 {
+		base += "\n\n" + connectorSection(m.opts.ConnectorAddresses)
+	}
 	return base
+}
+
+// connectorSection 渲染渠道桥披露段：可投递地址 + 投递方式。地址
+// 由装配层从渠道配置算出（仅 ready 渠道）；模型用 to=<地址> 追加
+// message 步骤即可主动触达用户，bridge 出站泵负责投递。
+func connectorSection(addresses []string) string {
+	var b strings.Builder
+	b.WriteString("## Delivery channels\n\n")
+	b.WriteString("Bridge channels are configured for this identity. To proactively reach the user, append a message step with to=<address>:\n\n")
+	for _, a := range addresses {
+		b.WriteString("  " + a + "\n")
+	}
+	b.WriteString("\nUse this for scheduled reports and alerts the user asked for; never spam. ")
+	b.WriteString("Messages to \"operator\" stay in the local conversation feed only.")
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // mcpSection 渲染 MCP 工具面的提示段：服务器名 + 探索用法。

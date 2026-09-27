@@ -643,6 +643,117 @@ export interface SkillsView {
   problems: string[];
 }
 
+// 技能正文（GET /skills/{name}）：SKILL.md 全文 + 元数据。
+// editable=false（全局层）时前端只读。
+export interface SkillContent {
+  name: string;
+  description: string;
+  source: "identity" | "global";
+  dir: string;
+  content: string;
+  editable: boolean;
+}
+
+// ---- 日程（schedule）：字段口径与 internal/web/schedule_page.go 的
+// JSON 对齐（与 CLI schedule list --json 同构）----
+
+export interface ScheduleEntry {
+  id: string;
+  enabled: boolean;
+  kind: "task" | "exec";
+  /** 触发文本（如 "at 21:00" / "every 2m0s"）。 */
+  trigger: string;
+  /** 动作文本（如 "task 写晚报" / "exec echo hi"）。 */
+  action: string;
+  next_run?: string;
+  last_run?: string;
+  last_exit_code?: number;
+  last_error?: string;
+  last_note?: string;
+}
+
+export interface ScheduleView {
+  identity: { id: string; name: string };
+  /** schedule.json 路径（修复指引用）。 */
+  file: string;
+  entries: ScheduleEntry[];
+  /** 坏条目跳过后的解析警告。 */
+  warnings: string[];
+  /** 文件级损坏时非空——页面显示横幅而不是失败。 */
+  parse_error?: string;
+  /** 心智未运行时日程不会被到点触发（手动 run 仍可用）。 */
+  mind_running: boolean;
+}
+
+export interface ScheduleToggleResult {
+  ok: boolean;
+  id: string;
+  enabled: boolean;
+  mind_running: boolean;
+}
+
+export interface ScheduleRemoveResult {
+  ok: boolean;
+  removed: string;
+  mind_running: boolean;
+}
+
+/** 手动触发结果：task 给 note+task_key，exec 给 exit_code+duration_ms。 */
+export interface ScheduleRunResult {
+  ok: boolean;
+  id: string;
+  kind: "task" | "exec";
+  note?: string;
+  task_key?: string;
+  exit_code?: number;
+  duration_ms?: number;
+  error?: string;
+  detail?: string;
+}
+
+// ---- 外部连接（connections）：MCP 清单 + bridge 预留槽 ----
+
+export interface MCPServerEntry {
+  name: string;
+  transport: "stdio" | "http";
+  command?: string;
+  args?: string[];
+  url?: string;
+  /** 环境变量键名——值可能含凭据，后端绝不回显。 */
+  env_keys: string[];
+  header_keys: string[];
+  source: "identity" | "global";
+}
+
+export interface MCPFileEntry {
+  label: string;
+  path: string;
+  exists: boolean;
+}
+
+/** 外部渠道桥的配置态（凭据只报 secret_set，后端绝不回显）。 */
+export interface ChannelEntry {
+  channel: string;
+  label: string;
+  bot_id: string;
+  secret_set: boolean;
+  allow: string[];
+  /** 三项齐备——可启动 bridge。 */
+  ready: boolean;
+  /** 出站游标是否存在（bridge 曾运行过）。 */
+  cursor_exists: boolean;
+  note: string;
+}
+
+export interface ConnectorsView {
+  identity: { id: string; name: string };
+  mcp_servers: MCPServerEntry[];
+  /** 任一层 mcp.json 解析失败时非空（此时 MCP 全部不生效）。 */
+  mcp_config_error?: string;
+  mcp_files: MCPFileEntry[];
+  channels: ChannelEntry[];
+}
+
 export interface MemoryInfo {
   name: string;
   mtime: number;

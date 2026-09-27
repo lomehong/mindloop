@@ -492,23 +492,87 @@ func TestCursorSaveLoad(t *testing.T) {
 	if err := c.Save(cp); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	c2, err := LoadCursor(cp, p)
+	c2, resumed, err := LoadCursorAtEnd(cp, p)
 	if err != nil {
-		t.Fatalf("LoadCursor: %v", err)
+		t.Fatalf("LoadCursorAtEnd: %v", err)
+	}
+	if !resumed {
+		t.Fatal("有效游标应续读，报告为从 EOF 起步")
 	}
 	if steps := readNewSteps(t, c2); len(steps) != 0 {
 		t.Fatalf("加载的 cursor 重投了 %d 个步骤，应为 0", len(steps))
 	}
 	// 为文件 A 保存的 cursor 指向文件 B：身份不匹配必须归零重来，
-	// 绝不能把外来的状态套上去。
+	// 绝不能把外来的状态套上去——且 rewound 必须可见（bridge 出站泵
+	// 据此弃批）。
 	other := filepath.Join(dir, "other.jsonl")
 	writeRawLines(t, other, validLine(t, "message"))
-	c3, err := LoadCursor(cp, other)
+	c3, _, err := LoadCursorAtEnd(cp, other)
 	if err != nil {
-		t.Fatalf("LoadCursor other: %v", err)
+		t.Fatalf("LoadCursorAtEnd other: %v", err)
 	}
-	if steps := readNewSteps(t, c3); len(steps) != 1 {
-		t.Fatalf("外来 cursor 在新文件上 = %d 个步骤，应为干净重放的 1", len(steps))
+	steps, rewound, err := c3.ReadNewWithRewind()
+	if err != nil {
+		t.Fatalf("ReadNewWithRewind: %v", err)
+	}
+	if len(steps) != 1 || !rewound {
+		t.Fatalf("外来 cursor 在新文件上 = %d 步 rewound=%v，应为干净重放的 1 步且 rewound=true", len(steps), rewound)
+	}
+}
+
+// TestLoadCursorAtEndThreeStates 钉死 bridge 的三态语义：缺失/损坏
+// 一律从 EOF 起步（"冷启动不重放"铁律的 API 化）——绝不允许回到
+// LoadCursor 的"缺失即从头"陷阱，那会把全部历史出站消息重投真人。
+func TestLoadCursorAtEndThreeStates(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "t.jsonl")
+	writeRawLines(t, p, validLine(t, "thought"), validLine(t, "final"))
+	cp := filepath.Join(dir, "t.cursor")
+
+	// 首启（cursor 文件不存在）：EOF 起步。
+	c, resumed, err := LoadCursorAtEnd(cp, p)
+	if err != nil || resumed {
+		t.Fatalf("首启: resumed=%v err=%v，应为 false/nil", resumed, err)
+	}
+	if steps := readNewSteps(t, c); len(steps) != 0 {
+		t.Fatalf("首启重放了 %d 条历史步骤，应为 0", len(steps))
+	}
+
+	// 损坏（内容不可解析）：EOF 起步，绝不能从头重放。
+	if err := os.WriteFile(cp, []byte("不是游标\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c2, resumed, err := LoadCursorAtEnd(cp, p)
+	if err != nil || resumed {
+		t.Fatalf("损坏游标: resumed=%v err=%v，应为 false/nil", resumed, err)
+	}
+	if steps := readNewSteps(t, c2); len(steps) != 0 {
+		t.Fatalf("损坏游标重放了 %d 条历史步骤，应为 0", len(steps))
+	}
+}
+
+// TestReadNewWithRewindReportsTruncation 钉死 rewound 感知读取：文件
+// 被截断时 rewound 必须可见（ReadNew 把它丢掉了，消费者无从防守）。
+func TestReadNewWithRewindReportsTruncation(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "t.jsonl")
+	writeRawLines(t, p, validLine(t, "thought"), validLine(t, "final"))
+
+	c := newTestCursor(t, p)
+	if steps := readNewSteps(t, c); len(steps) != 2 {
+		t.Fatalf("第一次读取 = %d 个步骤，应为 2", len(steps))
+	}
+	// 截断到只剩第一行——cursor 的 offset 已越过文件末尾。
+	writeRawLines(t, p, validLine(t, "thought"))
+	steps, rewound, err := c.ReadNewWithRewind()
+	if err != nil {
+		t.Fatalf("ReadNewWithRewind: %v", err)
+	}
+	if !rewound {
+		t.Fatalf("截断后 rewound=%v，必须为 true", rewound)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("截断后重读 = %d 个步骤，应为从头重放的 1", len(steps))
 	}
 }
 

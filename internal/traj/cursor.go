@@ -46,23 +46,26 @@ func NewCursorAtEnd(path string) *Cursor {
 	return c
 }
 
-// LoadCursor 读取保存在 cursorPath 的、针对文件 path 的状态。
-// 状态缺失或不可读都意味着"从头开始"；保存的身份与活文件不再
-// 匹配时会由下一次 ReadNew 丢弃，绝不会跨文件套用。
-func LoadCursor(cursorPath, path string) (*Cursor, error) {
+// LoadCursorAtEnd 读取保存在 cursorPath 的、针对文件 path 的状态，
+// 语义是 bridge 类消费者的三态需求：保存的状态有效则续读；文件
+// 缺失或损坏一律从当前 EOF 起步（"冷启动不重放"——LoadCursor 对
+// 缺失/损坏返回从头 cursor，直接照抄会把全部历史重投给真实的人）。
+// 返回值 resumed 报告是否成功续读（false = 从 EOF 起步），供诊断
+// 日志区分首启与续读。
+func LoadCursorAtEnd(cursorPath, path string) (*Cursor, bool, error) {
 	data, err := os.ReadFile(cursorPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return NewCursor(path), nil
+			return NewCursorAtEnd(path), false, nil
 		}
-		return nil, err
+		return nil, false, err
 	}
 	var offset int64
 	var fileID string
 	if _, err := fmt.Sscanf(string(data), "%d %s", &offset, &fileID); err != nil {
-		return NewCursor(path), nil
+		return NewCursorAtEnd(path), false, nil
 	}
-	return &Cursor{path: path, offset: offset, fileID: fileID}, nil
+	return &Cursor{path: path, offset: offset, fileID: fileID}, true, nil
 }
 
 // Save 把 cursor 状态持久化为一行："<offset> <fileid>"——与
@@ -79,6 +82,15 @@ func (c *Cursor) Offset() int64 { return c.offset }
 func (c *Cursor) ReadNew() ([]Step, error) {
 	steps, _, err := c.readNew()
 	return steps, err
+}
+
+// ReadNewWithRewind 是 ReadNew 的 rewound 感知形态：rewound 报告
+// 本批是否因文件被替换或截断而从零重读。侧索引据此整体重建；
+// 不允许重投旧步骤的消费者（bridge 出站泵）据此弃批——重放历史
+// 从来不是任何人想要的，而这条路径没有任何 cursor 损坏迹象，
+// 不检测就是一次静默全量重投。
+func (c *Cursor) ReadNewWithRewind() (steps []Step, rewound bool, err error) {
+	return c.readNew()
 }
 
 // readNew 是 ReadNew 的核心；rewound 报告本批是否因文件被替换

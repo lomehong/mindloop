@@ -9,8 +9,11 @@ import { describe, expect, it } from "vitest";
 
 import type {
   Config,
+  ConnectorsView,
   Identity,
   IdentityActivity,
+  ScheduleRunResult,
+  ScheduleView,
   ThinkerInfo,
   ThinkersStatus,
 } from "~/lib/types";
@@ -64,6 +67,66 @@ const activity = {
   cadence_s: null,
 } satisfies IdentityActivity;
 
+// GET /api/identities/{id}/schedule（条目字段与 CLI --json 同构）：
+const scheduleView = {
+  identity: { id: "ada", name: "ada" },
+  file: "C:/root/identities/ada/schedule.json",
+  entries: [
+    {
+      id: "daily",
+      enabled: true,
+      kind: "task",
+      trigger: "at 21:00",
+      action: "task 写晚报",
+      next_run: "2026-09-27 21:00:00",
+      last_run: "2026-09-26 21:00:00",
+      last_exit_code: 3,
+      last_error: "boom",
+      last_note: "任务 tsk-1",
+    },
+  ],
+  warnings: [],
+  mind_running: true,
+} satisfies ScheduleView;
+
+// POST /api/identities/{id}/schedule/{eid}/run（task 形态）：
+const scheduleRunResult = {
+  ok: true,
+  id: "daily",
+  kind: "task",
+  note: "任务 tsk-1",
+  task_key: "sched-daily-2026-09-27",
+} satisfies ScheduleRunResult;
+
+// GET /api/identities/{id}/connections（env/headers 只给键名）：
+const connectionsView = {
+  identity: { id: "ada", name: "ada" },
+  mcp_servers: [
+    {
+      name: "github",
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@mcp/server-github"],
+      env_keys: ["GITHUB_TOKEN"],
+      header_keys: [],
+      source: "global",
+    },
+  ],
+  mcp_files: [{ label: "全局", path: "C:/root/mcp.json", exists: true }],
+  channels: [
+    {
+      channel: "wecom",
+      label: "企业微信智能机器人",
+      bot_id: "ww123",
+      secret_set: true,
+      allow: ["zhangsan"],
+      ready: true,
+      cursor_exists: false,
+      note: "在企微管理后台获取 BotID 与 Secret。",
+    },
+  ],
+} satisfies ConnectorsView;
+
 // GET /api/config:
 const config = {
   root: "/root",
@@ -108,5 +171,23 @@ describe("wire contract vs lib/types.ts", () => {
   it("/config keeps the control flags the UI reads", () => {
     expect(config).toHaveProperty("controls_enabled");
     expect(config).toHaveProperty("self_update_enabled");
+  });
+
+  it("/schedule keeps the CLI-json entry shape (status projection fields)", () => {
+    const entry = scheduleView.entries[0];
+    expect(entry).toHaveProperty("next_run");
+    expect(entry).toHaveProperty("last_exit_code");
+    expect(entry).toHaveProperty("trigger");
+    expect(entry).toHaveProperty("action");
+    expect(scheduleRunResult.task_key).toBe("sched-daily-2026-09-27");
+  });
+
+  it("/connections exposes env/header keys only, never values", () => {
+    const server = connectionsView.mcp_servers[0];
+    expect(server).toHaveProperty("env_keys");
+    expect(server).toHaveProperty("header_keys");
+    const raw = server as unknown as Record<string, unknown>;
+    expect(raw).not.toHaveProperty("env");
+    expect(raw).not.toHaveProperty("headers");
   });
 });

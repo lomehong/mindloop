@@ -95,21 +95,18 @@ func submittedTask(step traj.Step, identity string, req Submission) Task {
 		Events: []Event{{StepID: step.StepID, TS: step.TS, TaskID: step.StepID, State: Queued, Attempt: 1, Operation: "submit"}}}
 }
 
-// read 在轨迹锁下获取完整前缀。损坏/半行会明确拒绝，不能丢弃幂等事实后接收第二次提交。
+// read 无锁获取完整前缀：追加是单次原子写（O_APPEND 单次 Write、NTFS 的
+// FILE_APPEND_DATA 亦然），读者永远只见完整行——轨迹锁只为多步骤写
+// 定序，读不参与定序。曾在轨迹锁下读取：任务执行期间监督轮询与调度
+// 心跳的全量重放把锁占成常态，写步骤的锁等待被饿死（演练实测 runner
+// 写推理 5 秒超时被判 failed）。读-改-写的一致性由调用方的任务锁保证
+// （transaction 全程持任务锁）。损坏/半行仍然明确拒绝，不能丢弃幂等
+// 事实后接收第二次提交。
 // syncExisting 确认上次响应丢失或 Sync 失败后可见的事实已落盘，再返回幂等成功。
 func (s *Store) read(ctx context.Context, syncExisting bool) (*projection, error) {
 	if s.tl == nil || s.tl.Path == "" || !validKey(s.identity) {
 		return nil, ErrInvalid
 	}
-	timeout := s.tl.LockTimeout
-	if timeout <= 0 {
-		timeout = traj.DefaultLockTimeout
-	}
-	release, err := traj.AcquireDirLock(ctx, s.tl.Path+".lock", timeout)
-	if err != nil {
-		return nil, err
-	}
-	defer release()
 	flags := os.O_RDONLY
 	if syncExisting {
 		flags = os.O_RDWR

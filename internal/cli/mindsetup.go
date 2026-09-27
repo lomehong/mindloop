@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"mindloop/internal/childenv"
 	"mindloop/internal/identity"
 	"mindloop/internal/llm"
 	"mindloop/internal/mcp"
@@ -17,6 +19,7 @@ import (
 	"mindloop/internal/obs"
 	"mindloop/internal/policy"
 	"mindloop/internal/runner"
+	"mindloop/internal/schedule"
 	"mindloop/internal/task"
 	"mindloop/internal/traj"
 )
@@ -96,25 +99,26 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 	dispatcher := mind.NewDispatcher(id.Timeline, o.poll)
 	dispatcher.SetLogger(o.logger)
 	dispatcher.Register(mind.NewMonolith(mind.MonolithOptions{
-		Timeline:       id.Timeline,
-		Thinker:        mind.LLMThinker{Client: client},
-		RequestThinker: mind.LLMThinker{Client: requestClient},
-		SummaryThinker: mind.LLMThinker{Client: summaryClient},
-		Backoff:        o.backoff,
-		MaxIterations:  o.maxIterations,
-		Watchdog:       o.watchdog,
-		Persona:        persona,
-		SelfName:       id.Name, // 轮次耗尽的工作摘要以身份名署名投递 operator
-		MemDir:         filepath.Join(id.Dir, "memories"),
-		ContextBudget:  ctxBytes,
-		MemoryBytes:    memBytes,
-		SummaryBytes:   sumBytes,
-		EnableRecap:    true,
-		SkillsDirs:     skillsDirs,
-		MCPServers:     mcpServers,
-		ExtraEnv:       extraEnv,
-		SetLogger:      o.logger,
-		BeforeExecute:  gate.Authorize,
+		Timeline:           id.Timeline,
+		Thinker:            mind.LLMThinker{Client: client},
+		RequestThinker:     mind.LLMThinker{Client: requestClient},
+		SummaryThinker:     mind.LLMThinker{Client: summaryClient},
+		Backoff:            o.backoff,
+		MaxIterations:      o.maxIterations,
+		Watchdog:           o.watchdog,
+		Persona:            persona,
+		SelfName:           id.Name, // 轮次耗尽的工作摘要以身份名署名投递 operator
+		MemDir:             filepath.Join(id.Dir, "memories"),
+		ContextBudget:      ctxBytes,
+		MemoryBytes:        memBytes,
+		SummaryBytes:       sumBytes,
+		EnableRecap:        true,
+		SkillsDirs:         skillsDirs,
+		MCPServers:         mcpServers,
+		ConnectorAddresses: connectorAddresses(),
+		ExtraEnv:           extraEnv,
+		SetLogger:          o.logger,
+		BeforeExecute:      gate.Authorize,
 	}))
 	// 流式回复：MINDLOOP_STREAM=0 整体关闭（无旁路文件、无 replying
 	// 状态，回复回退一次性补全）；缺省开启。流式只做 responder；
@@ -134,6 +138,8 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 		Streaming:   streamEnabled(),
 		StreamFn:    responderStreamFn(client),
 	}))
+	// 身份日程挂上调度器心跳：Run 启动装载、每拍检查到点。
+	dispatcher.SetSchedule(assembleSchedule(id, extraEnv, o.logger))
 	return &mindStack{dispatcher: dispatcher, client: client, request: requestClient, summary: summaryClient}, nil
 }
 
@@ -172,6 +178,101 @@ func responderStreamFn(client *llm.Client) func(context.Context, string, []llm.M
 			return "", err
 		}
 		return res.Text, nil
+	}
+}
+
+// reportTo 折算任务完成回执/主动汇报的默认外发地址：REPORT_TO
+// （显式环境变量 > 身份 .env，均已在此前加载）> 缺省 operator。
+func reportTo() string {
+	if v := strings.TrimSpace(os.Getenv("REPORT_TO")); v != "" {
+		return v
+	}
+	return "operator"
+}
+
+// connectorAddresses 折算已就绪渠道桥的可投递地址（仅进 monolith
+// 系统提示的披露段）。当前渠道清单与 connectorcmd 同步推进：
+// wecom 三项齐备即认领 wecom:<uid> 地址。
+func connectorAddresses() []string {
+	if os.Getenv("WECOM_BOT_ID") == "" || os.Getenv("WECOM_BOT_SECRET") == "" {
+		return nil
+	}
+	allow := childenv.List(os.Getenv("WECOM_ALLOW"))
+	if len(allow) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(allow))
+	for _, uid := range allow {
+		out = append(out, "wecom:"+uid)
+	}
+	return out
+}
+
+// schedulePaths 汇总身份日程的三处文件（装配与 CLI 子命令同源）。
+// 路径语义已下沉到 schedule.Paths（web 消费面共用同一形态）。
+func schedulePaths(id *identity.Identity) (schedulePath, logPath, statePath string) {
+	return schedule.Paths(id.Dir, id.Timeline.Dir)
+}
+
+// assembleSchedule 装配身份日程：at/巡检任务经任务层幂等提交，exec
+// 条目经沙箱执行（不叫醒模型、零 API 成本），exec 失败经 Alert 写
+// alert 步骤叫醒心智。
+func assembleSchedule(id *identity.Identity, extraEnv []string, logger func(string, ...any)) *schedule.Runtime {
+	schedulePath, logPath, statePath := schedulePaths(id)
+	return schedule.New(schedule.Options{
+		Path:      schedulePath,
+		Dir:       id.Dir,
+		LogPath:   logPath,
+		StatePath: statePath,
+		Env:       extraEnv,
+		ReportTo:  reportTo(),
+		Logger:    logger,
+		Submit:    scheduleSubmitter(id),
+		Alert:     scheduleAlerter(id, logger),
+	})
+}
+
+// scheduleAlerter 返回 exec 失败告警的写出口：alert 步骤是代码写入
+// 的系统事实（from=身份、to=operator、source=system），不带
+// launched_by 章——dispatcher 的作者章守卫不拦它，monolith 的订阅
+// 面照常触发；responder 不订阅 alert，告警不引发寒暄。落盘失败只
+// 进日志：告警是增强，不能反过来打断日程节拍。
+func scheduleAlerter(id *identity.Identity, logger func(string, ...any)) func(kind, entryID, content string) {
+	tl, self := id.Timeline, id.Name
+	return func(kind, entryID, content string) {
+		s := traj.NewStep(traj.TypeAlert)
+		s.Fields["from"] = self
+		s.Fields["to"] = "operator"
+		s.Fields["source"] = "system"
+		s.Fields["kind"] = kind
+		s.Fields["entry"] = entryID
+		s.Fields["content"] = content
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := tl.Append(ctx, s); err != nil && logger != nil {
+			logger("alert 步骤落盘失败（%s/%s）: %v", kind, entryID, err)
+		}
+	}
+}
+
+// scheduleSubmitter 返回日程任务提交通道：From=schedule、幂等键 =
+// sched-<id>-<date>；同键异载荷（ErrConflict：当天键已被用于不同
+// 内容）视为"当天已有任务"的良性跳过。
+func scheduleSubmitter(id *identity.Identity) func(ctx context.Context, content, clientMessageID string) (string, error) {
+	store := task.New(id.Timeline, id.Name)
+	return func(ctx context.Context, content, clientMessageID string) (string, error) {
+		item, err := store.Submit(ctx, task.Submission{
+			From:            schedule.SourceName,
+			ClientMessageID: clientMessageID,
+			Content:         content,
+		})
+		if err != nil {
+			if errors.Is(err, task.ErrConflict) {
+				return "当天已有任务", nil
+			}
+			return "", err
+		}
+		return "任务 " + item.ID, nil
 	}
 }
 

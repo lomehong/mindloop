@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>mindloop 系统架构图</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: #020617;
+      min-height: 100vh;
+      padding: 2rem;
+      color: white;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .header {
+      margin-bottom: 2rem;
+    }
+
+    .header-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .pulse-dot {
+      width: 12px;
+      height: 12px;
+      background: #22d3ee;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+    }
+
+    .subtitle {
+      color: #94a3b8;
+      font-size: 0.875rem;
+      margin-left: 1.75rem;
+    }
+
+    .diagram-container {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 1rem;
+      border: 1px solid #1e293b;
+      padding: 1.5rem;
+      overflow-x: auto;
+    }
+
+    svg {
+      width: 100%;
+      min-width: 900px;
+      display: block;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+
+    .card {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 0.75rem;
+      border: 1px solid #1e293b;
+      padding: 1.25rem;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .card-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card-dot.amber { background: #fbbf24; }
+    .card-dot.rose { background: #fb7185; }
+
+    .card h3 {
+      font-size: 0.875rem;
+      font-weight: 600;
+    }
+
+    .card ul {
+      list-style: none;
+      color: #94a3b8;
+      font-size: 0.75rem;
+    }
+
+    .card li {
+      margin-bottom: 0.375rem;
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 1.5rem;
+      color: #475569;
+      font-size: 0.75rem;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 0.5rem;
+      margin-left: auto;
+      flex-shrink: 0;
+      align-items: center;
+    }
+    .toolbar-toggle {
+      background: transparent;
+      border: none;
+      color: #475569;
+      cursor: pointer;
+      font-size: 1.25rem;
+      line-height: 1;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.375rem;
+      transition: color 0.2s, background 0.2s;
+    }
+    .toolbar-toggle:hover { color: #94a3b8; background: rgba(30, 41, 59, 0.5); }
+    .toolbar-actions {
+      display: none;
+      gap: 0.5rem;
+    }
+    .toolbar.expanded .toolbar-actions { display: flex; }
+    .toolbar-actions button {
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid #334155;
+      color: #94a3b8;
+      padding: 0.375rem 0.75rem;
+      border-radius: 0.375rem;
+      font-family: inherit;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .toolbar-actions button:hover {
+      background: rgba(51, 65, 85, 0.8);
+      color: white;
+      border-color: #475569;
+    }
+
+    @media print {
+      body { background: #020617; padding: 1rem; }
+      .toolbar { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="report-container">
+    <!-- Header -->
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>mindloop 系统架构</h1>
+        <div class="toolbar">
+          <div class="toolbar-actions">
+            <button onclick="copyAsImage(this)">📋 Copy</button>
+            <button onclick="downloadPNG(this)">🖼️ PNG</button>
+            <button onclick="downloadPDF(this)">📄 PDF</button>
+          </div>
+          <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
+        </div>
+      </div>
+      <p class="subtitle">Go 持久化 AI Agent 框架 · 三进程共享轨迹事实源 · Windows 一等公民（Job Object 沙箱）· 参考 Headlong</p>
+    </div>
+
+    <!-- Main Diagram -->
+    <div class="diagram-container">
+      <svg viewBox="0 0 1240 800">
+        <!-- Definitions -->
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
+          </marker>
+          <marker id="arrowhead-rev" markerWidth="10" markerHeight="7" refX="1" refY="3.5" orient="auto">
+            <polygon points="10 0, 0 3.5, 10 7" fill="#64748b" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <!-- Background Grid -->
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- Region boundary: mindloop 主机 -->
+        <rect x="30" y="140" width="1180" height="595" rx="12" fill="rgba(251, 191, 36, 0.04)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="48" y="728" fill="#fbbf24" font-size="10" font-weight="600">mindloop 主机 — 单身份运行时（MINDLOOP_HOME）</text>
+
+        <!-- ============================== ARROWS (behind boxes) ============================== -->
+        <g stroke="#64748b" stroke-width="1.5">
+          <!-- 用户渠道 ↔ connector -->
+          <line x1="155" y1="100" x2="155" y2="188" marker-end="url(#arrowhead)"/>
+          <line x1="255" y1="188" x2="255" y2="102" marker-end="url(#arrowhead)"/>
+          <!-- CLI → mind -->
+          <line x1="395" y1="100" x2="395" y2="188" marker-end="url(#arrowhead)"/>
+          <!-- mind → LLM -->
+          <line x1="620" y1="188" x2="620" y2="102" marker-end="url(#arrowhead)"/>
+          <!-- MCP 双向 -->
+          <line x1="780" y1="102" x2="780" y2="188" marker-start="url(#arrowhead-rev)" marker-end="url(#arrowhead)"/>
+          <!-- 浏览器 ↔ web -->
+          <line x1="1040" y1="100" x2="1040" y2="188" marker-end="url(#arrowhead)"/>
+          <line x1="1130" y1="188" x2="1130" y2="102" marker-end="url(#arrowhead)"/>
+          <!-- connector ↔ traj 总线 -->
+          <line x1="140" y1="380" x2="140" y2="528" marker-end="url(#arrowhead)"/>
+          <line x1="250" y1="528" x2="250" y2="382" marker-end="url(#arrowhead)"/>
+          <!-- mind ↔ traj 总线 -->
+          <line x1="560" y1="490" x2="560" y2="528" marker-end="url(#arrowhead)"/>
+          <line x1="680" y1="528" x2="680" y2="492" marker-end="url(#arrowhead)"/>
+          <!-- web → traj 总线 -->
+          <line x1="950" y1="380" x2="950" y2="528" marker-end="url(#arrowhead)"/>
+          <!-- web 控制面 → mind -->
+          <line x1="870" y1="360" x2="822" y2="360" marker-end="url(#arrowhead)"/>
+        </g>
+        <!-- 箭头标签 -->
+        <g fill="#94a3b8" font-size="8">
+          <text x="163" y="148">入站消息</text>
+          <text x="263" y="148">出站投递 · 流式</text>
+          <text x="403" y="148">拉起 · chat 注入</text>
+          <text x="628" y="148">思考档 / 请求档</text>
+          <text x="790" y="148">stdio 工具扩展</text>
+          <text x="790" y="162">mcp serve 反向暴露</text>
+          <text x="1048" y="148">HTTP API · 轮询</text>
+          <text x="1138" y="148">审批 · 控制</text>
+          <text x="148" y="460">入站写 message</text>
+          <text x="258" y="490">出站泵读（cursor）</text>
+          <text x="568" y="514">追加步骤</text>
+          <text x="688" y="514">feeder 读</text>
+          <text x="958" y="460">traj 查询</text>
+          <text x="845" y="322" text-anchor="middle" transform="rotate(-90 845 322)">控制面文件协议</text>
+        </g>
+
+        <!-- ============================== EXTERNAL ENDPOINTS ============================== -->
+        <!-- 用户渠道 -->
+        <rect x="50" y="40" width="210" height="60" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="155" y="65" fill="white" font-size="11" font-weight="600" text-anchor="middle">用户渠道</text>
+        <text x="155" y="82" fill="#94a3b8" font-size="9" text-anchor="middle">企业微信 · WebSocket</text>
+
+        <!-- 操作者 CLI -->
+        <rect x="300" y="40" width="190" height="60" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="395" y="65" fill="white" font-size="11" font-weight="600" text-anchor="middle">操作者 CLI</text>
+        <text x="395" y="82" fill="#94a3b8" font-size="9" text-anchor="middle">run · chat · tail · skills · mem</text>
+
+        <!-- LLM 提供商 -->
+        <rect x="530" y="40" width="180" height="60" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="620" y="65" fill="white" font-size="11" font-weight="600" text-anchor="middle">LLM 提供商</text>
+        <text x="620" y="82" fill="#94a3b8" font-size="9" text-anchor="middle">Anthropic · OpenAI 兼容 · echo</text>
+
+        <!-- MCP 对端 -->
+        <rect x="750" y="40" width="200" height="60" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="850" y="65" fill="white" font-size="11" font-weight="600" text-anchor="middle">MCP 对端</text>
+        <text x="850" y="82" fill="#94a3b8" font-size="9" text-anchor="middle">工具服务器（stdio）· Claude Desktop</text>
+
+        <!-- 浏览器 -->
+        <rect x="990" y="40" width="200" height="60" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="1090" y="65" fill="white" font-size="11" font-weight="600" text-anchor="middle">浏览器（操作者）</text>
+        <text x="1090" y="82" fill="#94a3b8" font-size="9" text-anchor="middle">仪表盘 · 审批 · 轨迹查看</text>
+
+        <!-- ============================== PROCESS: connector ============================== -->
+        <rect x="50" y="190" width="280" height="190" rx="6" fill="#0f172a"/>
+        <rect x="50" y="190" width="280" height="190" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="190" y="213" fill="white" font-size="11" font-weight="700" text-anchor="middle">connector 连接器进程</text>
+
+        <rect x="65" y="228" width="250" height="34" rx="4" fill="rgba(2, 6, 23, 0.8)" stroke="#34d399" stroke-width="0.75"/>
+        <text x="190" y="242" fill="white" font-size="10" font-weight="600" text-anchor="middle">入站适配器</text>
+        <text x="190" y="255" fill="#94a3b8" font-size="8" text-anchor="middle">wecom aibot 回调 · WS 会话</text>
+
+        <rect x="65" y="276" width="250" height="34" rx="4" fill="rgba(2, 6, 23, 0.8)" stroke="#34d399" stroke-width="0.75"/>
+        <text x="190" y="290" fill="white" font-size="10" font-weight="600" text-anchor="middle">出站泵</text>
+        <text x="190" y="303" fill="#94a3b8" font-size="8" text-anchor="middle">三态游标 · 认领地址 · 退避重试</text>
+
+        <rect x="65" y="324" width="250" height="34" rx="4" fill="rgba(2, 6, 23, 0.8)" stroke="#34d399" stroke-width="0.75"/>
+        <text x="190" y="338" fill="white" font-size="10" font-weight="600" text-anchor="middle">wecom 增强</text>
+        <text x="190" y="351" fill="#94a3b8" font-size="8" text-anchor="middle">流式回复 · 审批卡</text>
+
+        <!-- ============================== PROCESS: mind ============================== -->
+        <rect x="370" y="190" width="450" height="300" rx="6" fill="#0f172a"/>
+        <rect x="370" y="190" width="450" height="300" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="595" y="213" fill="white" font-size="11" font-weight="700" text-anchor="middle">mind 心智进程</text>
+
+        <rect x="385" y="228" width="420" height="34" rx="4" fill="rgba(2, 6, 23, 0.8)" stroke="#34d399" stroke-width="0.75"/>
+        <text x="595" y="242" fill="white" font-size="10" font-weight="600" text-anchor="middle">dispatcher 调度器</text>
+        <text x="595" y="255" fill="#94a3b8" font-size="8" text-anchor="middle">feeder · 背压 FIFO/last-wins · watchdog · backoff 驻留</text>
+
+        <rect x="385" y="276" width="420" height="34" rx="4" fill="rgba(2, 6, 23, 0.8)" stroke="#34d399" stroke-width="0.75"/>
+        <text x="595" y="290" fill="white" font-size="10" font-weight="600" text-anchor="middle">思考者 monolith · responder</text>
+        <text x="595" y="303" fill="#94a3b8" font-size="8" text-anchor="middle">独立 goroutine · 双模型分层（思考档 / 请求档）</text>
+
+        <rect x="385" y="324" width="420" height="34" rx="4" fill="rgba(2, 6, 23, 0.8)" stroke="#34d399" stroke-width="0.75"/>
+        <text x="595" y="338" fill="white" font-size="10" font-weight="600" text-anchor="middle">runner 运行循环</text>
+        <text x="595" y="351" fill="#94a3b8" font-size="8" text-anchor="middle">渲染 → 思考 → 提取 → 执行 → 记录 → FINAL</text>
+
+        <rect x="385" y="372" width="420" height="34" rx="4" fill="rgba(2, 6, 23, 0.8)" stroke="#34d399" stroke-width="0.75"/>
+        <text x="595" y="386" fill="white" font-size="10" font-weight="600" text-anchor="middle">工具面</text>
+        <text x="595" y="399" fill="#94a3b8" font-size="8" text-anchor="middle">sandbox Job Object · skills · MCP 客户端 · policy 审批</text>
+
+        <rect x="385" y="420" width="420" height="34" rx="4" fill="rgba(2, 6, 23, 0.8)" stroke="#34d399" stroke-width="0.75"/>
+        <text x="595" y="434" fill="white" font-size="10" font-weight="600" text-anchor="middle">schedule.Runtime</text>
+        <text x="595" y="447" fill="#94a3b8" font-size="8" text-anchor="middle">at / every 触发 · quiet 窗口 · REPORT_TO 路由</text>
+
+        <!-- ============================== PROCESS: web ============================== -->
+        <rect x="870" y="190" width="320" height="190" rx="6" fill="#0f172a"/>
+        <rect x="870" y="190" width="320" height="190" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="1030" y="213" fill="white" font-size="11" font-weight="700" text-anchor="middle">web 仪表盘进程</text>
+
+        <rect x="885" y="228" width="290" height="34" rx="4" fill="rgba(2, 6, 23, 0.8)" stroke="#34d399" stroke-width="0.75"/>
+        <text x="1030" y="242" fill="white" font-size="10" font-weight="600" text-anchor="middle">net/http API</text>
+        <text x="1030" y="255" fill="#94a3b8" font-size="8" text-anchor="middle">轨迹查询 · 活动树 · 审批 · 同源守卫</text>
+
+        <rect x="885" y="276" width="290" height="34" rx="4" fill="rgba(8, 51, 68, 0.45)" stroke="#22d3ee" stroke-width="0.75"/>
+        <text x="1030" y="290" fill="white" font-size="10" font-weight="600" text-anchor="middle">React SPA 前端</text>
+        <text x="1030" y="303" fill="#94a3b8" font-size="8" text-anchor="middle">仪表盘 · 技能 · 连接 · 日程</text>
+
+        <rect x="885" y="324" width="290" height="34" rx="4" fill="rgba(2, 6, 23, 0.8)" stroke="#34d399" stroke-width="0.75"/>
+        <text x="1030" y="338" fill="white" font-size="10" font-weight="600" text-anchor="middle">控制面客户端</text>
+        <text x="1030" y="351" fill="#94a3b8" font-size="8" text-anchor="middle">文件协议驱动心智 · 不持调度器</text>
+
+        <!-- ============================== SUBSTRATE: traj bus ============================== -->
+        <rect x="50" y="530" width="1140" height="85" rx="8" fill="#0f172a"/>
+        <rect x="50" y="530" width="1140" height="85" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="620" y="558" fill="white" font-size="11.5" font-weight="700" text-anchor="middle">traj 轨迹日志 — 追加式 JSONL · 唯一事实源</text>
+        <text x="620" y="578" fill="#94a3b8" font-size="9" text-anchor="middle">目录锁多写者 · 读者各持 cursor · 冷启动从 EOF 起步（绝不重放历史）</text>
+        <text x="620" y="598" fill="#c4b5fd" font-size="8" text-anchor="middle">message / task / FINAL / approval / usage 步骤类型 · 出站泵与仪表盘均为纯日志谓词路由</text>
+
+        <!-- ============================== SUBSTRATE: identity dir ============================== -->
+        <rect x="50" y="623" width="1140" height="88" rx="8" fill="rgba(76, 29, 149, 0.15)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="6,4"/>
+        <text x="70" y="645" fill="#a78bfa" font-size="10" font-weight="600">身份目录 &lt;MINDLOOP_HOME&gt;/&lt;identity&gt;/</text>
+        <text x="620" y="668" fill="#94a3b8" font-size="8.5" text-anchor="middle">persona.md · .env（提供商密钥 · REPORT_TO） · schedule.json（心智热加载） · skills/（SKILL.md 两层发现）</text>
+        <text x="620" y="690" fill="#94a3b8" font-size="8.5" text-anchor="middle">mem/（markdown + BM25 检索） · recap 情节摘要缓存 · obs/ 用量台账 · 根轨迹即上方 traj 总线</text>
+
+        <!-- ============================== LEGEND ============================== -->
+        <rect x="50" y="760" width="16" height="10" rx="2" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/>
+        <text x="72" y="768" fill="#94a3b8" font-size="8">前端</text>
+
+        <rect x="130" y="760" width="16" height="10" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+        <text x="152" y="768" fill="#94a3b8" font-size="8">Go 进程</text>
+
+        <rect x="230" y="760" width="16" height="10" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+        <text x="252" y="768" fill="#94a3b8" font-size="8">存储 / 事实源</text>
+
+        <rect x="360" y="760" width="16" height="10" rx="2" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/>
+        <text x="382" y="768" fill="#94a3b8" font-size="8">云服务</text>
+
+        <rect x="450" y="760" width="16" height="10" rx="2" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+        <text x="472" y="768" fill="#94a3b8" font-size="8">外部端点</text>
+
+        <rect x="560" y="760" width="16" height="10" rx="2" fill="transparent" stroke="#fbbf24" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="582" y="768" fill="#94a3b8" font-size="8">运行时区域</text>
+
+        <rect x="680" y="760" width="16" height="10" rx="2" fill="transparent" stroke="#a78bfa" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="702" y="768" fill="#94a3b8" font-size="8">目录容器</text>
+
+        <line x1="810" y1="765" x2="826" y2="765" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="834" y="768" fill="#94a3b8" font-size="8">数据流</text>
+      </svg>
+    </div>
+
+    <!-- Info Cards -->
+    <div class="cards">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h3>三进程 · 零进程内依赖</h3>
+        </div>
+        <ul>
+          <li>• mind：dispatcher 调度器 + monolith/responder 思考者，活性由 watchdog 与 backoff 驻留保证</li>
+          <li>• connector：渠道无关桥，企微 / WebSocket 双向接入</li>
+          <li>• web：仪表盘 API + React SPA，经控制面文件协议驱动心智</li>
+          <li>• 进程间只共享轨迹文件，目录锁保证多写者安全</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h3>轨迹即唯一事实源</h3>
+        </div>
+        <ul>
+          <li>• 追加式 JSONL，读者各持 cursor，冷启动从 EOF 起步绝不重放</li>
+          <li>• 背压二分法：人类消息 FIFO（上限 16 丢最旧），其余 last-wins</li>
+          <li>• 出站泵三态游标 + 认领地址过滤，投递语义分三档</li>
+          <li>• 身份目录集中 persona / .env / schedule.json / skills / mem</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot amber"></div>
+          <h3>扩展面与渠道</h3>
+        </div>
+        <ul>
+          <li>• MCP 双向：stdio 客户端接工具服务器，mcp serve 反向暴露为 MCP 服务器</li>
+          <li>• Agent Skills 标准技能库，系统提示渐进披露</li>
+          <li>• schedule.json 定时任务（at / every + quiet 窗口），REPORT_TO 路由到企微</li>
+          <li>• 企微流式回复（打字机）+ 审批卡（button_interaction → policy.Decide）</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <p class="footer">
+      mindloop · internal 包单向依赖无环 · 核心库零第三方依赖 · 2026-09
+    </p>
+  </div>
+
+  <script>
+    async function copyAsImage(btn) {
+      const orig = btn.textContent;
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        btn.textContent = '✓ Copied!';
+      } catch (e) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+
+    async function downloadPNG(btn) {
+      const orig = btn.textContent;
+      btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const link = document.createElement('a');
+        link.download = 'mindloop-architecture.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        btn.textContent = '✓ Done!';
+      } catch (e) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+
+    async function downloadPDF(btn) {
+      const orig = btn.textContent;
+      btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const imgData = canvas.toDataURL('image/png');
+        const { jsPDF } = window.jspdf;
+        const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+        const pdf = new jsPDF({ orientation, unit: 'px', format: [canvas.width, canvas.height], hotfixes: ['px_scaling'] });
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+        pdf.save('mindloop-architecture.pdf');
+        btn.textContent = '✓ Done!';
+      } catch (e) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+  </script>
+</body>
+</html>

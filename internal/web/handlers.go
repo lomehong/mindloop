@@ -206,15 +206,38 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
 			s.handleSkillsInstall(w, r, id)
+		case http.MethodPut:
+			name := ""
+			if len(rest) > 0 {
+				name = rest[0]
+			}
+			s.handleSkillsUpdate(w, r, id, name)
 		case http.MethodDelete:
 			name := ""
 			if len(rest) > 0 {
 				name = rest[0]
 			}
 			s.handleSkillsDelete(w, r, id, name)
-		default:
+		default: // GET
+			if len(rest) > 0 {
+				s.handleSkillsGet(w, r, id, rest[0])
+				return
+			}
 			s.handleSkillsList(w, r, id)
 		}
+	case "schedule":
+		s.routeSchedule(w, r, id, rest)
+	case "connections":
+		if len(rest) > 0 {
+			writeError(w, 404, "未知子路径: connections/"+strings.Join(rest, "/"))
+			return
+		}
+		if !requireMethod(w, r, http.MethodGet) {
+			return
+		}
+		s.handleConnections(w, r, id)
+	case "channels":
+		s.handleChannels(w, r, id, rest)
 	case "tree":
 		s.handleTree(w, r, id, rest)
 	case "logs":

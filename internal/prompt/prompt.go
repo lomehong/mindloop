@@ -31,7 +31,7 @@ func AutonomousSteps(steps []traj.Step) []traj.Step {
 		}
 		kind, _ := step.Field("context_kind")
 		switch step.Type {
-		case traj.TypeTrajectory, traj.TypeObservation, traj.TypeThought, traj.TypeMerge:
+		case traj.TypeTrajectory, traj.TypeObservation, traj.TypeThought, traj.TypeMerge, traj.TypeAlert:
 			out = append(out, step)
 		case traj.TypeRun, traj.TypePrompt, traj.TypeReasoning, traj.TypeShellOutput, traj.TypeFinal, traj.TypeAction, traj.TypeError:
 			if kind == "autonomous" {

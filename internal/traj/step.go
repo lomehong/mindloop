@@ -38,6 +38,11 @@ const (
 	TypeError       = "error"        // 终局错误审计
 	TypeMerge       = "merge"        // 子轨迹合并章
 	TypeFork        = "fork"         // 分叉章
+	TypeAlert       = "alert"        // 系统告警（代码写入，如 exec 失败）：
+	// responder 不订阅（告警不引发寒暄），
+	// monolith 订阅它评估升级——coalesced
+	// 合并槽承接背压，不能伪装成 message
+	//（那会挤占人类消息的保序 FIFO）。
 )
 
 // reservedTypes 是结构性步骤类型，它们永远不会从环境继承 run id

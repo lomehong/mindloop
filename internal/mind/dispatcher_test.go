@@ -239,3 +239,35 @@ func tl0(t *testing.T, d *Dispatcher) *traj.Timeline {
 	t.Helper()
 	return d.tl
 }
+
+// TestDispatcherAlertWakesMonolithNotResponder 钉死告警路径的两向
+// 语义：代码写入的 alert（无 launched_by 章）叫醒订阅它的思考者
+// （monolith），且绝不惊动只订阅 message 的思考者（responder）——
+// 告警不引发寒暄；monolith 自产步骤（带作者章）不自我叫醒。
+func TestDispatcherAlertWakesMonolithNotResponder(t *testing.T) {
+	d, tl := newTestDispatcher(t)
+	mono := &recorderThinker{name: "mono", sub: Subscription{Types: []string{"alert"}}}
+	resp := &recorderThinker{name: "resp", sub: Subscription{Types: []string{"message"}}}
+	d.Register(mono)
+	d.Register(resp)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Run(ctx)
+
+	appendStep(t, tl, "alert", "") // 代码写入：无 launched_by
+	waitFor(t, 2*time.Second, func() bool { return mono.wakeCount() >= 1 })
+	if mono.wakeTypes()[0] != "alert" {
+		t.Fatalf("monolith 应收到 alert，实际 %v", mono.wakeTypes())
+	}
+	time.Sleep(300 * time.Millisecond) // 负向观察窗
+	if resp.wakeCount() != 0 {
+		t.Fatalf("alert 不应唤醒 message 订阅者")
+	}
+
+	// monolith 自产的 alert（带作者章）：被既有守卫拦截，不自我叫醒。
+	appendStep(t, tl, "alert", "mono")
+	time.Sleep(500 * time.Millisecond)
+	if mono.wakeCount() != 1 {
+		t.Fatalf("自产 alert 不应自我叫醒，实收 %d 次", mono.wakeCount())
+	}
+}

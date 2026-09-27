@@ -24,6 +24,8 @@ export const JOB_PROGRESS_POLL_MS = 1500;
 export const USAGE_IDLE_POLL_MS = 30_000;
 // skills 列表——技能目录变化频率低，10s。
 export const SKILLS_POLL_MS = 10_000;
+// schedule 列表——schedule.json 变化频率低，10s（同 skills 档）。
+export const SCHEDULE_POLL_MS = 10_000;
 // recap——摘要生成状态，5s。
 export const RECAP_POLL_MS = 5000;
 

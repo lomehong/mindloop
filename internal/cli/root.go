@@ -128,6 +128,8 @@ func (c *CLI) newRootCmd() *cobra.Command {
 		c.newSkillsCmd(),
 		c.newMCPCmd(),
 		c.newTaskCmd(),
+		c.newScheduleCmd(),
+		c.newConnectorCmd(),
 		c.newLlmCmd(),
 		c.newVersionCmd(),
 	)
@@ -143,7 +145,7 @@ func (c *CLI) newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "打印版本",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintf(c.stdout, "mindloop v%s（日志/渲染/运行循环/心智/记忆/recap/观测/技能/MCP/仪表盘）\n", Version)
+			fmt.Fprintf(c.stdout, "mindloop v%s（日志/渲染/运行循环/心智/记忆/recap/观测/技能/MCP/仪表盘/任务/日程）\n", Version)
 			return nil
 		},
 	}

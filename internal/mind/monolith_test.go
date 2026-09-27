@@ -118,3 +118,21 @@ func TestMonolithSubscriptionsNeverSelfTrigger(t *testing.T) {
 		}
 	}
 }
+
+// TestSystemPromptConnectorDisclosure 渠道披露段只在地址就绪时出现
+// ——模型据此路由主动汇报的 to 地址；未配置渠道时不应出现空段。
+func TestSystemPromptConnectorDisclosure(t *testing.T) {
+	m := NewMonolith(MonolithOptions{
+		Timeline:           &traj.Timeline{},
+		ConnectorAddresses: []string{"wecom:HongYan"},
+	}).(*monolith)
+	prompt := m.systemPrompt()
+	if !strings.Contains(prompt, "Delivery channels") || !strings.Contains(prompt, "wecom:HongYan") {
+		t.Fatalf("披露段缺失: %q", prompt[len(prompt)-300:])
+	}
+
+	empty := NewMonolith(MonolithOptions{Timeline: &traj.Timeline{}}).(*monolith)
+	if strings.Contains(empty.systemPrompt(), "Delivery channels") {
+		t.Fatal("未配置渠道不应出现披露段")
+	}
+}

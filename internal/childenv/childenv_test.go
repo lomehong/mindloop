@@ -107,3 +107,30 @@ func TestList(t *testing.T) {
 		t.Fatal("空列表应为 nil")
 	}
 }
+
+// TestConnectorCredentialsNeverInherit 连接器红线（docs/designs/
+// connectors.md §6.3）的钉子：WECOM/CONNECTOR 前缀的桥凭据即使在
+// extra 里被显式点名也不下传沙箱——凭据的通道是显式值，不是继承。
+func TestConnectorCredentialsNeverInherit(t *testing.T) {
+	parent := []string{
+		"PATH=/usr/bin",
+		"WECOM_BOT_SECRET=topsecret",
+		"WECOM_BOT_ID=ww123",
+		"CONNECTOR_TOKEN=tok",
+	}
+	extra := []string{"WECOM_BOT_SECRET", "CONNECTOR_TOKEN"} // 攻击者视角的"点名"
+	out := Inherit(parent, extra)
+	joined := strings.Join(out, "\n")
+	for _, banned := range []string{"WECOM_BOT_SECRET", "topsecret", "CONNECTOR_TOKEN", "tok", "WECOM_BOT_ID"} {
+		if strings.Contains(joined, banned) {
+			t.Fatalf("连接器凭据泄漏进沙箱环境: %q", banned)
+		}
+	}
+	for _, want := range []string{"PATH=/usr/bin"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("白名单键被误删: %q", want)
+		}
+	}
+	// WECOM_BOT_ID 非敏感但也不在白名单：同样不下传（Inherit 的
+	// 白名单语义），凭据类是双重拦截，普通类是白名单拦截。
+}

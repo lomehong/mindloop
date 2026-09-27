@@ -72,7 +72,10 @@ func (m *monolith) executeTask(ctx context.Context, item task.Task) Outcome {
 	go func() {
 		defer close(watchDone)
 		first := true
-		tick := time.NewTicker(50 * time.Millisecond)
+		// 取消/代次失效的监督轮询：每次都是全量投影重放，代价随轨迹
+		// 增长——250ms 的取消传播延迟远低于模型轮次的量级，不再用
+		// 50ms 的密度把读取叠成锁占用。
+		tick := time.NewTicker(250 * time.Millisecond)
 		defer tick.Stop()
 		for {
 			current, err := store.Get(runCtx, item.ID)

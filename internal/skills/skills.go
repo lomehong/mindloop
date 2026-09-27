@@ -99,6 +99,26 @@ func Parse(dir string) (Skill, error) {
 	return s, nil
 }
 
+// Validate 校验待写入的 SKILL.md 内容能否通过标准解析：dir 是技能
+// 目录（用于目录名与 name 的一致性检查），content 是完整文件文本。
+// 通过 = 可以安全写盘；失败 = 旧内容保持原样（Web 编辑器先校验后
+// 写盘的守门人——半成品 SKILL.md 一旦落盘，整层技能列表都会把它
+// 当坏条目跳过）。
+func Validate(dir, content string) error {
+	fm, _, err := splitFrontmatter(content)
+	if err != nil {
+		return fmt.Errorf("skills: %w", err)
+	}
+	fields, err := parseYAMLSubset(fm)
+	if err != nil {
+		return fmt.Errorf("skills: %w", err)
+	}
+	var s Skill
+	s.Name, _ = fields["name"].(string)
+	s.Description, _ = fields["description"].(string)
+	return s.validate(dir)
+}
+
 // validate 按标准约束校验：name 语法与长度、description 非空与长度、
 // 目录名与 name 一致。
 func (s Skill) validate(dir string) error {

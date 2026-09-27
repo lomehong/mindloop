@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, RefreshCw, Trash2 } from "lucide-react";
-import { useState } from "react";
+import {
+  Download,
+  Eye,
+  Pencil,
+  RefreshCw,
+  Save,
+  Trash2,
+} from "lucide-react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router";
 import { toast } from "sonner";
 
@@ -11,7 +18,15 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { LoadingDots } from "~/components/ui/loading-dots";
-import { fetchIdentityStatus, fetchSkills, installSkill, removeSkill } from "~/lib/api";
+import { Textarea } from "~/components/ui/textarea";
+import {
+  fetchIdentityStatus,
+  fetchSkillContent,
+  fetchSkills,
+  installSkill,
+  removeSkill,
+  updateSkill,
+} from "~/lib/api";
 import {
   SKILLS_POLL_MS,
   STATUS_BACKGROUND_POLL_MS,
@@ -34,6 +49,14 @@ export default function SkillsPage() {
   const [source, setSource] = useState("");
   // 待确认删除的技能名；null = 对话框关闭。
   const [skillToRemove, setSkillToRemove] = useState<string | null>(null);
+  // 正在编辑的技能；readOnly=true 是全局层只读查看。非 null 时整页
+  // 切换到编辑器视图（长文编辑需要空间，不用弹窗）。
+  const [editing, setEditing] = useState<{
+    name: string;
+    readOnly: boolean;
+  } | null>(null);
+  // 编辑草稿；null = 尚未从服务端读到正文。
+  const [draft, setDraft] = useState<string | null>(null);
 
   const { data: status } = useQuery({
     queryKey: ["status", identityId],
@@ -46,6 +69,17 @@ export default function SkillsPage() {
     queryFn: () => fetchSkills(identityId),
     refetchInterval: SKILLS_POLL_MS,
   });
+
+  // 编辑器的正文按需取（打开时拉最新——避免拿到列表轮询缓存的旧文）。
+  const { data: skillContent, isLoading: contentLoading } = useQuery({
+    queryKey: ["skill-content", identityId, editing?.name],
+    queryFn: () => fetchSkillContent(identityId, editing!.name),
+    enabled: editing !== null,
+  });
+
+  useEffect(() => {
+    if (skillContent) setDraft(skillContent.content);
+  }, [skillContent]);
 
   const install = useMutation({
     mutationFn: () => installSkill(identityId, source.trim()),
@@ -66,6 +100,93 @@ export default function SkillsPage() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const save = useMutation({
+    mutationFn: () =>
+      updateSkill(identityId, editing!.name, draft ?? ""),
+    onSuccess: (result) => {
+      toast.success(`已保存 ${result.saved}`);
+      setEditing(null);
+      setDraft(null);
+      queryClient.invalidateQueries({ queryKey: ["skills", identityId] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const closeEditor = () => {
+    setEditing(null);
+    setDraft(null);
+  };
+
+  // ---------- 编辑器视图 ----------
+  if (editing) {
+    const unchanged = draft === null || draft === skillContent?.content;
+    return (
+      <div className="mx-auto w-full max-w-7xl">
+        <IdentityTabs
+          identityId={identityId}
+          live={status?.live ?? false}
+          active="skills"
+          name={view?.identity?.name}
+        />
+        <div className="mx-auto w-full max-w-4xl space-y-3 pb-10">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={closeEditor}
+              disabled={save.isPending}
+            >
+              ← 返回
+            </Button>
+            <span className="font-mono text-sm font-medium">
+              {editing.name}
+            </span>
+            <Badge variant="outline" className="text-[10px]">
+              {SOURCE_LABEL[skillContent?.source ?? "identity"] ?? ""}
+            </Badge>
+            {editing.readOnly && (
+              <span className="text-xs text-muted-foreground">
+                全局层共享技能，只读；修改请经 CLI
+              </span>
+            )}
+            {!editing.readOnly && (
+              <div className="ml-auto flex items-center gap-2">
+                <span className="text-[11px] text-muted-foreground">
+                  {draft?.length ?? 0} 字符 · 保存时校验 frontmatter，
+                  校验失败不落盘
+                </span>
+                <Button
+                  size="sm"
+                  disabled={
+                    unchanged || contentLoading || save.isPending
+                  }
+                  onClick={() => save.mutate()}
+                >
+                  <Save className="size-3.5" />
+                  {save.isPending ? "保存中…" : "保存"}
+                </Button>
+              </div>
+            )}
+          </div>
+          {contentLoading || draft === null ? (
+            <div className="flex justify-center py-20">
+              <LoadingDots />
+            </div>
+          ) : (
+            <Textarea
+              value={draft}
+              readOnly={editing.readOnly}
+              onChange={(event) => setDraft(event.target.value)}
+              spellCheck={false}
+              className="min-h-[65vh] resize-y font-mono text-xs leading-relaxed"
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- 列表视图 ----------
   if (isLoading || !view) {
     return (
       <div className="flex justify-center py-20">
@@ -162,6 +283,35 @@ export default function SkillsPage() {
                       variant="ghost"
                       size="icon-sm"
                       className="ml-auto"
+                      title={`编辑 ${skill.name}`}
+                      aria-label={`编辑 ${skill.name}`}
+                      onClick={() => {
+                        setDraft(null);
+                        setEditing({ name: skill.name, readOnly: false });
+                      }}
+                    >
+                      <Pencil className="size-3" />
+                    </Button>
+                  )}
+                  {skill.source === "global" && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="ml-auto"
+                      title={`查看 ${skill.name}（只读）`}
+                      aria-label={`查看 ${skill.name}`}
+                      onClick={() => {
+                        setDraft(null);
+                        setEditing({ name: skill.name, readOnly: true });
+                      }}
+                    >
+                      <Eye className="size-3" />
+                    </Button>
+                  )}
+                  {controlsEnabled && skill.source === "identity" && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
                       title={`删除 ${skill.name}`}
                       aria-label={`删除 ${skill.name}`}
                       disabled={remove.isPending}

@@ -16,5 +16,7 @@ export default [
   route("i/:identityId/chat", "routes/chat.tsx"),
   route("i/:identityId/memories", "routes/memories.tsx"),
   route("i/:identityId/skills", "routes/skills.tsx"),
+  route("i/:identityId/schedule", "routes/schedule.tsx"),
+  route("i/:identityId/connections", "routes/connections.tsx"),
   route("i/:identityId/config", "routes/config.tsx"),
 ] satisfies RouteConfig;

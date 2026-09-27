@@ -43,6 +43,11 @@ const (
 // 用同一个常量，两处字面量漂移会让合成唤醒永远投不进去。
 const monolithWakeType = "monolith-wake"
 
+// pendingEveryTicks 是持久待办检查的节流周期（拍数）。投影重建是
+// 全量重放，代价随轨迹增长；任务提交的即时路径由 feeder 消息路由
+// 承担，这里的秒级发现延迟（默认 poll=200ms）只影响停机恢复兜底。
+const pendingEveryTicks = 5
+
 // Wake 是交给思考者的一次唤醒。
 type Wake struct {
 	// Step 是触发步骤；合成唤醒时是内存构造的步骤，不落盘。
@@ -133,6 +138,16 @@ func (w *worker) next() (Wake, bool) {
 	return Wake{}, false
 }
 
+// Schedule 是身份日程检查器（schedule.Runtime 实现）：调度器负责
+// 心跳，到点动作由它保证。
+type Schedule interface {
+	// Recover 在调度器启动时调用一次：装载日程并补提交当天已过点
+	// 且未提交的 at 条目（幂等键兜底，重复调用无害）。
+	Recover(ctx context.Context, now time.Time)
+	// Tick 在每个心跳调用：检查到点条目；必须非阻塞。
+	Tick(ctx context.Context, now time.Time)
+}
+
 // Dispatcher 监督一组思考者：tail 轨迹、路由步骤、执行背压策略、
 // 维持 watchdog 与自发性唤醒。
 type Dispatcher struct {
@@ -149,10 +164,18 @@ type Dispatcher struct {
 	// 0 取默认 30 分钟，负数不设期限；停机取消始终有效。
 	WakeTimeout time.Duration
 
+	// schedule 是身份日程（可选）：Run 启动时装载并补提交，每拍
+	// 心跳检查到点。SetSchedule 必须在 Run 之前调用。
+	schedule Schedule
+
 	mu       sync.Mutex
 	workers  []*worker
 	inflight atomic.Int64 // 在途思考计数：WaitIdle 轮询它，不孵化监视 goroutine
 	running  atomic.Bool
+
+	// pendingTick 数持久待办检查的拍数：全量投影重放放到每拍是纯
+	// 浪费，且随轨迹增长变成锁与 CPU 的双重占用。
+	pendingTick int
 
 	// working 投影：忙集的文件化（<RunLockDir>/working）。记账点在
 	// deliver（入集）与两个 busy 释放点（出集），转换处重写/删除
@@ -167,17 +190,23 @@ func NewDispatcher(tl *traj.Timeline, poll time.Duration) *Dispatcher {
 		poll = 200 * time.Millisecond
 	}
 	return &Dispatcher{
-		tl:     tl,
-		cursor: traj.NewCursorAtEnd(tl.Path),
-		poll:   poll,
-		evlog:  newDispatchLog(tl.Dir),
-		tlDir:  tl.Dir,
+		tl:          tl,
+		cursor:      traj.NewCursorAtEnd(tl.Path),
+		poll:        poll,
+		evlog:       newDispatchLog(tl.Dir),
+		tlDir:       tl.Dir,
+		pendingTick: pendingEveryTicks,
 	}
 }
 
 // SetLogger 注入进度输出（人看的信息，进 stderr）。
 func (d *Dispatcher) SetLogger(f func(format string, args ...any)) {
 	d.logger = f
+}
+
+// SetSchedule 注入身份日程（Run 之前调用一次）。
+func (d *Dispatcher) SetSchedule(s Schedule) {
+	d.schedule = s
 }
 
 func (d *Dispatcher) logf(format string, args ...any) {
@@ -224,6 +253,11 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 			}
 		}
 	}
+	// 日程装载：at 条目当天已过点则幂等补提交（任务层幂等键
+	// 兜底，重复无害）；exec 条目不回补——进程不在线即不执行。
+	if d.schedule != nil {
+		d.schedule.Recover(ctx, time.Now())
+	}
 	// 启动清场：调用方持运行锁才会走到这里，此刻无调度器在跑，
 	// stream/ 旁路与 replying 状态的残留必为崩溃垃圾（与
 	// ClearStopFlag 的启动清理同模式）。
@@ -252,34 +286,48 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 	}
 }
 
-// step 是一次心跳：控制面 → feeder → watchdog/自发性 → 投递。
+// step 是一次心跳：日程 → 持久待办 → 控制面 → feeder → watchdog/
+// 自发性 → 投递。
 func (d *Dispatcher) step(ctx context.Context) error {
+	// 日程心跳：到点检查挂在这里——到点由代码保证，不依赖模型
+	// 自觉。放最前，本拍提交的任务在同拍的持久待办分支即可看见。
+	// Tick 非阻塞（exec 在工作 goroutine 里跑），只有提交点短暂
+	// 经过任务锁。
+	if d.schedule != nil {
+		d.schedule.Tick(ctx, time.Now())
+	}
 	// 持久待办优先，锁外读取投影；没有通知也能处理停机期间的提交。
-	d.mu.Lock()
-	workers := append([]*worker(nil), d.workers...)
-	d.mu.Unlock()
-	disabled := readDisabled(d.tlDir)
-	for _, w := range workers {
-		if w.isBusy() {
-			continue
-		}
-		skip := false
-		for _, name := range disabled {
-			if name == w.t.Name() {
-				skip = true
-				break
+	// 检查节流到每 pendingEveryTicks 拍：提交的即时路径是 feeder
+	// 消息路由，这里是兜底。
+	d.pendingTick++
+	if d.pendingTick >= pendingEveryTicks {
+		d.pendingTick = 0
+		d.mu.Lock()
+		workers := append([]*worker(nil), d.workers...)
+		d.mu.Unlock()
+		disabled := readDisabled(d.tlDir)
+		for _, w := range workers {
+			if w.isBusy() {
+				continue
 			}
-		}
-		if skip {
-			continue
-		}
-		if durable, ok := w.t.(durableThinker); ok {
-			wake, pending, err := durable.Pending(ctx)
-			if err != nil {
-				return fmt.Errorf("mind: 读取 %s 待办失败: %w", w.t.Name(), err)
+			skip := false
+			for _, name := range disabled {
+				if name == w.t.Name() {
+					skip = true
+					break
+				}
 			}
-			if pending {
-				d.deliver(ctx, w, wake)
+			if skip {
+				continue
+			}
+			if durable, ok := w.t.(durableThinker); ok {
+				wake, pending, err := durable.Pending(ctx)
+				if err != nil {
+					return fmt.Errorf("mind: 读取 %s 待办失败: %w", w.t.Name(), err)
+				}
+				if pending {
+					d.deliver(ctx, w, wake)
+				}
 			}
 		}
 	}
