@@ -209,19 +209,26 @@ func stealLock(dir string) (release func() error, ok bool) {
 		_ = os.Rename(scratch, dir)
 		return nil, false
 	}
-	// 死锁已被安全隔离：在原路径声明。
-	if os.Mkdir(dir, 0o755) != nil {
-		// 原路径被并发方抢先重占：残躯已验证是死锁，可删。
-		_ = os.RemoveAll(scratch)
-		return nil, false
-	}
-	rel, owned, err := claimDir(dir)
+	// 死锁已被安全隔离：在 scratch 里声明，再 rename CAS 回原路径。
+	// 不能走"Mkdir 原路径 + claimDir"——rename 走后到 Mkdir 落前的
+	// 无主空窗里，另一挑战者的 mkdir-claim 可在同一路径成功，双赢家
+	//（GOMAXPROCS=2 压测实证）。scratch 是我们独占的路径，声明无
+	// 竞争；rename 在目标已存在时失败 = 原路径已被并发方重占，放弃
+	// 并交还 scratch，绝不覆盖他人的锁。
+	rel, owned, err := claimDir(scratch)
 	if err != nil || !owned {
 		_ = os.RemoveAll(scratch)
 		return nil, false
 	}
-	_ = os.RemoveAll(scratch) // 清理已验证的死锁残躯；失败只是无害垃圾
-	return rel, true
+	if err := os.Rename(scratch, dir); err != nil {
+		_ = rel()
+		return nil, false
+	}
+	// release 要删的是声明后的最终路径（rel 闭包捕获的是 scratch）。
+	return func() error {
+		_ = rel()
+		return os.RemoveAll(dir)
+	}, true
 }
 
 // probeLock 描述锁的当前占用者，用于超时报错：运维拿到错误就能

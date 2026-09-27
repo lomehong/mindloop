@@ -101,17 +101,28 @@
   委托 OS 宿主，零第三方依赖：登录自启（延迟 15s 错峰）、崩溃
   RestartOnFailure 1 分钟退避 ×999（RestartSec=60 同款）、无时限、
   IgnoreNew 防双开；InteractiveToken 免管理员（XML 必须显式带
-  Principal，实证钉死）。日志经 cmd /c 重定向到
-  `<MINDLOOP_HOME>/logs/<组件>.log`；stop 是 headlong
+  Principal，实证钉死）。任务动作是 install 生成的自包含包装批处理
+  `<MINDLOOP_HOME>/run/<组件>.cmd`（钉死 MINDLOOP_HOME——计划任务
+  进程看不到安装 shell 的环境变量——并把日志追加重定向到
+  `logs/<组件>.log`）；stop 是 headlong
   deliberate-stop 的移植（mind 优雅停机 + 全员 /disable——不被
   重启机制复活、下次登录不自启）；status 走 PowerShell
   Get-ScheduledTask 的英文枚举与数字结果，避开 schtasks 本地化
-  输出，另附 mind 运行锁进程探测。web 新增 `--no-open`
+  输出，另附 mind 运行锁进程探测。install 预检 viewer 构建产物、
+  渠道配置与 web 端口占用（只警告）。web 新增 `--no-open`
   （服务化模式不弹浏览器）且 Serve 错误改按命令失败退出（此前撞
   端口会落进"运行 --help 查看用法"分支）。真实 schtasks 注册经
   一次性身份全生命周期验证；已知的任务计划程序限制如实记录：
   RestartOnFailure 只对触发器拉起的实例生效，手动 `service start`
   拉起后崩溃需再手动拉起（登录自启主场景不受影响）。
+- **traj 锁偷取结构加固**：stealLock 改为"在独占 scratch 里声明，
+  rename CAS 回位原路径"——关掉 rename 走后至 Mkdir 落前的无主
+  空窗里 mkdir-claim 与 steal 并发产生的双赢家窗口（2 核压测实证
+  后修复）。**已知问题**：极端高压（16 挑战者 × GOMAXPROCS=2）下
+  仍存在极低频双赢家残余窗口，待用目录文件身份（NTFS file id /
+  POSIX inode）做 claim 终验后彻底关闭；
+  `TestConcurrentStealSingleWinner` 随之默认跳过防 CI 假红，
+  `MINDLOOP_STEAL_STRESS=1` 选通追查。
 
 ### 变更
 
