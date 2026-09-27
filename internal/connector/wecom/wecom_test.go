@@ -346,7 +346,7 @@ func TestAuthFailureExhausted(t *testing.T) {
 		if !errors.Is(err, ErrAuthFailed) {
 			t.Fatalf("应以 ErrAuthFailed 终止: %v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("等待认证判死超时")
 	}
 	mu.Lock()

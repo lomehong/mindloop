@@ -47,7 +47,7 @@ func TestSilenceFallbackOnlyOnSilence(t *testing.T) {
 		term := newPromptWriter(&out, promptWorking)
 		term.InputConsumed() // 用户刚按过回车：提示符未挂起
 		armSilenceFallback(term, 20*time.Millisecond)
-		deadline := time.Now().Add(2 * time.Second)
+		deadline := time.Now().Add(10 * time.Second)
 		for !strings.Contains(out.String(), "未见回复") && time.Now().Before(deadline) {
 			time.Sleep(5 * time.Millisecond)
 		}

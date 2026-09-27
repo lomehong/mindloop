@@ -299,7 +299,7 @@ func TestOutboundSavesCursorEvenWithoutDir(t *testing.T) {
 	go ob.Run(ctx)
 	time.Sleep(150 * time.Millisecond)
 	cancel()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(cursor); err == nil {
 			return

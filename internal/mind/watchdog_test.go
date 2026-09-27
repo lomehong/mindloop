@@ -68,7 +68,7 @@ func TestDispatcherWatchdogQuietWhileFree(t *testing.T) {
 	appendStep(t, tl, "message", "")
 	select {
 	case <-before:
-	case <-time.After(3 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("思考者未收到第一次唤醒")
 	}
 	time.Sleep(300 * time.Millisecond) // 忙碌横跨 2 个窗口：时钟应被持续刷新

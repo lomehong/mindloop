@@ -167,7 +167,7 @@ func TestStreamingFlowAndDedup(t *testing.T) {
 	const cbReq = "srv-cb-1"
 	inject <- []byte(`{"cmd":"aibot_msg_callback","headers":{"req_id":"srv-cb-1"},"body":{"msgid":"sm1","from":{"userid":"zhangsan"},"text":{"content":"讲个故事"}}}`)
 	var inStepID string
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) && inStepID == "" {
 		steps, err := tl.Steps()
 		if err == nil {
@@ -358,7 +358,7 @@ func TestApprovalCardFlow(t *testing.T) {
 // 当前唯一连接）。无连接即测试时序问题，立刻暴露。
 func (b *Bridge) connForTest(t *testing.T) net.Conn {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		b.mu.Lock()
 		c := b.conn

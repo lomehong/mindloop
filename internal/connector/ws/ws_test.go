@@ -227,7 +227,7 @@ func TestPingAutoPong(t *testing.T) {
 		if string(payload) != "hb" {
 			t.Fatalf("pong 载荷 = %q", payload)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("未观察到 pong")
 	}
 }

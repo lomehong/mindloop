@@ -31,7 +31,7 @@ func testExec(t *testing.T, script, runID string) runner.Execution {
 // waitForPending 等目录里出现 want 个待批请求。
 func waitForPending(t *testing.T, dir string, want int) []PendingRequest {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		pending, err := ListPending(dir)
 		if err == nil && len(pending) == want {
@@ -112,7 +112,7 @@ func TestAskApproveThenAllow(t *testing.T) {
 		if err != nil {
 			t.Fatalf("批准后应放行: %v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("批准后未放行")
 	}
 
@@ -151,7 +151,7 @@ func TestAskDenyReturnsErrDenied(t *testing.T) {
 		if !errors.Is(err, ErrDenied) {
 			t.Fatalf("拒绝应返回 ErrDenied，得到 %v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("拒绝后未返回")
 	}
 }

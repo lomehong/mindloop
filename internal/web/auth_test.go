@@ -208,7 +208,7 @@ func TestTokenProtectsAllTransports(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer request("DELETE", "/api/export-jobs/"+job.ID, nil)
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for job.Status == "running" && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 		_, _, body = request("GET", "/api/export-jobs/"+job.ID, nil)

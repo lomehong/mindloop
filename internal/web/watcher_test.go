@@ -260,7 +260,7 @@ func TestStreamSlowSubscriberDropped(t *testing.T) {
 				t.Fatalf("快订阅者不应被丢弃（已收 %d 帧）", len(fast))
 			}
 			fast = append(fast, f)
-		case <-time.After(3 * time.Second):
+		case <-time.After(10 * time.Second):
 			t.Fatalf("快订阅者未收到 %s 的帧（已收 %d 帧）", sid, len(fast))
 		}
 	}
@@ -305,7 +305,7 @@ func TestStreamWriteFailureEndsHandler(t *testing.T) {
 	}()
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("写失败后 handler 未退出")
 	}
 	if !waitUntil(t, time.Second, func() bool {

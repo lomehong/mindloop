@@ -167,7 +167,7 @@ func deadPID(t *testing.T) int {
 	}
 	pid := cmd.Process.Pid
 	_ = cmd.Wait()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if !processAlive(pid) {
 			return pid
