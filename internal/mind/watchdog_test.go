@@ -85,5 +85,5 @@ func TestDispatcherWatchdogQuietWhileFree(t *testing.T) {
 	}
 
 	// 安静满一个窗口后，watchdog 照常兜底（活性保证不受影响）。
-	waitFor(t, 3*time.Second, func() bool { return tk.wakeCount() >= 2 })
+	waitFor(t, 10*time.Second, func() bool { return tk.wakeCount() >= 2 })
 }

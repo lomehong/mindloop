@@ -131,7 +131,7 @@ func TestDispatcherRecoversOnlyQueuedTasks(t *testing.T) {
 				}),
 			})
 			d, cancel, done := startTaskDispatcher(t, tl, m)
-			waitFor(t, 3*time.Second, func() bool { return readTask(t, s, queued.ID).State == task.Succeeded })
+			waitFor(t, 10*time.Second, func() bool { return readTask(t, s, queued.ID).State == task.Succeeded })
 			cancel()
 			<-done
 			if !d.WaitIdle(time.Second) {
@@ -228,7 +228,7 @@ func TestTaskCancelWaitsForLateModelExit(t *testing.T) {
 		t.Fatal("不服从取消的执行被当作已退出")
 	}
 	release <- struct{}{}
-	waitFor(t, 3*time.Second, func() bool { return readTask(t, s, second.ID).State == task.Succeeded })
+	waitFor(t, 10*time.Second, func() bool { return readTask(t, s, second.ID).State == task.Succeeded })
 	stop()
 	<-done
 	d.WaitIdle(time.Second)

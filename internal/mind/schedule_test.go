@@ -79,9 +79,9 @@ func TestDispatcherDrivesScheduleRuntime(t *testing.T) {
 
 	// at "00:00" 启动：48h 回看窗口内（昨天+今天）的两个错过各自
 	// 补提交一次——键由计划时刻导出，互不相同。
-	waitFor(t, 2*time.Second, func() bool { return len(sub.snapshot()) == 2 })
+	waitFor(t, 10*time.Second, func() bool { return len(sub.snapshot()) == 2 })
 	// exec 条目在首个心跳即开跑。
-	waitFor(t, 2*time.Second, func() bool { return ex.count() >= 1 })
+	waitFor(t, 10*time.Second, func() bool { return ex.count() >= 1 })
 
 	// 观察窗：已补提交的键不得重复（跨午夜时新计划键是正确行为）。
 	time.Sleep(300 * time.Millisecond)

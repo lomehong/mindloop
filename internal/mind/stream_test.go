@@ -302,7 +302,7 @@ func TestDispatcherStartupGCClearsTransients(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go d.Run(ctx)
-	waitFor(t, 2*time.Second, func() bool {
+	waitFor(t, 10*time.Second, func() bool {
 		_, e1 := os.Stat(streamDir(tl.Dir))
 		_, e2 := os.Stat(replyingPath(tl.Dir))
 		_, e3 := os.Stat(workingPath(tl.Dir))

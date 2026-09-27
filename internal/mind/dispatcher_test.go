@@ -107,7 +107,7 @@ func TestDispatcherRoutesSteps(t *testing.T) {
 
 	s1 := appendStep(t, tl, "message", "")
 	s2 := appendStep(t, tl, "observation", "")
-	waitFor(t, 2*time.Second, func() bool { return a.wakeCount() >= 2 })
+	waitFor(t, 10*time.Second, func() bool { return a.wakeCount() >= 2 })
 
 	types := a.wakeTypes()
 	if types[0] != "message" || types[1] != "observation" {
@@ -131,7 +131,7 @@ func TestDispatcherSelfTriggerGuard(t *testing.T) {
 
 	// a 自己写的 observation 不应唤醒 a，但应唤醒 b。
 	appendStep(t, tl, "observation", "a")
-	waitFor(t, 2*time.Second, func() bool { return b.wakeCount() >= 1 })
+	waitFor(t, 10*time.Second, func() bool { return b.wakeCount() >= 1 })
 	// 负向断言的观察窗要盖过慢 CI 的调度延迟（10ms 心跳 × 50），
 	// 否则迟到的投递会把"守卫失效"误判出来。
 	time.Sleep(500 * time.Millisecond)
@@ -165,12 +165,12 @@ func TestDispatcherCoalescesSelfWakesKeepsFifoForMessages(t *testing.T) {
 	appendStep(t, tl, "observation", "")
 	appendStep(t, tl, "observation", "")
 
-	waitFor(t, 2*time.Second, func() bool { return tk.wakeCount() >= 1 })
+	waitFor(t, 10*time.Second, func() bool { return tk.wakeCount() >= 1 })
 	close(tk.release) // 放行第一次唤醒
 
 	// 释放后：消息 FIFO 应逐条投递（保序），观察合并为 1 条
 	// last-wins。总计 2 条消息 + 1 条合并观察 = 3 次。
-	waitFor(t, 3*time.Second, func() bool { return tk.wakeCount() >= 3 })
+	waitFor(t, 10*time.Second, func() bool { return tk.wakeCount() >= 3 })
 	time.Sleep(500 * time.Millisecond)
 	if got := tk.wakeCount(); got != 3 {
 		t.Fatalf("唤醒总数 = %d，应为 3（2 FIFO 消息 + 1 合并观察）", got)
@@ -196,7 +196,7 @@ func TestDispatcherWatchdogSyntheticWake(t *testing.T) {
 	go d.Run(ctx)
 
 	// 没有任何轨迹活动：watchdog 必须合成唤醒（活性由调度器保证）。
-	waitFor(t, 2*time.Second, func() bool { return tk.wakeCount() >= 2 })
+	waitFor(t, 10*time.Second, func() bool { return tk.wakeCount() >= 2 })
 	for _, w := range tk.wakes[:2] {
 		if w.Kind != WakeWatchdog {
 			t.Fatalf("唤醒类型 = %q，应为 watchdog", w.Kind)
@@ -221,7 +221,7 @@ func TestDispatcherScheduledSpontaneity(t *testing.T) {
 
 	// 一次人类消息触发首醒；之后思考者预约的自发性唤醒应自我延续。
 	appendStep(t, tl0(t, d), "message", "")
-	waitFor(t, 3*time.Second, func() bool { return tk.wakeCount() >= 3 })
+	waitFor(t, 10*time.Second, func() bool { return tk.wakeCount() >= 3 })
 	kinds := map[WakeKind]int{}
 	for _, w := range tk.wakes {
 		kinds[w.Kind]++
@@ -255,7 +255,7 @@ func TestDispatcherAlertWakesMonolithNotResponder(t *testing.T) {
 	go d.Run(ctx)
 
 	appendStep(t, tl, "alert", "") // 代码写入：无 launched_by
-	waitFor(t, 2*time.Second, func() bool { return mono.wakeCount() >= 1 })
+	waitFor(t, 10*time.Second, func() bool { return mono.wakeCount() >= 1 })
 	if mono.wakeTypes()[0] != "alert" {
 		t.Fatalf("monolith 应收到 alert，实际 %v", mono.wakeTypes())
 	}

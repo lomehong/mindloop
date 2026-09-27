@@ -39,7 +39,7 @@ func TestDispatcherWorkingProjectionLifecycle(t *testing.T) {
 	go d.Run(ctx)
 
 	appendStep(t, tl, "message", "")
-	waitFor(t, 2*time.Second, func() bool { return tk.wakeCount() >= 1 })
+	waitFor(t, 10*time.Second, func() bool { return tk.wakeCount() >= 1 })
 
 	// 忙碌期间：文件存在 ⇔ 有人在工作，形状与契约逐字一致。
 	ws := readWorking(t, tl.Dir)
@@ -62,7 +62,7 @@ func TestDispatcherWorkingProjectionLifecycle(t *testing.T) {
 
 	// 释放后：忙集变空，文件删除。
 	close(tk.release)
-	waitFor(t, 2*time.Second, func() bool { return readWorking(t, tl.Dir) == nil })
+	waitFor(t, 10*time.Second, func() bool { return readWorking(t, tl.Dir) == nil })
 }
 
 // 未退出的超时执行仍在忙集，并对外暴露隔离诊断。
@@ -80,8 +80,11 @@ func TestDispatcherWorkingQuarantineRetainsEntry(t *testing.T) {
 	go d.Run(ctx)
 
 	appendStep(t, tl, "message", "")
-	waitFor(t, 2*time.Second, func() bool { return h.wakes.Load() >= 1 })
-	waitFor(t, 2*time.Second, func() bool {
+	// 预算 10s：CI 2 核慢机上"投递→WakeTimeout 到期→quarantined 落盘"
+	// 的链路偶发超过 2s（working_test.go:85 实证假红）；断言的是状态
+	// 迁移正确性，不是时延。
+	waitFor(t, 10*time.Second, func() bool { return h.wakes.Load() >= 1 })
+	waitFor(t, 10*time.Second, func() bool {
 		data, _ := os.ReadFile(workingPath(tl.Dir))
 		var ws struct {
 			Working bool `json:"working"`
@@ -92,7 +95,7 @@ func TestDispatcherWorkingQuarantineRetainsEntry(t *testing.T) {
 		return json.Unmarshal(data, &ws) == nil && ws.Working && len(ws.Busy) == 1 && ws.Busy[0].State == "quarantined"
 	})
 	h.release <- struct{}{}
-	waitFor(t, 2*time.Second, func() bool { return readWorking(t, tl.Dir) == nil })
+	waitFor(t, 10*time.Second, func() bool { return readWorking(t, tl.Dir) == nil })
 }
 
 // TestDispatcherWorkingWriteFailureTolerated：把 working 路径占位成
@@ -114,8 +117,8 @@ func TestDispatcherWorkingWriteFailureTolerated(t *testing.T) {
 	go d.Run(ctx)
 
 	appendStep(t, tl, "message", "")
-	waitFor(t, 2*time.Second, func() bool { return tk.wakeCount() >= 1 })
+	waitFor(t, 10*time.Second, func() bool { return tk.wakeCount() >= 1 })
 	// 投递照常发生即证明写失败被容忍；WaitIdle 确认释放路径同样不炸
 	//（blocks=0 时 Wake 不经过 release channel，无需放行）。
-	waitFor(t, 2*time.Second, func() bool { return d.WaitIdle(time.Second) })
+	waitFor(t, 10*time.Second, func() bool { return d.WaitIdle(time.Second) })
 }
