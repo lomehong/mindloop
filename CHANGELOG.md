@@ -94,6 +94,24 @@
   起步"——停机窗口的主动汇报全部漏发。修复：Outbound 启动建
   目录；Bridge.Run 返回前等出站泵收尾（落盘完成才交棒下一任，
   含内部 ctx 派生 cancel 防自锁）。实测重建后按 offset 续读。
+- **服务化 Phase 4（设计 docs/designs/service.md v1）**：`mindloop
+  service install|start|stop|restart|status|uninstall <身份名>`——
+  把 mind/connector/web 装配成 Windows 任务计划程序任务（headlong
+  deploy/*.service 每组件一 unit 的对应物），监督/重启/自启全部
+  委托 OS 宿主，零第三方依赖：登录自启（延迟 15s 错峰）、崩溃
+  RestartOnFailure 1 分钟退避 ×999（RestartSec=60 同款）、无时限、
+  IgnoreNew 防双开；InteractiveToken 免管理员（XML 必须显式带
+  Principal，实证钉死）。日志经 cmd /c 重定向到
+  `<MINDLOOP_HOME>/logs/<组件>.log`；stop 是 headlong
+  deliberate-stop 的移植（mind 优雅停机 + 全员 /disable——不被
+  重启机制复活、下次登录不自启）；status 走 PowerShell
+  Get-ScheduledTask 的英文枚举与数字结果，避开 schtasks 本地化
+  输出，另附 mind 运行锁进程探测。web 新增 `--no-open`
+  （服务化模式不弹浏览器）且 Serve 错误改按命令失败退出（此前撞
+  端口会落进"运行 --help 查看用法"分支）。真实 schtasks 注册经
+  一次性身份全生命周期验证；已知的任务计划程序限制如实记录：
+  RestartOnFailure 只对触发器拉起的实例生效，手动 `service start`
+  拉起后崩溃需再手动拉起（登录自启主场景不受影响）。
 
 ### 变更
 

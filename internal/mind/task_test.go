@@ -161,7 +161,10 @@ func TestDispatcherDrainsOneHundredPersistedTasks(t *testing.T) {
 		}),
 	})
 	d, cancel, done := startTaskDispatcher(t, tl, m)
-	waitFor(t, 15*time.Second, func() bool {
+	// 预算 60s：本测试钉的是"排空不重不丢"，不是速度——race 检测
+	// 器 + 容器 IO 下 100 个完整思考循环（每轮一串轨迹追加 + 目录
+	// 锁）可以慢一个量级，15s 预算在 Linux CI 实证不够。
+	waitFor(t, 60*time.Second, func() bool {
 		all, err := s.List(context.Background())
 		if err != nil {
 			t.Fatal(err)

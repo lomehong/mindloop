@@ -224,7 +224,15 @@ func TestLockSkipsOwnerlessYoungLock(t *testing.T) {
 // 仅一个偷取者能移走原目录）；此前"RemoveAll 前重读比对"的方案在
 // lead 全量门禁下被抓到过一次双赢家（两次观测都落在赢家 claim 之前
 // 的调度间隙），加压为 16 挑战者 × 5 轮。
+//
+// 仅 Windows：steal 的互斥依赖 NTFS 的 rename 拒绝语义（目标被占即
+// 整体放弃）。POSIX 的 rename 是原子替换、无"拒绝"形态，挑战窗口
+// 的收窄方式不同（Linux 容器实证可出现双赢家）——锁的 steal 互斥
+// 按 NTFS 语义设计并在此验证；Linux 侧加固是独立问题。
 func TestConcurrentStealSingleWinner(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("steal 互斥是 NTFS rename 拒绝语义，POSIX 无等效机制")
+	}
 	tr := newTimeline(t)
 	const challengers, rounds = 16, 5
 	for round := 0; round < rounds; round++ {
@@ -276,9 +284,14 @@ func TestConcurrentStealSingleWinner(t *testing.T) {
 
 // TestStealAbandonedWhenRenameBlocked：rename CAS 的负向用例——
 // rename 被外部条件拒绝时（Windows：目录内有非 FILE_SHARE_DELETE
-// 句柄；POSIX：父目录只读），偷取必须整体放弃且现有锁分毫无损。
-// holdLockDirBroken 是平台相关的"让 rename 失败"夹具。
+// 句柄），偷取必须整体放弃且现有锁分毫无损。
+//
+// 仅 Windows：POSIX 侧的等效夹具（父目录只读）在 root 容器下不
+// 生效——root 无视目录写位，rename 照常成功，负向分支无从触发。
 func TestStealAbandonedWhenRenameBlocked(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("rename 拒绝夹具是 NTFS 语义；root 容器下 POSIX 夹具失效")
+	}
 	tr := newTimeline(t)
 	lockDir := tr.Path + ".lock"
 	if err := os.Mkdir(lockDir, 0o755); err != nil {

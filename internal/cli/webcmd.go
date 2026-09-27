@@ -22,6 +22,7 @@ func (c *CLI) newWebCmd() *cobra.Command {
 	var rootP string
 	var viewerDirP string
 	var noBuildP bool
+	var noOpenP bool
 	cmd := &cobra.Command{
 		Use:   "web",
 		Short: "启动仪表盘（后端 + 浏览器视图）",
@@ -43,6 +44,7 @@ func (c *CLI) newWebCmd() *cobra.Command {
 				root:      rootP,
 				viewerDir: viewerDirP,
 				noBuild:   noBuildP,
+				noOpen:    noOpenP,
 			})
 		},
 	}
@@ -53,6 +55,7 @@ func (c *CLI) newWebCmd() *cobra.Command {
 	fs.StringVar(&rootP, "root", "", "身份目录（含各个身份子目录）；默认 MINDLOOP_HOME/identities")
 	fs.StringVar(&viewerDirP, "viewer-dir", "", "viewer 静态文件根；默认 <项目>/web/static")
 	fs.BoolVar(&noBuildP, "no-build", false, "跳过 viewer 构建（开发模式：cd web/static && npm run dev）")
+	fs.BoolVar(&noOpenP, "no-open", false, "不自动打开浏览器（服务化/远程场景）")
 	return cmd
 }
 
@@ -64,6 +67,7 @@ type webCfg struct {
 	root      string
 	viewerDir string
 	noBuild   bool
+	noOpen    bool
 }
 
 func (c *CLI) runWeb(cfg *webCfg) error {
@@ -98,10 +102,11 @@ func (c *CLI) runWeb(cfg *webCfg) error {
 	fmt.Fprintln(c.stderr, "  Ctrl+C 停机")
 
 	// 自动打开浏览器（headlong `ada dash` 的同款体验），但仅在
-	// viewer 就绪时——开一个 404 页毫无意义。等一小会确保端口
+	// viewer 就绪且未被 --no-open 关掉时——开一个 404 页毫无意义，
+	// 服务化模式下每次登录弹浏览器更不可接受。等一小会确保端口
 	// 已绑定；失败静默——用户可手动开。
 	url := fmt.Sprintf("http://%s/", srv.Addr())
-	if viewerOK {
+	if viewerOK && !cfg.noOpen {
 		go func() {
 			time.Sleep(600 * time.Millisecond)
 			_ = openBrowser(url)
@@ -110,7 +115,13 @@ func (c *CLI) runWeb(cfg *webCfg) error {
 
 	ctx, cancel := context.WithCancel(c.ctx)
 	defer cancel()
-	return srv.Serve(ctx)
+	if err := srv.Serve(ctx); err != nil {
+		// 端口占用等运行期错误也按命令失败退出，不能落进 cobra 的
+		// 用法分支（真实案例：服务化 web 撞端口显示"运行 --help
+		// 查看用法"，让人摸不着头脑）。
+		return c.fail(err)
+	}
+	return nil
 }
 
 // resolveViewerDir 按 旗标 > MINDLOOP_VIEWER_DIR > 从 CWD 与 exe

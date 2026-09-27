@@ -627,10 +627,13 @@ func (r *Runtime) tickExec(ctx context.Context, p Parsed, now time.Time) {
 	}
 	go func() {
 		outcome := r.opts.Execute(ctx, p)
+		// 先记账（日志/状态/告警）后释放 running 标记：runningCount
+		// 归零意味着这次执行的全部副作用已落盘——否则观察者（测试、
+		// 诊断）看到"结束"时账目还在半路，TempDir 清理即竞态。
+		r.recordExec(p, now, outcome)
 		r.mu.Lock()
 		delete(r.running, p.Item.ID)
 		r.mu.Unlock()
-		r.recordExec(p, now, outcome)
 	}()
 }
 

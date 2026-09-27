@@ -58,6 +58,20 @@ func appendMessage(t *testing.T, tl *traj.Timeline, from, to, content string) tr
 	return s
 }
 
+// startOutbound 启动出站泵，并在测试收尾时等它退出。测试的
+// defer cancel 先于 t.Cleanup 执行，泵收到取消后返回；不等待的话
+// 游标可能还在异步落盘，TempDir 清理与之赛跑（Linux 实证翻车：
+// directory not empty）。
+func startOutbound(t *testing.T, ob *Outbound, ctx context.Context) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = ob.Run(ctx)
+	}()
+	t.Cleanup(func() { <-done })
+}
+
 // waitForDelivery 轮询等待投递数达到 n。
 func waitForDelivery(t *testing.T, d *fakeDelivery, n int) {
 	t.Helper()
@@ -103,7 +117,7 @@ func TestOutboundDeliversClaimedOnly(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go ob.Run(ctx)
+	startOutbound(t, ob, ctx)
 
 	appendMessage(t, tl, "ada", "wecom:zhangsan", "你好")   // 认领：投
 	appendMessage(t, tl, "ada", "operator", "本地对话流")      // 不认领：不投
@@ -209,7 +223,7 @@ func TestOutboundRetryExhaustedDrops(t *testing.T) {
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go ob.Run(ctx)
+	startOutbound(t, ob, ctx)
 
 	appendMessage(t, tl, "ada", "wecom:zhangsan", "第一条（将失败丢弃）")
 	waitForDelivery(t, d, 1)
