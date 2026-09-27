@@ -46,6 +46,10 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           grep -E "^--- FAIL|^FAIL|^panic:" go-test.log | head -30 | while IFS= read -r line; do echo "::error::$line"; done || true
+          if [ $status -ne 0 ]; then
+            echo "::error::go test 退出码 $status，日志（$status 行尾部 40 行）随注解倾倒："
+            tail -40 go-test.log | while IFS= read -r line; do echo "::error::$line"; done
+          fi
           exit $status
       - name: 上传 go test 日志（失败时）
         if: failure()
