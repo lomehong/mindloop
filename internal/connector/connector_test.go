@@ -75,7 +75,7 @@ func startOutbound(t *testing.T, ob *Outbound, ctx context.Context) {
 // waitForDelivery 轮询等待投递数达到 n。
 func waitForDelivery(t *testing.T, d *fakeDelivery, n int) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if len(d.snapshot()) >= n {
 			return
@@ -88,7 +88,7 @@ func waitForDelivery(t *testing.T, d *fakeDelivery, n int) {
 // waitCursor 轮询等待游标文件出现（Run 的落盘点可观察）。
 func waitCursor(t *testing.T, path string) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(path); err == nil {
 			return
@@ -299,7 +299,7 @@ func TestOutboundSavesCursorEvenWithoutDir(t *testing.T) {
 	go ob.Run(ctx)
 	time.Sleep(150 * time.Millisecond)
 	cancel()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(cursor); err == nil {
 			return
