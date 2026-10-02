@@ -120,6 +120,7 @@ func (c *CLI) newRootCmd() *cobra.Command {
 		c.newInitCmd(),
 		c.newDoctorCmd(),
 		c.newStatsCmd(),
+		c.newUndoCmd(),
 		c.newRootChatCmd(),
 		c.newTrajCmd(),
 		c.newPromptCmd(),

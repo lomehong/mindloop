@@ -79,6 +79,7 @@ func (c *CLI) newRunCmd() *cobra.Command {
 				IdleTimeout:    idleP,
 				MaxOutputBytes: maxOutP,
 				WorkDir:        workdirP,
+				Snapshots:      snapshotsFromEnv(),
 				BeforeExecute:  gate.Authorize,
 				Progress: func(format string, args ...any) {
 					fmt.Fprintf(c.stderr, format+"\n", args...)

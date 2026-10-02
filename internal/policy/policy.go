@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"mindloop/internal/risk"
 	"mindloop/internal/runner"
 )
 
@@ -152,7 +153,7 @@ func (g *Gate) Authorize(ctx context.Context, ex runner.Execution) error {
 	// ask 的自动放行档（防审批疲劳把 ask 逼成 trusted）：脚本逐
 	// 命令可证明只读时免审批，但豁免以可审计为前提——审计目录建
 	// 不出来就回退到正常等待。
-	if g.AutoReadOnly && ReadOnly(ex.Script) {
+	if g.AutoReadOnly && risk.ReadOnly(ex.Script) {
 		if err := os.MkdirAll(g.dir, 0o755); err == nil {
 			g.audit(PendingRequest{
 				Hash: hash, WorkDir: ex.WorkDir, RunID: ex.RunID,

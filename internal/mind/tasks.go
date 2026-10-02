@@ -129,6 +129,7 @@ func (m *monolith) executeTask(ctx context.Context, item task.Task) Outcome {
 			LaunchedBy:   m.Name(), MaxIterations: m.opts.MaxIterations,
 			Timeout: m.opts.Timeout, IdleTimeout: m.opts.IdleTimeout,
 			MaxOutputBytes: m.opts.MaxOutputBytes, ExtraEnv: m.opts.ExtraEnv,
+			Snapshots:     m.opts.Snapshots,
 			BeforeExecute: m.opts.BeforeExecute,
 		})
 	}()

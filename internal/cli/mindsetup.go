@@ -115,6 +115,7 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 		MemoryBytes:        memBytes,
 		SummaryBytes:       sumBytes,
 		EnableRecap:        true,
+		Snapshots:          snapshotsFromEnv(),
 		SkillsDirs:         skillsDirs,
 		MCPServers:         mcpServers,
 		ConnectorAddresses: connectorAddresses(),

@@ -7,6 +7,21 @@
 
 ### 新增
 
+- **undo/快照：写操作可撤销**（roadmap §1.2 信任三件套的"事后"
+  支柱）：`internal/snapshot` 运行级工作目录快照——非只读脚本执行
+  前后各拍清单（路径→sha256），内容入共享 blob 库（内容寻址、跨
+  快照去重），差分变更集落 changed.json；`mindloop undo <traj>
+  [run-id]` 按变更集恢复（改写/删除取回旧内容、新增清除），恢复前
+  亮变更集并确认，undone 标记防重复恢复。`--identity` 定位身份根
+  轨迹。边界如实声明：只覆盖运行工作目录之内；>4MB 大文件只记录
+  不备份（恢复时报告"不可自动恢复"）；被篡改成穿越路径的变更集
+  直接拒绝。runner 侧 `Options.Snapshots`（`MINDLOOP_SNAPSHOT=0`
+  关闭）：**运行级会话**（首个非只读迭代懒开、运行出口统一差分——
+  per-iteration 会话会让最后一轮的记录覆盖前几轮，测试钉死），
+  失速/轮次耗尽/取消的运行同样可撤销，快照失败降级继续执行。
+  只读白名单判定（`internal/risk`，自 policy 下沉的叶子包）作为
+  快照门控；`FINAL=` 协议赋值豁免——写哨兵的是 runner 包装层而非
+  模型脚本，补全轮因此可判只读。
 - **`mindloop stats` 评估基线**（roadmap §1.4）：从用量台账与任务
   系统派生三组指标，零新增存储（视图皆派生）——调用/token 分账
   （按唤醒 watchdog/scheduled/step/manual、按阶段 wake/chat/task、

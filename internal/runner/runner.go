@@ -18,7 +18,9 @@ import (
 
 	"mindloop/internal/llm"
 	"mindloop/internal/prompt"
+	"mindloop/internal/risk"
 	"mindloop/internal/sandbox"
+	"mindloop/internal/snapshot"
 	"mindloop/internal/traj"
 )
 
@@ -86,6 +88,12 @@ type Options struct {
 	MemLimitBytes  uint64
 	// Progress 是进度回调（人看的信息，进 stderr 而不是日志）。
 	Progress func(format string, args ...any)
+	// Snapshots 开启运行级工作目录快照：非只读脚本执行前拍清单、
+	// 执行后差分，供 `mindloop undo` 恢复到执行前（roadmap §1.2）。
+	// 只读脚本经 risk 白名单可证不动目录，免拍；快照失败降级
+	// 继续执行——刹车不能卡油门。wiring 侧用 MINDLOOP_SNAPSHOT
+	// 环境变量赋值（"0" 关闭）。
+	Snapshots bool
 	// ExtraEnv 是追加给沙箱进程的 K=V 环境变量（SKILLS_DIR、
 	// MINDLOOP_IDENTITY_DIR 等扩展面）——agent 在沙箱里用同一套
 	// CLI 探索身份的扩展能力。
@@ -128,9 +136,13 @@ type run struct {
 
 	evidence         []string
 	consecutiveFails int
-	lastFailCmd      string
-	lastFailExit     int
-	budget           *prompt.Budget
+
+	// snap 是运行级快照会话：首个非只读迭代懒初始化，运行出口
+	// 统一 Finish（见 beginSnapshot/finishSnapshot）。
+	snap         *snapshot.Session
+	lastFailCmd  string
+	lastFailExit int
+	budget       *prompt.Budget
 }
 
 // Run 执行循环直到 FINAL、失速或轮次耗尽。
@@ -199,6 +211,9 @@ func (r *run) start(ctx context.Context) (Result, error) {
 	if err := os.MkdirAll(r.workDir, 0o755); err != nil {
 		return Result{}, fmt.Errorf("runner: 建工作目录: %w", err)
 	}
+	// 快照覆盖所有出口——失速、轮次耗尽、取消的运行同样要可撤销
+	//（部分成果也是成果）。
+	defer r.finishSnapshot()
 	r.finalPath = filepath.Join(r.workDir, finalFileName)
 
 	// MINDLOOP_EXE 让沙箱里的脚本能调用本 CLI（mem add 写记忆、
@@ -298,7 +313,11 @@ func (r *run) execute(ctx context.Context, code string) (sandbox.Result, error) 
 		return sandbox.Result{}, err
 	}
 	_ = os.Remove(r.finalPath)
-	return sandbox.Run(ctx, sandbox.Request{
+	// 快照（undo/快照）：会话是运行级的——首个非只读迭代懒初始化，
+	// 运行结束统一差分；per-iteration 会话会让最后一轮的 changed.json
+	// 覆盖前面所有迭代的记录。只读迭代免拍。
+	r.beginSnapshot(code)
+	res, err := sandbox.Run(ctx, sandbox.Request{
 		Script:         code,
 		Dir:            r.workDir,
 		FinalPath:      r.finalPath,
@@ -308,6 +327,40 @@ func (r *run) execute(ctx context.Context, code string) (sandbox.Result, error) 
 		MaxOutputBytes: r.opts.MaxOutputBytes,
 		MemLimitBytes:  r.opts.MemLimitBytes,
 	})
+	return res, err
+}
+
+// beginSnapshot 为本次运行懒初始化快照会话（非只读迭代首次出现
+// 时拍前清单，落 <轨迹>/snapshots/<run_id>/）；只读或配置关闭不建。
+func (r *run) beginSnapshot(code string) {
+	if !r.opts.Snapshots || r.snap != nil || r.workDir == "" || r.opts.Timeline == nil {
+		return
+	}
+	if risk.ReadOnly(code) {
+		return
+	}
+	s, err := snapshot.Begin(r.workDir, filepath.Join(r.opts.Timeline.Dir, "snapshots", r.runID))
+	if err != nil {
+		if r.logf != nil {
+			r.logf("snapshot: 前清单失败（本次运行不可撤销）: %v", err)
+		}
+		return
+	}
+	r.snap = s
+}
+
+// finishSnapshot 收尾快照会话：差分整个运行（而非单个迭代）的
+// 变更集落盘。所有出口（完成/失速/轮次耗尽/取消）都该走到——
+// 部分成果也要可撤销。
+func (r *run) finishSnapshot() {
+	if r.snap == nil {
+		return
+	}
+	err := r.snap.Finish()
+	r.snap = nil
+	if err != nil && r.logf != nil {
+		r.logf("snapshot: 后清单失败（本次运行不可撤销）: %v", err)
+	}
 }
 
 func validRunID(id string) bool {

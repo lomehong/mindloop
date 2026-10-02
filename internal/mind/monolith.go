@@ -69,6 +69,9 @@ type MonolithOptions struct {
 	Timeout        time.Duration
 	IdleTimeout    time.Duration
 	MaxOutputBytes int64
+	// Snapshots 开启运行级工作目录快照（undo 的取材，runner 侧
+	// 只对非只读脚本拍）。wiring 侧从 MINDLOOP_SNAPSHOT 取值。
+	Snapshots bool
 	// Watchdog 是调度器合成唤醒的间隔（0 取默认 5 分钟）。
 	Watchdog time.Duration
 	// EnableRecap 开启分层上下文：每次唤醒先补齐缺失的情节摘要
@@ -213,6 +216,7 @@ func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
 		IdleTimeout:    m.opts.IdleTimeout,
 		MaxOutputBytes: m.opts.MaxOutputBytes,
 		ExtraEnv:       m.opts.ExtraEnv,
+		Snapshots:      m.opts.Snapshots,
 		BeforeExecute:  m.opts.BeforeExecute,
 		Autonomous:     true,
 	})
