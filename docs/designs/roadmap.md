@@ -65,9 +65,11 @@ UX 可靠性——交叉收敛，经用户三项战略拍板；同日对照 CHAN
 
 ### 1.3 分发与首里体验（框架的入口）
 
-- **go:embed 双模式**：release 构建用 build tag 走 embed.FS，开发态
-  维持磁盘读热刷新——修掉前端产物五级路径回退这个最大用户面破绽
-  （新克隆无页面、go install 后编译期路径失效都源于此）。
+- **go:embed 双模式（✅ 2026-10-02 已落地）**：release 构建用
+  build tag 走 embed.FS（`web/static/viewer_release.go`，产物缺失
+  则编译失败），开发态维持磁盘读热刷新；来源优先级 显式
+  flag/env > 嵌入 > 自动探测。剩余：发布渠道（GoReleaser/Tauri
+  安装包/winget/scoop）、`mindloop init`、`mindloop doctor`。
 - **发布渠道**：GoReleaser 管 Go 产物；Tauri bundler 出安装包；
   winget manifest（Windows 一等公民先占 winget）+ scoop bucket；
   自动更新用 Tauri updater 不自研。

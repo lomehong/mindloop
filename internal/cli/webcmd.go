@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	"mindloop/internal/identity"
 	"mindloop/internal/web"
+	viewer "mindloop/web/static"
 )
 
 func (c *CLI) newWebCmd() *cobra.Command {
@@ -75,18 +77,19 @@ func (c *CLI) runWeb(cfg *webCfg) error {
 	if root == "" {
 		root = identity.Home()
 	}
-	viewerDir, viewerOK := resolveViewerDir(cfg.viewerDir)
+	viewerDir, viewerFS, viewerOK := resolveViewerSource(cfg.viewerDir)
 	if cfg.viewerDir == "" && !viewerOK {
 		// 未显式指定也找不到构建产物：API 仍可用（curl/集成），
 		// 但不开浏览器——开一个 404 页面毫无意义。
 		fmt.Fprintln(c.stderr, "⚠ 未找到 viewer 构建产物（web/static/build/client/index.html）")
-		fmt.Fprintln(c.stderr, "  构建方法: cd web/static && bun install && bun run build")
+		fmt.Fprintln(c.stderr, "  构建方法: cd web/static && npm install && npm run build")
 		fmt.Fprintln(c.stderr, "  或用 --viewer-dir 指向已构建目录。API 仍将正常服务。")
 	}
 
 	srv, err := web.New(web.Config{
 		Root:      root,
 		ViewerDir: viewerDir,
+		ViewerFS:  viewerFS,
 		Addr:      fmt.Sprintf("%s:%d", cfg.host, cfg.port),
 		Token:     cfg.token,
 	})
@@ -95,7 +98,7 @@ func (c *CLI) runWeb(cfg *webCfg) error {
 	}
 	fmt.Fprintf(c.stderr, "mindloop 仪表盘：%s  → http://%s/\n", srv.Addr(), srv.Addr())
 	fmt.Fprintf(c.stderr, "  身份根: %s\n", root)
-	fmt.Fprintf(c.stderr, "  viewer: %s（就绪=%v）\n", viewerDir, viewerOK)
+	fmt.Fprintf(c.stderr, "  viewer: %s（就绪=%v）\n", viewerSourceLabel(viewerDir, viewerFS), viewerOK)
 	if cfg.token != "" {
 		fmt.Fprintf(c.stderr, "  鉴权:   Bearer token 已启用\n")
 	}
@@ -124,20 +127,27 @@ func (c *CLI) runWeb(cfg *webCfg) error {
 	return nil
 }
 
-// resolveViewerDir 按 旗标 > MINDLOOP_VIEWER_DIR > 从 CWD 与 exe
-// 位置向上探测 的顺序解析 viewer 构建产物目录。第二个返回值表示
-// 是否真的找到了 index.html。
-func resolveViewerDir(flagValue string) (string, bool) {
+// resolveViewerSource 按 显式旗标 > MINDLOOP_VIEWER_DIR > 嵌入产物
+// （release 构建）> 磁盘自动探测 的顺序解析 viewer 来源。返回的
+// dir 与 fsys 至多一个非零（web.Config 同名二字段的语义）；ok 表示
+// 来源真的可用（磁盘：有 index.html；嵌入：FS 非 nil 且有
+// index.html）。
+func resolveViewerSource(flagValue string) (dir string, fsys fs.FS, ok bool) {
 	if flagValue != "" {
-		ok := viewerReady(flagValue)
-		return flagValue, ok
+		return flagValue, nil, viewerReady(flagValue)
 	}
 	if env := os.Getenv("MINDLOOP_VIEWER_DIR"); env != "" {
-		return env, viewerReady(env)
+		return env, nil, viewerReady(env)
 	}
-	// 候选根（按优先级）：
+	if viewer.FS != nil {
+		if _, err := fs.Stat(viewer.FS, "index.html"); err == nil {
+			return "", viewer.FS, true
+		}
+	}
+	// 磁盘自动探测候选根（按优先级）：
 	//  1. 编译期源码路径——go install 装到 go/bin 后，从任何目录
-	//     运行都能找到它出生的项目（跨盘也有效；换机器则自然失效）。
+	//     运行都能找到它出生的项目（跨盘也有效；换机器则自然失效
+	//     ——release 构建走嵌入产物，不依赖这条）。
 	//  2. CWD 及其向上 4 级——项目目录里运行。
 	//  3. exe 所在目录。
 	var roots []string
@@ -163,12 +173,22 @@ func resolveViewerDir(flagValue string) (string, bool) {
 	for _, r := range roots {
 		candidate := filepath.Join(r, rel)
 		if viewerReady(candidate) {
-			return candidate, true
+			return candidate, nil, true
 		}
-		// 兼容"直接指向源码目录"的旧用法：源码根没有 index.html，
-		// 不算就绪。
 	}
-	return "", false
+	return "", nil, false
+}
+
+// viewerSourceLabel 是日志展示面：磁盘目录显示路径，嵌入产物显示
+// 固定标签。
+func viewerSourceLabel(dir string, fsys fs.FS) string {
+	if dir != "" {
+		return dir
+	}
+	if fsys != nil {
+		return "内嵌产物（release 构建）"
+	}
+	return "（无）"
 }
 
 // viewerReady 报告目录里有没有构建产物入口 index.html。

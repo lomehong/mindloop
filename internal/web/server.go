@@ -15,9 +15,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -26,12 +28,15 @@ import (
 // Config 描述仪表盘启动参数。Root 是身份目录本身（里面直接是
 // 各个身份子目录；默认 identity.Home()，即 ~/.mindloop/identities
 // ——扫描与默认值必须同一语义，否则列表恒空）；ViewerDir 是
-// viewer 构建产物的静态文件根；Addr 是监听地址，默认
-// 127.0.0.1:8080；Token 非空时所有 /api/* 请求必须带
-// Authorization: Bearer <token>。
+// viewer 构建产物的静态文件根；ViewerFS 是嵌入的前端产物
+// （release 构建，mindloop/web/static 包）——与 ViewerDir 二选一，
+// 同时设置时磁盘目录优先（显式指定应能覆盖嵌入产物）；Addr 是
+// 监听地址，默认 127.0.0.1:8080；Token 非空时所有 /api/* 请求必须
+// 带 Authorization: Bearer <token>。
 type Config struct {
 	Root      string
 	ViewerDir string
+	ViewerFS  fs.FS
 	Addr      string
 	Token     string
 }
@@ -186,6 +191,16 @@ func isLoopbackAddr(addr string) bool {
 
 // Addr 暴露监听地址（测试与日志使用）。
 func (s *Server) Addr() string { return s.cfg.Addr }
+
+// staticRoot 返回静态资源源：磁盘目录（--viewer-dir/环境变量/自动
+// 探测的产物）优先，其次嵌入产物（release 构建）；两者都空返回
+// nil——路由层据此不注册任何静态端点（API-only 模式）。
+func (s *Server) staticRoot() fs.FS {
+	if s.cfg.ViewerDir != "" {
+		return os.DirFS(s.cfg.ViewerDir)
+	}
+	return s.cfg.ViewerFS
+}
 
 // Handler 暴露 mux（嵌入到 net/http/httptest 用）。
 func (s *Server) Handler() http.Handler { return s.mux }

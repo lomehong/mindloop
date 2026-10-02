@@ -235,14 +235,17 @@ npm install
 npm run build
 ```
 
-- **改前端不需要重编 Go**：产物不 embed 进二进制，`mindloop web`
-  运行时直接从磁盘读取——改完代码重新 `npm run build`，刷新浏览器
-  即生效。
-- 产物查找顺序：`--viewer-dir` 旗标 > `MINDLOOP_VIEWER_DIR` 环境变量
-  > 编译期源码路径 > 当前目录向上 4 级 > exe 所在目录。前两级最
-  可靠；编译期路径是**构建二进制那台机器**上的项目位置，换机器或
-  经 `go install` 分发后会失效——此时用 `--viewer-dir` 或
-  `MINDLOOP_VIEWER_DIR` 显式指向构建产物目录即可。
+- **双构建模式**：默认构建（`go build ./cmd/mindloop`）产物不 embed
+  进二进制，运行时从磁盘读取——改完前端重新 `npm run build`，刷新
+  浏览器即生效；`go build -tags release` 把构建产物全量嵌入二进制
+  （构建前必须先 `npm run build`，产物缺失则编译失败），换机器、
+  `go install`、拷 exe 分发后仪表盘开箱即用。桌面壳 build.ps1 的
+  sidecar 走 release 嵌入。
+- 产物来源优先级：`--viewer-dir` 旗标 > `MINDLOOP_VIEWER_DIR` 环境变量
+  > 嵌入产物（仅 release 构建）> 磁盘自动探测（编译期源码路径 >
+  当前目录向上 4 级 > exe 所在目录）。前两级可覆盖嵌入产物——对
+  release 二进制做前端热修时用；开发态的二进制（未嵌入）在没有
+  构建产物时 API 照常服务，只是没有页面。
 - Web 相关环境变量共两个：`MINDLOOP_WEB_TOKEN`（等效 `--token`）、
   `MINDLOOP_VIEWER_DIR`（见上）；流式开关 `MINDLOOP_STREAM` 见下节。
 

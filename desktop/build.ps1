@@ -32,7 +32,9 @@ $binDir = Join-Path $tauri "binaries"
 New-Item -ItemType Directory -Force $binDir | Out-Null
 $sidecar = Join-Path $binDir "mindloop-x86_64-pc-windows-msvc.exe"
 Push-Location $root
-go build -o $sidecar ./cmd/mindloop
+# -tags release：前端产物（步骤 1 已构建）嵌入二进制——sidecar 自包含，
+# 换机/分发后仪表盘开箱即用，不依赖磁盘上的源码目录。
+go build -tags release -o $sidecar ./cmd/mindloop
 if ($LASTEXITCODE -ne 0) { throw "go build failed" }
 Pop-Location
 

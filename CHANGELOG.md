@@ -7,6 +7,15 @@
 
 ### 新增
 
+- **前端产物 go:embed 双构建模式**（roadmap §1.3 分发线地基）：
+  `go build -tags release` 经 `web/static/viewer_release.go` 把
+  build/client 全量嵌入二进制（产物缺失则编译失败——release 的
+  硬门槛）；默认构建维持磁盘读取热刷新。运行时来源优先级：
+  显式 `--viewer-dir`/`MINDLOOP_VIEWER_DIR` > 嵌入产物 > 磁盘自动
+  探测（原链条保留为开发态回退）。web 包静态服务改造为 fs.FS
+  统一源（`Config.ViewerFS`，磁盘目录优先于嵌入），`go install`/
+  换机分发后仪表盘开箱即用；桌面壳 build.ps1 的 sidecar 构建
+  加 `-tags release`。
 - **脚本风险分级：ask 策略的只读自动放行档**（roadmap §1.2 信任
   补强第一项）：`internal/policy/risk.go` 只读白名单判定器——脚本
   逐命令全部可证明只读（ls/cat/grep/git 只读子命令/$MINDLOOP_EXE

@@ -2,6 +2,7 @@ package web
 
 import (
 	"crypto/subtle"
+	"io/fs"
 	"net/http"
 	"strings"
 
@@ -42,36 +43,34 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/push/subscriptions", s.withAuth(s.handleEmpty404))
 	s.mux.HandleFunc("POST /api/push/unsubscribe", s.withAuth(s.handleEmpty404))
 
-	// /assets/* 与 /favicon.ico —— viewer 构建产物
-	if s.cfg.ViewerDir != "" {
+	// 静态 viewer 资源与 SPA catch-all——来自磁盘目录或嵌入产物
+	//（release 构建），staticRoot 二选一；root 为 nil 时不注册任何
+	// 静态端点（API-only 模式）。
+	if root := s.staticRoot(); root != nil {
+		assets, _ := fs.Sub(root, "assets")
+		fonts, _ := fs.Sub(root, "fonts")
+		icons, _ := fs.Sub(root, "icons")
 		// 资产文件名带内容哈希，可永久缓存。
-		assets := http.StripPrefix("/assets/",
-			http.FileServer(http.Dir(s.cfg.ViewerDir+"/assets")))
 		s.mux.Handle("/assets/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-			assets.ServeHTTP(w, r)
+			http.StripPrefix("/assets/", http.FileServerFS(assets)).ServeHTTP(w, r)
 		}))
 		s.mux.HandleFunc("/favicon.ico", s.favicon)
 		s.mux.HandleFunc("/fonts/", func(w http.ResponseWriter, r *http.Request) {
-			http.StripPrefix("/fonts/", http.FileServer(http.Dir(s.cfg.ViewerDir+"/fonts"))).ServeHTTP(w, r)
+			http.StripPrefix("/fonts/", http.FileServerFS(fonts)).ServeHTTP(w, r)
 		})
-		s.mux.Handle("/icons/", http.StripPrefix("/icons/",
-			http.FileServer(http.Dir(s.cfg.ViewerDir+"/icons"))))
+		s.mux.Handle("/icons/", http.StripPrefix("/icons/", http.FileServerFS(icons)))
 		// PWA 辅助文件必须直出真实内容——落到 SPA catch-all 会拿到
 		// index.html，service worker 注册静默失败。
 		s.mux.HandleFunc("/sw.js", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "no-cache")
-			http.ServeFile(w, r, s.cfg.ViewerDir+"/sw.js")
+			http.ServeFileFS(w, r, root, "sw.js")
 		})
 		s.mux.HandleFunc("/manifest.webmanifest", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "no-cache")
-			http.ServeFile(w, r, s.cfg.ViewerDir+"/manifest.webmanifest")
+			http.ServeFileFS(w, r, root, "manifest.webmanifest")
 		})
-	}
-
-	// SPA catch-all
-	if s.cfg.ViewerDir != "" {
-		indexPath := s.cfg.ViewerDir + "/index.html"
+		// SPA catch-all
 		s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			if strings.HasPrefix(r.URL.Path, "/api/") {
 				http.NotFound(w, r)
@@ -80,7 +79,7 @@ func (s *Server) routes() {
 			// index.html 是部署的指针：永远重新校验，否则浏览器
 			// 启发式缓存会让旧构建在新部署后继续存活。
 			w.Header().Set("Cache-Control", "no-cache")
-			http.ServeFile(w, r, indexPath)
+			http.ServeFileFS(w, r, root, "index.html")
 		})
 	}
 }

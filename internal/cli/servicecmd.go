@@ -107,7 +107,7 @@ func (c *CLI) newServiceInstallCmd() *cobra.Command {
 			// 预检只警告不阻止：web 构建产物缺失 → API-only 降级；
 			// 渠道未配置 → connector 干净退出（RestartOnFailure 不触发）；
 			// 端口被占用 → web 任务会按 1 分钟退避反复重试刷日志。
-			if _, viewerOK := resolveViewerDir(""); !viewerOK {
+			if _, _, viewerOK := resolveViewerSource(""); !viewerOK {
 				fmt.Fprintln(c.stderr, "⚠ 未找到 viewer 构建产物——web 任务将以 API-only 模式运行")
 				fmt.Fprintln(c.stderr, "  先构建再重跑 install 可带界面: cd web/static && npm run build")
 			}
