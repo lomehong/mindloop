@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/snapshot"
+	"github.com/lomehong/mindloop/internal/snapshot"
 )
 
 // writeFile 测试用写文件。

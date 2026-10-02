@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/obs"
+	"github.com/lomehong/mindloop/internal/obs"
 )
 
 // llm 命令组是模型准入状态的显式管理入口。准入守卫（obs.Guard）

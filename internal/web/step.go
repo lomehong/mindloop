@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // stepToJSON 把一个轨迹步骤转为前端期望的字段平铺形态——envelope 优先，

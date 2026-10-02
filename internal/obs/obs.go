@@ -15,8 +15,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // UsageRecorder 返回接在 llm.Client.OnDone 上的回调：追加用量台账

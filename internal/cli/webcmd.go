@@ -12,9 +12,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/web"
-	viewer "mindloop/web/static"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/web"
+	viewer "github.com/lomehong/mindloop/web/static"
 )
 
 func (c *CLI) newWebCmd() *cobra.Command {

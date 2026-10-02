@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // numberedThinker 每次调用返回递增编号的摘要——用于区分"渲染出的

@@ -19,9 +19,9 @@ import (
 	"time"
 	"unicode"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 
-	"mindloop/internal/ids"
+	"github.com/lomehong/mindloop/internal/ids"
 )
 
 // Store 是一个记忆目录的句柄。

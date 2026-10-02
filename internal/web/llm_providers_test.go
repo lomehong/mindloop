@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/identity"
 )
 
 // fakeProviderKey 用低熵假字面量：PUT /env 落盘链路只关心值恒等。

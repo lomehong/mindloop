@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // archiveMaxBytes 限制上传体（128MB 足够任何单身份归档）。

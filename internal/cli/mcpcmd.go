@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/mcp"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/mcp"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // mcpConfigPaths 返回 mcp.json 的读取顺序：全局在前，身份级在后

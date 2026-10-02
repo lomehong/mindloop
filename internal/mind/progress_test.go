@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // captureThinker 复用 extension_test.go 的同名助手（记录系统提示）。

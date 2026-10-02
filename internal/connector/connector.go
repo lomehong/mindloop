@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // ErrNoAddresses 是出站泵配置错误的哨兵：认领地址集为空。

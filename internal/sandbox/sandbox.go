@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"mindloop/internal/childenv"
+	"github.com/lomehong/mindloop/internal/childenv"
 )
 
 // 默认防线参数。

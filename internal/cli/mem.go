@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/mem"
+	"github.com/lomehong/mindloop/internal/mem"
 )
 
 // resolveMemStore 从身份名解析记忆目录。记忆随身份走：

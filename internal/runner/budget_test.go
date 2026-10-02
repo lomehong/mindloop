@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/prompt"
+	"github.com/lomehong/mindloop/internal/prompt"
 )
 
 // 受保护内容（系统提示 + 当前任务）超限时必须在发起模型调用前

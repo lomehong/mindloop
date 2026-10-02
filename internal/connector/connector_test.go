@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // fakeDelivery 记录投递；failN 次失败注入（每次消耗一次）。

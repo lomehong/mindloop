@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"mindloop/internal/ids"
+	"github.com/lomehong/mindloop/internal/ids"
 )
 
 // ErrLockTimeout：在超时上限内未能取得目录锁。用 errors.Is 判断；

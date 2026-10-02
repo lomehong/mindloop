@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/mcp"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/mcp"
 )
 
 // TestMemReviseAndInvalidateCLI：CLI 修订/失效入口闭环——add 输出的

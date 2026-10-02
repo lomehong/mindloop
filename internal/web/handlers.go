@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // IdentityInfo 是 viewer 首页 Identity 契约的 Go 形态——字段名与

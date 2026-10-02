@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/runner"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/runner"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // 本文件钉死 README「开发」节承诺的退出码语义：

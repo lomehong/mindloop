@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/mem"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/mem"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // TestRelatedMemoriesExposeIDAndSource：responder 的相关记忆检索

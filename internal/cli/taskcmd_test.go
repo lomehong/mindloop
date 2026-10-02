@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/ids"
-	"mindloop/internal/mind"
-	"mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/ids"
+	"github.com/lomehong/mindloop/internal/mind"
+	"github.com/lomehong/mindloop/internal/task"
 )
 
 // taskTestIdentity 在隔离 HOME 下建 ada 身份并返回——task 命令测试

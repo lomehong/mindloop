@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // exactArgs 带中文用法提示的位置参数校验（cobra 内置校验的文案是

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/runner"
-	"mindloop/internal/task"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/runner"
+	"github.com/lomehong/mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // durableThinker 从持久事实恢复并提供待办；通知只加速，不持有任务事实。

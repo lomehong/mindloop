@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // 本文件补齐 viewer 两个高频只读端点的基础契约测试

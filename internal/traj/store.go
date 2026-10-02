@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/ids"
+	"github.com/lomehong/mindloop/internal/ids"
 )
 
 // 哨兵错误：调用方用 errors.Is 判断类别，而不是解析错误文本。

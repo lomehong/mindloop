@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/sandbox"
+	"github.com/lomehong/mindloop/internal/sandbox"
 )
 
 // executeSandbox 是 exec 条目的默认执行器：经沙箱（bash + Windows

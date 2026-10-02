@@ -22,9 +22,9 @@ import (
 	"net/http"
 	"strings"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/ids"
-	"mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/ids"
+	"github.com/lomehong/mindloop/internal/task"
 )
 
 // maxTaskIDLen 限制路径段长度防超长键拖垮投影；控制字符在名称层

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // mkSteps 生成 n 个带序号内容的 thought 步骤（含头行以外的类型按

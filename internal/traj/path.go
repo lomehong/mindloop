@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"mindloop/internal/ids"
+	"github.com/lomehong/mindloop/internal/ids"
 )
 
 // Home 返回状态根目录：设置了 $MINDLOOP_HOME 则用它，否则用

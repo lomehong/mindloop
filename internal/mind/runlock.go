@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // ErrStopRequested：收到停机标志（mind stop 或 chat 退出时的优雅

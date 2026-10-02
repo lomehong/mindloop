@@ -11,7 +11,7 @@ package web
 import (
 	"sync"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 type indexStore struct {

@@ -1,0 +1,45 @@
+# GoReleaser v2 —— mindloop 发布配置。
+# 前置：web/static/build/client 必须先构建（release tag 嵌入前端，
+# 产物缺失则编译失败）——CI 在本配置之前跑 npm build；本地快照验证：
+#   cd web/static && npm run build
+#   goreleaser release --snapshot --clean
+version: 2
+
+project_name: mindloop
+
+builds:
+  - id: mindloop
+    main: ./cmd/mindloop
+    binary: mindloop
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    tags:
+      - release
+    ldflags:
+      - -s -w
+
+archives:
+  - formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  draft: false

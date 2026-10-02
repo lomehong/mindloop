@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/task"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // failingThinker 的每次补全都失败——compose 失败事实的测试模型。

@@ -21,8 +21,8 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/connector/ws"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/connector/ws"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // streamEntry 是一个在途流式文件的处理态。

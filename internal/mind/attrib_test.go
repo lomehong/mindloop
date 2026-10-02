@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/task"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // TestExecuteTaskAttribution：显式任务的模型调用归因——task/run/attempt

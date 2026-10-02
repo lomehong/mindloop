@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // writeLedger 往身份目录写一份台账 fixture：watchdog 唤醒 2 轮

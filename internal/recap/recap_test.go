@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // countingThinker 数调用次数的假摘要器。

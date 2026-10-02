@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/snapshot"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/snapshot"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // writeFile 测试用写文件。

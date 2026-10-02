@@ -18,8 +18,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/config"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/config"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // CLI 聚拢一次命令调用的环境。
@@ -146,7 +146,7 @@ func (c *CLI) newRootCmd() *cobra.Command {
 
 // Version 是 CLI 的单一版本号来源——root 命令的 --version 与
 // version 子命令共用，避免双处硬编码漂移。
-const Version = "0.7.0"
+const Version = "0.8.0"
 
 func (c *CLI) newVersionCmd() *cobra.Command {
 	return &cobra.Command{

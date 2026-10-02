@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/llm"
 )
 
 // writeProvidersDoc 在 dir 下落一份 providers.json。

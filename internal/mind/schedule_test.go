@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/schedule"
+	"github.com/lomehong/mindloop/internal/schedule"
 )
 
 // scheduleExecProbe 记录 exec 条目的执行次数。

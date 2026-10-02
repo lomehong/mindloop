@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // captureThinker 记录收到的系统提示与消息——扩展段/预算接线测试用。

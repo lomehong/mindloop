@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // taggingThinker 包装脚本化实现并记录每次 Think 用的档位——

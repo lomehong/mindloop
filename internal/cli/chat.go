@@ -14,11 +14,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/config"
-	"mindloop/internal/identity"
-	"mindloop/internal/llm"
-	"mindloop/internal/mind"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/config"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/mind"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 func (c *CLI) newMindCmd() *cobra.Command {

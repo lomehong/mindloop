@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/runner"
+	"github.com/lomehong/mindloop/internal/runner"
 )
 
 // testGate 构造一个测试门：短轮询、短有效期，审批目录在临时目录。

@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/prompt"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/prompt"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 func (c *CLI) newPromptCmd() *cobra.Command {

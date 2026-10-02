@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // connectionsJSON 是测试侧对契约的镜像。

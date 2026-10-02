@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/ids"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/ids"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // nowStamp 供 traj new 的默认 slug 使用。

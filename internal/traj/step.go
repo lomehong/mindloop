@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/ids"
+	"github.com/lomehong/mindloop/internal/ids"
 )
 
 // TimeFormat 是带毫秒精度的 RFC 3339。所有时间戳一律 UTC：

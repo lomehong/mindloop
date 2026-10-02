@@ -20,9 +20,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/mind"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/mind"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // sseFrame 是一帧待写出的 SSE 事件。seq=0 表示快照帧——它是订阅

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // newTestServer 搭一个最简服务端用于测试——用 httptest.Server 启动

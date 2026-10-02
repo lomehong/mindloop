@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/service"
+	"github.com/lomehong/mindloop/internal/service"
 )
 
 // fakeServiceExec 记录全部调用；powershell 查询按任务名返回罐头

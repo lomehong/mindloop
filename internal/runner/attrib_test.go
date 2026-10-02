@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/llm"
 )
 
 // attribThinker 捕获每轮 Think 的归因快照。

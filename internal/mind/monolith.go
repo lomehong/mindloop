@@ -8,15 +8,15 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/ids"
-	"mindloop/internal/llm"
-	"mindloop/internal/mem"
-	"mindloop/internal/prompt"
-	"mindloop/internal/recap"
-	"mindloop/internal/runner"
-	"mindloop/internal/skills"
-	"mindloop/internal/task"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/ids"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/mem"
+	"github.com/lomehong/mindloop/internal/prompt"
+	"github.com/lomehong/mindloop/internal/recap"
+	"github.com/lomehong/mindloop/internal/runner"
+	"github.com/lomehong/mindloop/internal/skills"
+	"github.com/lomehong/mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // MonolithSystemPrompt 是 monolith 的系统提示：每次唤醒决定并执行

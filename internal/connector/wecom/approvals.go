@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/connector/ws"
-	"mindloop/internal/policy"
+	"github.com/lomehong/mindloop/internal/connector/ws"
+	"github.com/lomehong/mindloop/internal/policy"
 )
 
 // clickRe 匹配审批按钮 event_key：approve/deny:<短token>。

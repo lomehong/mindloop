@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/llm"
-	"mindloop/internal/obs"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/obs"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // writeHealthFile 在身份目录写下健康标记——熔断现场由测试直接构造，

@@ -5,9 +5,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/policy"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/policy"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // approve 是执行授权控制面的用户入口：列出等待批准的脚本、批准或

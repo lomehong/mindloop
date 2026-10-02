@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // newForkChild 造一个子轨迹目录（trajectory.jsonl 数行），返回相对

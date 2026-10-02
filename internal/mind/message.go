@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"mindloop/internal/task"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // ErrMessageConflict：同一 (from, client_message_id) 已用于不同内容的

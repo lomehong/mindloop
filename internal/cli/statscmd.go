@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/obs"
-	"mindloop/internal/task"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/obs"
+	"github.com/lomehong/mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 func (c *CLI) newStatsCmd() *cobra.Command {

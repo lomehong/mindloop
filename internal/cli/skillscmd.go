@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/skills"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/skills"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // skillsStore 解析技能库的两层目录：--identity 给定时身份级优先，

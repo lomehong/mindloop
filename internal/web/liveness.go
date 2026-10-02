@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"mindloop/internal/mind"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/mind"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // liveWindow 是 Live 判定的时间窗：调度器进程死了但 mindlog 的 mtime

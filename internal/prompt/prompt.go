@@ -16,8 +16,8 @@ import (
 	"sort"
 	"strings"
 
-	"mindloop/internal/ids"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/ids"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // AutonomousSteps 限定自主运行可读取的事实。聊天和委托不能通过历史重放取得执行授权。

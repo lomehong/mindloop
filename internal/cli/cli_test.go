@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/prompt"
+	"github.com/lomehong/mindloop/internal/prompt"
 )
 
 func TestCollectFieldFlags(t *testing.T) {

@@ -7,13 +7,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/mind"
-	"mindloop/internal/obs"
-	"mindloop/internal/policy"
-	"mindloop/internal/runner"
-	"mindloop/internal/sandbox"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/mind"
+	"github.com/lomehong/mindloop/internal/obs"
+	"github.com/lomehong/mindloop/internal/policy"
+	"github.com/lomehong/mindloop/internal/runner"
+	"github.com/lomehong/mindloop/internal/sandbox"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // errStalledExit / errMaxIterExit：运行的真实结局——先自行输出

@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/mem"
-	"mindloop/internal/prompt"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/mem"
+	"github.com/lomehong/mindloop/internal/prompt"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // ResponderSystemPrompt 是 responder 的系统提示。与 monolith 的

@@ -3,10 +3,21 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的条目
 组织方式；版本号采用语义化版本——0.x 阶段接口仍可能调整，1.0 起承诺兼容。
 
-## [Unreleased]
+## [0.8.0] - 2026-10-02
+
+### 变更
+
+- **module path 迁移**：`mindloop` → `github.com/lomehong/mindloop`
+  ——go install 与 Go 生态工具链以 module path 为锚，公开分发的前置。
+  全部 import 机械改写（160 文件），行为零变化。
 
 ### 新增
 
+- **发布机制**：GoReleaser v2 配置（windows/linux/darwin ×
+  amd64/arm64，release tag 嵌入前端，CGO_ENABLED=0）+ 双 workflow
+  （`release.yml`：tag 触发前端构建 → GoReleaser 出二进制发 GitHub
+  Release；`release-desktop.yml`：Tauri NSIS 安装包追加到同一
+  Release）。
 - **分级预算：自发档先停、响应档保到最后**（roadmap §1.2 预算
   控制台）：守卫（obs.Guard）新增自发档口径 `MINDLOOP_SPONTANEOUS_
   TOKENS`——只约束 watchdog/定时唤醒的思考调用，超限后自发活动先

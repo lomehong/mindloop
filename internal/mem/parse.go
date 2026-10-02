@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 const trajTimeFormat = traj.TimeFormat

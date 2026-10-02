@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/task"
 )
 
 // budgetProbeThinker 构造"配额探针"：在单次 Think 里连续消费 ctx 上

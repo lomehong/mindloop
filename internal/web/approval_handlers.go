@@ -16,8 +16,8 @@ import (
 	"net/http"
 	"strings"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/policy"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/policy"
 )
 
 // handleApprovals 按路径段分流审批控制面；方法路由与任务面同风格

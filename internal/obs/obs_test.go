@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/llm"
 )
 
 // TestUsageRecorderWritesUsageAndHealth：一次调用落一行台账 + 刷新

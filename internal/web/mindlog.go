@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // mindlogNormalized 是 headlong viewer Mindlog 契约的 Go 形态。

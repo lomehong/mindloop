@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/recap"
-	"mindloop/internal/task"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/recap"
+	"github.com/lomehong/mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 type taskModelFunc func(context.Context, string, []llm.Message) (string, error)

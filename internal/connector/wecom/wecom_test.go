@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/connector/ws"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/connector/ws"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // ---------- 测试侧帧原语（客户端掩码编解码，与服务端裸帧） ----------

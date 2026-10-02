@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/schedule"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/schedule"
 )
 
 // schedule 命令组是身份日程的用户入口：schedule.json 是唯一事实

@@ -11,17 +11,17 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/childenv"
-	"mindloop/internal/identity"
-	"mindloop/internal/llm"
-	"mindloop/internal/mcp"
-	"mindloop/internal/mind"
-	"mindloop/internal/obs"
-	"mindloop/internal/policy"
-	"mindloop/internal/runner"
-	"mindloop/internal/schedule"
-	"mindloop/internal/task"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/childenv"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/mcp"
+	"github.com/lomehong/mindloop/internal/mind"
+	"github.com/lomehong/mindloop/internal/obs"
+	"github.com/lomehong/mindloop/internal/policy"
+	"github.com/lomehong/mindloop/internal/runner"
+	"github.com/lomehong/mindloop/internal/schedule"
+	"github.com/lomehong/mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // 本文件是 chat 与 mind run 共享的心智装配：模型客户端、用量观测、

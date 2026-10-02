@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/ids"
-	"mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/ids"
+	"github.com/lomehong/mindloop/internal/task"
 )
 
 // task 命令组是显式委托的用户入口：任务事实全部来自根轨迹投影，

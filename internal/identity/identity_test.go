@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 func TestCreateLoadRoundTrip(t *testing.T) {

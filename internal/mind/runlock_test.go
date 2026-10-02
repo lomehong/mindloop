@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // newTestTimeline 在临时目录建一条轨迹（运行锁与控制面的测试基底）。

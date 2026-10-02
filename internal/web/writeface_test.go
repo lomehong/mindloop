@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/mind"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/mind"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // newIdentityHome 建立隔离身份根并创建 ada。

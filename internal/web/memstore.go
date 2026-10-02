@@ -4,7 +4,7 @@ import (
 	"context"
 	"sort"
 
-	"mindloop/internal/mem"
+	"github.com/lomehong/mindloop/internal/mem"
 )
 
 // realMemStore 是 memStore 函数的真实实现，适配 memStoreIface。

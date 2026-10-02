@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/identity"
 )
 
 // TestStreamLongSurvival：空闲 SSE 连接存活 ≥2 分钟——心跳持续

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 type functionThinker func(context.Context, string, []llm.Message) (string, error)

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // writeHealth 直接写健康标记，模拟 UsageRecorder 的产物形态。

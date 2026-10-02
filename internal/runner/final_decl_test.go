@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // TestExtractBareFinalDeclaration 表驱动钉死裸文本 FINAL= 声明的

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 func testStore(t *testing.T) *Store {

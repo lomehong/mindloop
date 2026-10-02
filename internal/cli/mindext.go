@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/mcp"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/mcp"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 func extensionFlags(cmd *cobra.Command) {

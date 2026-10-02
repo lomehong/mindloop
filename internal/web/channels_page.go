@@ -16,8 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"mindloop/internal/childenv"
-	"mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/childenv"
+	"github.com/lomehong/mindloop/internal/identity"
 )
 
 // channelView 是一个渠道的配置态（机器消费面）。

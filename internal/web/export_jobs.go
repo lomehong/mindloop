@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/ids"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/ids"
 )
 
 // exportJob 是单身份导出任务的内存态（viewer ExportJob 契约）。

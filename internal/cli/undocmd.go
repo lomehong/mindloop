@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/snapshot"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/snapshot"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // snapshotsFromEnv 读 MINDLOOP_SNAPSHOT（"0" 关闭运行级快照，其余

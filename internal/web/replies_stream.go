@@ -42,7 +42,7 @@ import (
 	"sync"
 	"time"
 
-	"mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/identity"
 )
 
 // sseWriteGrace 是 SSE 每帧的写期限：慢链路在帧粒度失败断开，而

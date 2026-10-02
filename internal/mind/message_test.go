@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"testing"
 
-	"mindloop/internal/task"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 func newMsgTimeline(t *testing.T) *traj.Timeline {

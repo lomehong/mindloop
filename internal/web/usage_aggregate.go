@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/obs"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/obs"
 )
 
 // handleUsage 返回 viewer Usage 契约——**即时聚合**，无缓存层：

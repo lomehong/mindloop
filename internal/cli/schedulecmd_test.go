@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/schedule"
-	"mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/schedule"
+	"github.com/lomehong/mindloop/internal/task"
 )
 
 // TestScheduleCommandRoundtrip 覆盖 add/list/remove 的完整回路：

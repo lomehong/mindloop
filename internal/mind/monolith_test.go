@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // scriptThinker 是 runner.Thinker 的脚本化假实现：每轮返回预设

@@ -21,8 +21,8 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/risk"
-	"mindloop/internal/runner"
+	"github.com/lomehong/mindloop/internal/risk"
+	"github.com/lomehong/mindloop/internal/runner"
 )
 
 // Mode 是执行策略。

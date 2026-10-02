@@ -4,10 +4,10 @@ import (
 	"os"
 	"strings"
 
-	"mindloop/internal/config"
-	"mindloop/internal/llm"
-	"mindloop/internal/obs"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/config"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/obs"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // 本文件是模型档位的解析与装配：think（主档）走 thinkClient，

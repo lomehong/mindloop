@@ -8,7 +8,7 @@ import (
 	"os"
 	"os/signal"
 
-	"mindloop/internal/cli"
+	"github.com/lomehong/mindloop/internal/cli"
 )
 
 func main() {

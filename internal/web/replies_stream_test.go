@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/mind"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/mind"
 )
 
 // newReplyFiles 手写 mind 进程（task-23）的旁路文件，路径与内容形状

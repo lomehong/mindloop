@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/skills"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/skills"
 )
 
 // identitySkillsDir 是身份级技能库；globalSkillsDir 是全局层

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/sandbox"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/sandbox"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // requireBash 在没有【可用】bash 的环境干净跳过。BashPath 内部做

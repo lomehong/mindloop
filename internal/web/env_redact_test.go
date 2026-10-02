@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/identity"
 )
 
 // 本文件钉死 .env 视图的脱敏契约（.env 是密钥的常驻落点，仪表盘

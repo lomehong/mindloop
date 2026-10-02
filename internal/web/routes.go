@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/identity"
 )
 
 // routes 装载所有 API 端点 + 静态 viewer 文件 + catch-all。

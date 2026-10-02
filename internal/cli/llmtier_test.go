@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/llm"
 )
 
 // TestTierClientFallbackAndOverride：双档分层的回退纪律——未设、

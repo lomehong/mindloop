@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/policy"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/policy"
 )
 
 // seedApproval 在身份的审批控制面按落盘格式写入一条待批请求，返回

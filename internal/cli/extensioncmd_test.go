@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/mcp"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/mcp"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 func extensionTestHome(t *testing.T) (string, *identity.Identity) {

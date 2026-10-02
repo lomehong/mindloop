@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/identity"
 )
 
 // failWriter 是恒失败的 ResponseWriter——SSE handler 首帧写失败即

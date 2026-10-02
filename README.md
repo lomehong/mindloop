@@ -131,6 +131,17 @@ mcp client 内部有进程等待/取消哨兵类的内部 goroutine）；
   收缩/重放、解析器值拷贝陷阱、Job Object 杀树（心跳文件验证
   孤儿已死）、fence 的 heredoc 陷阱——全部有用例钉死。
 
+## 安装
+
+- **winget**：`winget install lomehong.mindloop`（manifest 首发后可用）
+- **scoop**：`scoop bucket add lomehong https://github.com/lomehong/scoop-bucket && scoop install mindloop`
+- **直接下载**：[GitHub Releases](https://github.com/lomehong/mindloop/releases)
+  的全平台二进制（前端已嵌入，开箱即用）与 Windows NSIS 安装包；
+  未签名二进制会触发 SmartScreen 提示，属预期。
+- **go install**：`go install github.com/lomehong/mindloop/cmd/mindloop@latest`
+  ——适合后端/CLI 使用；仪表盘完整体验建议用上面的 release 产物
+  （go install 不带前端构建，`mindloop web` 退化为 API-only）。
+
 ## 用法
 
 ```bash

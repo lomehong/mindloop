@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 type requestKey struct{ actor, id string }

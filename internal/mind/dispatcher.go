@@ -21,7 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // WakeKind 描述一次唤醒的来源。

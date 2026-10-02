@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/schedule"
-	"mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/schedule"
+	"github.com/lomehong/mindloop/internal/task"
 )
 
 // scheduleRunTimeout 钳制 web 手动执行 exec 条目的等待时长。条目

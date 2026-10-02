@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/policy"
-	"mindloop/internal/runner"
-	"mindloop/internal/task"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/policy"
+	"github.com/lomehong/mindloop/internal/runner"
+	"github.com/lomehong/mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // fenceScript 把脚本包进 bash 代码块——run 循环从模型回复里提取的

@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/childenv"
-	"mindloop/internal/connector/wecom"
-	"mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/childenv"
+	"github.com/lomehong/mindloop/internal/connector/wecom"
+	"github.com/lomehong/mindloop/internal/identity"
 )
 
 // connector 命令组是外部渠道桥的用户入口：bridge 是独立的轨迹读写

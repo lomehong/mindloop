@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // cmdTailf 是 feeder 原语：跟踪一条轨迹，每个步骤写完即打印。

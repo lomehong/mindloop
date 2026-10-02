@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // recorderThinker 记录收到的唤醒，可人为阻塞以制造"忙碌"。

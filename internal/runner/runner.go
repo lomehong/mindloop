@@ -16,12 +16,12 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/prompt"
-	"mindloop/internal/risk"
-	"mindloop/internal/sandbox"
-	"mindloop/internal/snapshot"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/prompt"
+	"github.com/lomehong/mindloop/internal/risk"
+	"github.com/lomehong/mindloop/internal/sandbox"
+	"github.com/lomehong/mindloop/internal/snapshot"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // 哨兵错误。

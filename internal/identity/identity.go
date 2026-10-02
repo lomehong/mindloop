@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/ids"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/ids"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // Identity 是一个持久身份的句柄。

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/identity"
 )
 
 // TestArchiveExcluded：两条导出路径（单身份/全量）共用的排除谓词——

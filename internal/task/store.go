@@ -3,7 +3,7 @@ package task
 import (
 	"context"
 	"encoding/json"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // Store 仅持有身份根轨迹句柄，进程内不缓存任务事实。

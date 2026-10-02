@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/llm"
-	"mindloop/internal/mind"
-	"mindloop/internal/obs"
-	"mindloop/internal/recap"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/mind"
+	"github.com/lomehong/mindloop/internal/obs"
+	"github.com/lomehong/mindloop/internal/recap"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // mindRunNameRe 与 Slugify 的产物字符集一致（[a-z0-9._-]、字母

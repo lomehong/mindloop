@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // syncBuf 是并发安全的输出缓冲：命令在 goroutine 里跑、测试在主

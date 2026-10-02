@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/mem"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/mem"
 )
 
 // seedMemory 建一个身份并写入一条记忆——web 记忆端点测试的公共前置。

@@ -31,10 +31,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"mindloop/internal/connector"
-	"mindloop/internal/connector/ws"
-	"mindloop/internal/mind"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/connector"
+	"github.com/lomehong/mindloop/internal/connector/ws"
+	"github.com/lomehong/mindloop/internal/mind"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // ErrKicked 是单连接互踢的哨兵：收到 disconnected_event 返回它，

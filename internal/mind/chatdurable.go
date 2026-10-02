@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"mindloop/internal/task"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // Responder 是持久思考者：盖过协议章的入站消息在恢复窗口内补答、

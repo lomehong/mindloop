@@ -9,12 +9,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/mcp"
-	"mindloop/internal/mem"
-	"mindloop/internal/mind"
-	"mindloop/internal/skills"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/mcp"
+	"github.com/lomehong/mindloop/internal/mem"
+	"github.com/lomehong/mindloop/internal/mind"
+	"github.com/lomehong/mindloop/internal/skills"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // mcpServeTools 把 mindloop 的能力暴露为标准 MCP 工具——Claude

@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // UsageRow 是台账行的只读解码形态（写方结构见 UsageRecorder）。

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"mindloop/internal/childenv"
+	"github.com/lomehong/mindloop/internal/childenv"
 )
 
 // protocolVersion 是本客户端支持的 MCP 协议版本。握手时发送给

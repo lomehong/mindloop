@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/mind"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/mind"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // 本文件钉死契约漂移清理后的端点形状（与前端评审员同步删除，决策

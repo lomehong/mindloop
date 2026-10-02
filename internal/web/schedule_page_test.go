@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/sandbox"
-	"mindloop/internal/schedule"
-	"mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/sandbox"
+	"github.com/lomehong/mindloop/internal/schedule"
+	"github.com/lomehong/mindloop/internal/task"
 )
 
 // scheduleEntryJSON 是测试侧对契约的镜像（字段名与 CLI --json 同构）。

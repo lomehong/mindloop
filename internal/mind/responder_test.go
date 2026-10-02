@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/mem"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/mem"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // cannedThinker 对每次调用返回固定文本——responder 的单次补全。

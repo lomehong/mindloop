@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/service"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/service"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // newServiceExecer 是任务计划程序执行器的装配点：生产路径在非

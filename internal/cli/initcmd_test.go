@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/identity"
 )
 
 // readHomeEnv 用 os.Root 把读取限制在状态根内——测试断言 .env 内容

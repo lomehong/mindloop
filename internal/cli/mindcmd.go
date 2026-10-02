@@ -10,11 +10,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/config"
-	"mindloop/internal/identity"
-	"mindloop/internal/llm"
-	"mindloop/internal/mind"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/config"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/mind"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // mindRun 前台运行一个身份的心智（无人格化交互，适合当服务/后台

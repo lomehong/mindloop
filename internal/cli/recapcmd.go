@@ -5,11 +5,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/llm"
-	"mindloop/internal/mind"
-	"mindloop/internal/obs"
-	"mindloop/internal/recap"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/mind"
+	"github.com/lomehong/mindloop/internal/obs"
+	"github.com/lomehong/mindloop/internal/recap"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 func (c *CLI) newRecapCmd() *cobra.Command {

@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/identity"
 )
 
 func (c *CLI) newIdentityCmd() *cobra.Command {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/identity"
 )
 
 // putJSON 发一个 PUT {body} 并返回响应（body 由调用方关闭）。

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // ts 是台账行时间戳的测试构造器（台账真形态：traj.TimeFormat）。

@@ -9,11 +9,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/mcp"
-	"mindloop/internal/obs"
-	"mindloop/internal/skills"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/mcp"
+	"github.com/lomehong/mindloop/internal/obs"
+	"github.com/lomehong/mindloop/internal/skills"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // doctorCheck 是一项体检结果。

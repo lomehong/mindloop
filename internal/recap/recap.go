@@ -26,10 +26,10 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/ids"
-	"mindloop/internal/llm"
-	"mindloop/internal/prompt"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/ids"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/prompt"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // PromptVersion 随摘要提示词的语义变化递增；旧版本缓存将失效

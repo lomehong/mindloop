@@ -1,0 +1,41 @@
+# 发布流水线：push v* tag 触发——构建前端 → GoReleaser 出全平台
+# 二进制（release tag 嵌入前端）并发布 GitHub Release。桌面安装包
+# 由 release-desktop.yml 独立产出并追加到同一 Release。
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/static/package-lock.json
+      - name: 构建前端（release 嵌入的前置）
+        working-directory: web/static
+        run: |
+          npm ci
+          npm run build
+      - name: GoReleaser 发布
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

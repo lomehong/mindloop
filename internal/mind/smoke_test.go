@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/sandbox"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/sandbox"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // requireRealBash 与 sandbox/runner 测试同一能力语义：BashPath 内部

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/policy"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/policy"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // seedPendingApproval 在轨迹目录的审批控制面按下盘格式写入一条待批

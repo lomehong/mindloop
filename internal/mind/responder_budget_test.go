@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/prompt"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/prompt"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // newBudgetResponder 装配可直接调 compose 的 responder。

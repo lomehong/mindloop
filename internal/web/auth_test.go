@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/identity"
 )
 
 func TestAuthenticatedMissingExportDownload(t *testing.T) {

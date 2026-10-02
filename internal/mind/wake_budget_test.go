@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"mindloop/internal/mem"
-	"mindloop/internal/recap"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/mem"
+	"github.com/lomehong/mindloop/internal/recap"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // 唤醒任务的分段上限：超长人生分集被裁到 SummaryBytes（不是整个

@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/mind"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/mind"
 )
 
 // chatMessage 是 viewer ChatMessage 契约的 Go 形态。

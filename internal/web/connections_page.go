@@ -15,9 +15,9 @@ import (
 	"sort"
 	"strings"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/mcp"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/mcp"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // mcpServerView 是一台 MCP 服务器的展示形态（键值分离：

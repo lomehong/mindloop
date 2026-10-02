@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/llm"
 )
 
 // TierClient 读 envName 指定的模型名构造独立档位客户端；成功时

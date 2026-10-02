@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/identity"
-	"mindloop/internal/mind"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/mind"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // handleActivity 返回主页面的 IdentityActivity 契约：心智是否运行、

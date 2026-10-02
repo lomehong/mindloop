@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/connector/ws"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/connector/ws"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // collectedFrames 按 cmd 分类收集桥发出的业务帧（供断言）。

@@ -3,7 +3,7 @@ package mind
 import (
 	"context"
 
-	"mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/llm"
 )
 
 // LLMThinker 把 llm.Client 适配成 runner.Thinker——运行循环与

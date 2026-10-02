@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/config"
-	"mindloop/internal/identity"
-	"mindloop/internal/llm"
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/config"
+	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // routeLLM 分发 /api/identities/{id}/llm/* 子树：

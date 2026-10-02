@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"mindloop/internal/traj"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // rawMemory 手写一个记忆文件，覆盖任意 frontmatter 场景。

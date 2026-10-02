@@ -29,3 +29,4 @@ go-test.zip
 
 # mimosa 扫描产物
 .mimosa/
+.zcode/

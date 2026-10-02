@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"mindloop/internal/ids"
+	"github.com/lomehong/mindloop/internal/ids"
 )
 
 const (
