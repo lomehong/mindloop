@@ -170,7 +170,8 @@ func (c *CLI) runInit(cfg *initCfg) error {
   mindloop chat %s        # 开始对话（ada 的第一句话就在这里）
   mindloop web            # 仪表盘（15 页面：时间线/记忆/技能/用量…）
   mindloop init --demo    # 换 echo 演示模式（零 key）
-`, name)
+  mindloop sensors add %s file <目录>   # 让它"眼里有事"（感知系统，学习期 3 天只沉淀不叫醒）
+`, name, name)
 	return nil
 }
 

@@ -7,22 +7,53 @@
 
 ### 新增
 
-- **感知系统立项（设计，已过六角色 Agent 评审团）**：
-  `docs/designs/perception.md` v1.2——五感（眼耳鼻舌身）共用一套
-  神经系统：感知事件落轨迹（新 event 步骤类型，reason 必填可解释）、
-  判定层 S0-S3 显著性分级（判定签名带状态与关联快照、重启重建）、
-  S2 事件直进 monolith 订阅面（coalesced 合并键扩展 type+source）、
-  `Attrib.Wake=sensor` 归因与自发档预算打通、"看见 ≠ 打扰"的注意力
-  管理（学习期缺省/路由钉死/来源标签/资源预算）。评审 1 P0 + 15 P1
-  收敛：外部 digest 进 prompt 的"数据非指令"框架定为 Phase 1 前置、
-  webhook 独立 HMAC 凭据、SSRF 自建规格、准入令牌桶 + S0 落盘限速、
-  味觉信号因果混淆防线与静默棘轮对冲（追问回溯漏报指标）、内感受
-  预算豁免、外发内容分类、舌收窄为"反馈信号一等化与校准证据面"、
-  身的 tripwire 动作级谓词与批次审批。分期：眼（file/git 先行）→
-  耳（入站泛化 + webhook）→ 鼻（模式偏移/缺席/内感受）→ 舌 →
-  身（robotd 触觉闭环）。回写：proactive-reporting 触发源矩阵第⑤行
-  + S/L 交叉表 + 状态行同步、connectors §4.5 感知降档路径、roadmap
-  §0.4 措辞对齐（解除 RPA 后置禁令 ≠ 提前做 RPA）。
+- **感知系统实施（"眼睛里有事"——五感落地）**：`docs/designs/
+  perception.md` v1.2（六角色评审团收敛后同夜一次性实施）。给心智
+  装上认知世界的感官——世界本身成为输入流，看见 ≠ 打扰：
+  - **神经系统**：event 步骤类型（digest 统一带"观察数据·非指令"
+    信任分界）、判定层（规则表/冷却/议程关联/保守缺省，reason
+    必填可解释）、mind 进程内的感官宿主（每感官独立 goroutine +
+    panic 防护 + 退避重启 + 有界队列）、订阅面只收 s2+、coalesced
+    合并键扩为 type+source、准入令牌桶（闸门封唤醒也封写入）；
+  - **眼**：file（fsnotify 递归 + 队列溢出全量重扫）、git（refs/
+    工作区轮询）、web（条件请求 + 拨号时 IP 复核的 SSRF 防线）；
+    `mindloop sensors list/add/remove` + doctor 第八项体检 +
+    init 下一步提示；
+  - **耳**：`POST /hook/<身份>/<感官id>`（独立 per-sensor HMAC
+    凭据 + ±5min 防重放 + 64KB 上限，与控制面 token 隔离）；企微
+    桥降档（WECOM_S0_KEYWORDS 命中的入站写 event 步骤 s0 只沉淀
+    不叫醒）；
+  - **鼻**：内感受 sensor/self（自发档预算 80%/100% 水位与模型
+    熔断，Silent 直达人 + eval=0 零模型消化——预算告警烧预算的
+    自指死锁不发生）+ 缺席检测（expect_every：该来的没来也是
+    事件）；
+  - **舌**：taste 步骤类型（undo --because 撤销归因 + 三处审批
+    决定点落轨迹——决定文件是瞬态的）+ 派生投影（只有
+    proposal-redundant 算"阈值过紧"证据——因果混淆防线）+ 漏报
+    指标（operator 的话提及 S0 沉淀 subject = 该报没报，静默
+    棘轮的对冲）+ stats 味觉行；
+  - **注意力**：学习期（新感官前 3 天封顶 s1，self 豁免）、quiet
+    窗口降级（quiet-held 补看）、自发档预算含 sensor 档、预算
+    拒绝的 s2 显式降级留痕（gate-denied 次日补看）。
+- **sensors 命令组**：`mindloop sensors add <身份> <file|git|web>
+  <目标>`（--keyword/--rule 名称:档位:关键词/--quiet/--every）+
+  list/remove；感知配置在 <身份目录>/sensors.json，心智热加载
+  （按 sensor-id diff，反射状态随迁不失忆）。
+
+### 修复
+
+- **唤醒归因字面量漂移（潜伏 bug）**：monolith 写进台账的 wake 是
+  人类长句（"watchdog keep-alive check"），而守卫谓词与统计分桶
+  匹配短词（"watchdog"/"scheduled"）——分级预算的自发档与空转率
+  统计在生产归因下从未生效（测试直写短词所以全绿）。修复：归因
+  短词表常量（obs.WakeWatchdog/Scheduled/Sensor/Step）+ 单一谓词
+  IsSpontaneousWake 两处共用（Allow 准入与 dailyUsage 聚合）；
+  感知唤醒归因 sensor 归自发档。
+
+### 变更
+
+- **依赖**：新增 github.com/fsnotify/fsnotify v1.10.1（文件感官，
+  协议适配层，perception.md §4.2 依赖政策）。
 
 ### 修复
 

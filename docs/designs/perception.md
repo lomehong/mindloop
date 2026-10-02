@@ -1,9 +1,31 @@
 # 设计：感知系统（五感：眼·耳·鼻·舌·身）
 
-状态：v1.2（2026-10-02 三修：立项 v1 → 用户质询"是不是应该是五感"
-修订 v1.1（六根框架）→ 同日六角色 Agent 评审团（产品/架构/AI 认知/
-安全/可靠性/框架一致性）一致判定"修订后可实施"，**1 P0 + 15 P1 收敛
-入本版**，整改台账见 §10）。
+状态：v1.2 已实施（2026-10-02 三修：立项 v1 → 用户质询"是不是应该
+是五感"修订 v1.1（六根框架）→ 同日六角色 Agent 评审团（产品/架构/
+AI 认知/安全/可靠性/框架一致性）一致判定"修订后可实施"，1 P0 +
+15 P1 收敛入本版，整改台账见 §10）。**同夜一次性连续实施完成**
+（神经系统 + 眼耳鼻舌全部落地；身的 robotd 按设计准入条件
+——Phase 1-3 信噪比数据成熟——另行启动）：
+
+- 神经系统：event 步骤类型、判定层（internal/connector/sensor）、
+  mind.SensorRunner 宿主、订阅面 s2+ 分级路由、coalesced type+source
+  分槽、唤醒归因短词表 + obs 单一谓词（自发档含 sensor）；
+- 眼：sensor/fs（fsnotify+溢出重扫）、sensor/git（SHA-256 工作区
+  指纹）、sensor/web（拨号时 IP 复核的 SSRF 防线）+ doctor 第八项
+  + `mindloop sensors` CLI；
+- 耳：/hook/<身份>/<感官id>（独立 HMAC 凭据 + 防重放 + 64KB 上限）
+  + wecom 桥降档（WECOM_S0_KEYWORDS → event 步骤 s0）；
+- 鼻：sensor/self 内感受（预算水位/健康，Silent 直达人 + eval=0
+  零模型消化）+ 缺席检测（expect_every）；
+- 舌：taste 步骤类型（undo --because 归因 + 三处审批决定点落轨迹）
+  + obs.DeriveTaste 投影（含漏报匹配）+ stats 味觉行；
+- 注意力：学习期封顶（self 豁免）、quiet 降级（quiet-held）、
+  令牌桶准入、digest"数据非指令"信任分界、gate-denied 降级留痕。
+
+未实施（按设计节奏）：字面模态（屏幕视觉/语音，§9.3）、
+sensor/web 的 RSS 语义解析（当前按 HTML 文本处理）、webhook 的
+学习期（端点侧无首见状态，去重已生效）、反射层阈值自动校准
+（校准数据面已就绪，调参仍人工）。
 愿景原话："给它装上认知世界的眼睛、耳朵、鼻子和手，让它可以感知
 世界——眼睛里有事。"
 依赖：`connectors.md`（传输与投递语义；§4.5 降档路径回写）、
