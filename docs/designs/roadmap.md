@@ -73,8 +73,13 @@ UX 可靠性——交叉收敛，经用户三项战略拍板；同日对照 CHAN
   `--demo`（echo 零 key）+ 非交互 flags + .env 原位合并 + 连通
   探测 + 建/复用身份。
 - **`mindloop doctor`（✅ 2026-10-02 已落地）**：七项体检 ✓✗ 表、
-  退出码可脚本化。剩余：发布渠道（GoReleaser/Tauri 安装包/
-  winget/scoop，待用户确认发布意愿后启动）。
+  退出码可脚本化。
+- **eval 基线（✅ 2026-10-02 已落地）**：`mindloop stats` +
+  `internal/obs/stats.go`——分账/空转唤醒率/任务完成率，全部从
+  既有台账与任务系统派生；空转判定如实标注台账级代理，待计划
+  步骤（§2.4）落地后升级为"有效 FINAL"精确锚点。剩余：发布渠道
+  （GoReleaser/Tauri 安装包/winget/scoop，待用户确认发布意愿后
+  启动）。
 - **发布渠道**：GoReleaser 管 Go 产物；Tauri bundler 出安装包；
   winget manifest（Windows 一等公民先占 winget）+ scoop bucket；
   自动更新用 Tauri updater 不自研。

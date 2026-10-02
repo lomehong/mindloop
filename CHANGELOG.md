@@ -7,6 +7,15 @@
 
 ### 新增
 
+- **`mindloop stats` 评估基线**（roadmap §1.4）：从用量台账与任务
+  系统派生三组指标，零新增存储（视图皆派生）——调用/token 分账
+  （按唤醒 watchdog/scheduled/step/manual、按阶段 wake/chat/task、
+  按模型，无章旧行落显式"(无章)"桶）、空转唤醒率（watchdog 合成
+  唤醒的思考轮中窗口内未跟随新运行的占比，`--idle-window` 可调，
+  如实标注台账级代理）、任务完成率（终态成功比 + 在途数）。
+  `--days` 定窗口、`--identity` 单看、多身份聚合给合计块。派生层
+  在 `internal/obs/stats.go`（纯函数，读方宽容：缺文件=从未运行、
+  坏行跳过）。
 - **`mindloop doctor` 一键体检**（roadmap §1.3）：七项检查 ✓✗ 表
   输出，退出码 0/1 可被脚本捕获——状态根存在可写（os.Root 探测）、
   模型配置与连通（实测最小补全，`--no-probe` 跳过）、viewer 产物

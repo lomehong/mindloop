@@ -190,6 +190,10 @@ mindloop recap <id> --flush        # 连尾窗一起摘要
 
 mindloop tailf <id>                            # 实时跟踪
 
+# 评估基线：台账派生指标——调用/token 分账（按唤醒/阶段/模型）、
+# watchdog 空转唤醒率、任务完成率；--days 定窗口，--identity 单看
+mindloop stats --identity ada
+
 # 技能库：Agent Skills 开放标准（SKILL.md，agentskills.io）。
 # 索引进系统提示（渐进披露），正文由 agent 按需 cat 读取：
 mindloop skills init code-review --identity ada    # 脚手架新技能
