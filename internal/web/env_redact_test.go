@@ -126,12 +126,13 @@ func TestParseEnvRedacted(t *testing.T) {
 	}
 }
 
-// 测试夹具在运行时拼装：脱敏逻辑只需要一个形状与长度可控的值，
-// 源码里不应出现凭据字面量。
+// 测试夹具用低熵假字面量：脱敏按"键名含敏感子串"判定，与值形态
+// 无关，这些字面量不构成任何真实凭据。此前"运行时拼装 sk-/密码
+// 形状"的写法会被安全扫描当作规避手法标黑。
 var (
-	skFixture  = "sk-" + strings.Repeat("s3cret-", 4)
-	tokFixture = "tok-" + strings.Repeat("x", 12)
-	pwFixture  = "p@ssw0rd-" + strings.Repeat("l", 8)
+	skFixture  = "test-value-fixture-0001"
+	tokFixture = "test-value-fixture-0002"
+	pwFixture  = "test-value-fixture-0003"
 )
 
 // redactTestWriteEnv 把内容写成身份级 .env。

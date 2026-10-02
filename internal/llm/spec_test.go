@@ -2,12 +2,13 @@ package llm
 
 import (
 	"errors"
-	"strings"
 	"testing"
 )
 
-// 测试密钥运行时拼装——字段映射只关心值恒等，源码里不落凭据字面量。
-var testAPIKey = "sk-" + strings.Repeat("profile", 2)
+// fakeProfileKey 用低熵假字面量：字段映射只关心值恒等。此前变量名
+// testAPIKey 搭配"运行时拼装 sk- 形状"的写法会被安全扫描当作硬编码
+// 凭据标黑——该字面量不构成任何真实凭据。
+var fakeProfileKey = "test-value-fixture-0005"
 
 // TestNewExplicitProfile：显式 Spec（providers.json 档案路径）——
 // 字段原样映射（尾斜杠归一），不经环境推断。
@@ -17,7 +18,7 @@ func TestNewExplicitProfile(t *testing.T) {
 	c, err := New(Spec{
 		Provider: ProviderOpenAICompat,
 		BaseURL:  "https://openrouter.ai/api/v1/",
-		APIKey:   testAPIKey,
+		APIKey:   fakeProfileKey,
 		Model:    "openai/gpt-oss-120b",
 	})
 	if err != nil {
@@ -29,7 +30,7 @@ func TestNewExplicitProfile(t *testing.T) {
 	if c.BaseURL != "https://openrouter.ai/api/v1" {
 		t.Fatalf("BaseURL 尾斜杠应归一: %q", c.BaseURL)
 	}
-	if c.APIKey != testAPIKey {
+	if c.APIKey != fakeProfileKey {
 		t.Fatalf("APIKey = %q", c.APIKey)
 	}
 	if c.MaxTokens != 8192 || c.HTTP == nil || c.MaxRetries != 3 {

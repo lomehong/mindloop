@@ -16,9 +16,10 @@ import (
 	"mindloop/internal/identity"
 )
 
-// fakeProviderKey 运行时拼装：PUT /env 落盘链路只关心值恒等，
-// 源码里不落凭据字面量。
-var fakeProviderKey = "sk-" + strings.Repeat("secret", 3)
+// fakeProviderKey 用低熵假字面量：PUT /env 落盘链路只关心值恒等。
+// 此前"运行时拼装 sk- 形状"的写法会被安全扫描当作规避手法标黑，
+// 而该字面量不构成任何真实凭据。
+var fakeProviderKey = "test-value-fixture-0004"
 
 // providersHome 建一个隔离的 MINDLOOP_HOME 并创建身份 ada。
 func providersHome(t *testing.T) string {

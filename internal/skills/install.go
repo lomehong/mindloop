@@ -200,11 +200,22 @@ func cleanSegment(s string) string {
 // install 命令无限拖住。
 const installTimeout = 2 * time.Minute
 
+// gitArgRe 收口 runGitStep 的参数位：只放行不含控制字符与 shell
+// 元字符的 token。调用点契约是"字面量选项 + MkdirTemp 产物路径"，
+// 这条校验把契约变成可证断言（非 ASCII 用户名目录、含空格路径
+// 照常放行）。
+var gitArgRe = regexp.MustCompile(`^[^\x00-\x1f\x7f;&|<>"'$\x60]+$`)
+
 // runGitStep 运行一步 git 子命令并等待结束：程序恒为字面量 "git"，
-// 参数由调用点以字面量与内部临时目录拼装。ctx 取消（Ctrl+C/上层
-// 超时）或 installTimeout 到点都会杀掉子进程——取消监听挂在对
-// Wait 的 select 上，等价 CommandContext 的语义。
+// 参数由调用点以字面量与内部临时目录拼装、并经 gitArgRe 逐个校验。
+// ctx 取消（Ctrl+C/上层超时）或 installTimeout 到点都会杀掉子进程
+// ——取消监听挂在对 Wait 的 select 上，等价 CommandContext 的语义。
 func runGitStep(ctx context.Context, timeout time.Duration, kill func(*exec.Cmd), args ...string) ([]byte, error) {
+	for _, a := range args {
+		if !gitArgRe.MatchString(a) {
+			return nil, fmt.Errorf("skills: git 参数含非法字符: %q", a)
+		}
+	}
 	cmd := exec.Command("git", args...)
 	var buf strings.Builder
 	cmd.Stdout = &buf

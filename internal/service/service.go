@@ -40,7 +40,7 @@ func safeArg(arg string) bool {
 // [a-z0-9._-]，component 是固定的小写枚举。
 var taskNameRe = regexp.MustCompile(`^Mindloop-[a-z0-9._-]+-[a-z]+$`)
 
-// psSingleQuote 把值包成 PowerShell 单引号字面量（'' 转义）——
+// psSingleQuote 把值包成 PowerShell 单引号字面量（” 转义）——
 // 外部值嵌入 -Command 脚本的唯一安全方式。
 func psSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
