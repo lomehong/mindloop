@@ -61,6 +61,10 @@ func ParseMode(s string) Mode {
 // ModeFromEnv 读取 MINDLOOP_EXEC_POLICY（未设置即 ask）。
 func ModeFromEnv() Mode { return ParseMode(os.Getenv("MINDLOOP_EXEC_POLICY")) }
 
+// AutoReadOnlyFromEnv 读取 MINDLOOP_EXEC_POLICY_AUTO：值 "0" 关闭
+// ask 策略的只读自动放行档，其余（含未设置）开启。
+func AutoReadOnlyFromEnv() bool { return os.Getenv("MINDLOOP_EXEC_POLICY_AUTO") != "0" }
+
 // Dir 返回一条轨迹的审批控制面目录（沿用 mind 控制面的 run/ 位置）。
 func Dir(tlDir string) string { return filepath.Join(tlDir, "run", "approvals") }
 
@@ -77,6 +81,12 @@ func ScriptHash(script string) string {
 type Gate struct {
 	dir  string
 	mode Mode
+
+	// AutoReadOnly 开启 ask 策略的自动放行档：脚本逐命令可证明
+	// 只读时免审批直接执行（仍记审计）。wiring 侧用
+	// AutoReadOnlyFromEnv 赋值；零值（关闭）是测试与新调用方的
+	// 安全缺省——白名单只能增加便利，绕不过任何未知构造。
+	AutoReadOnly bool
 
 	// PollInterval 是等待决定的轮询间隔（默认 150ms）。
 	PollInterval time.Duration
@@ -119,6 +129,21 @@ func (g *Gate) Authorize(ctx context.Context, ex runner.Execution) error {
 			return nil
 		}
 		delete(g.cache, key)
+	}
+	// ask 的自动放行档（防审批疲劳把 ask 逼成 trusted）：脚本逐
+	// 命令可证明只读时免审批，但豁免以可审计为前提——审计目录建
+	// 不出来就回退到正常等待。
+	if g.AutoReadOnly && ReadOnly(ex.Script) {
+		if err := os.MkdirAll(g.dir, 0o755); err == nil {
+			g.audit(PendingRequest{
+				Hash: hash, WorkDir: ex.WorkDir, RunID: ex.RunID,
+				TaskID: ex.TaskID, Attempt: ex.Attempt,
+			}, "auto-readonly")
+			if g.Logger != nil {
+				g.Logger("只读脚本自动放行（hash %s；MINDLOOP_EXEC_POLICY_AUTO=0 关闭）", short(hash))
+			}
+			return nil
+		}
 	}
 	return g.wait(ctx, hash, ex)
 }

@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **脚本风险分级：ask 策略的只读自动放行档**（roadmap §1.2 信任
+  补强第一项）：`internal/policy/risk.go` 只读白名单判定器——脚本
+  逐命令全部可证明只读（ls/cat/grep/git 只读子命令/$MINDLOOP_EXE
+  只读面等）时免审批直接执行，仍记 approvals/audit.jsonl（决策
+  `auto-readonly`）。设计取向与展示用 riskPatterns 相反：**白名单
+  而非黑名单**——漏判只读只是回到人工审批（fail-closed），未知
+  构造（命令替换、变量赋值前缀、输出重定向除 /dev/null 豁免、
+  find -exec 族、循环、解释器）一律照旧审批。开关
+  `MINDLOOP_EXEC_POLICY_AUTO=0`（缺省开启，仅 ask 策略生效）。
+  目的：防审批疲劳把缺省 ask 逼成 trusted——分级让 ask 可持续。
+
 ### 修复
 
 - **Mimosa 存量清偿第一批**（台账 docs/security/mimosa-baseline.md）：

@@ -56,6 +56,7 @@ func (c *CLI) newRunCmd() *cobra.Command {
 			// 统一执行授权：CLI run 与心智场景共用 policy.Gate
 			// （runner.BeforeExecute 的唯一实现面）。
 			gate := policy.NewGate(policy.Dir(t.Dir), policy.ModeFromEnv())
+			gate.AutoReadOnly = policy.AutoReadOnlyFromEnv()
 			gate.Logger = func(format string, args ...any) {
 				fmt.Fprintf(c.stderr, format+"\n", args...)
 			}

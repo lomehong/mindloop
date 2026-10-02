@@ -93,6 +93,7 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 	// runner.BeforeExecute）；等待审批时经 WaitHook 同步任务
 	// awaiting_approval 状态，chat 场景的审批提示经 o.logger 进终端。
 	gate := policy.NewGate(policy.Dir(id.Timeline.Dir), policy.ModeFromEnv())
+	gate.AutoReadOnly = policy.AutoReadOnlyFromEnv()
 	gate.Logger = o.logger
 	gate.WaitHook = taskApprovalHook(id.Timeline, id.Name)
 
