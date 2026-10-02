@@ -34,7 +34,7 @@ export function CopyButton({
     const text = value ?? getValue?.() ?? null;
     if (text == null) return;
     await navigator.clipboard.writeText(text);
-    toast("Copied to clipboard");
+    toast("已复制到剪贴板");
     setChecked(true);
     setTimeout(() => setChecked(false), 1500);
   };
@@ -44,7 +44,7 @@ export function CopyButton({
       type="button"
       data-checked={checked || undefined}
       onClick={handleClick}
-      aria-label={ariaLabel ?? (checked ? "Copied" : "Copy to clipboard")}
+      aria-label={ariaLabel ?? (checked ? "已复制" : "复制到剪贴板")}
       className={cn(
         "inline-flex items-center justify-center transition-colors",
         className

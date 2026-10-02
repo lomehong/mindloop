@@ -64,7 +64,7 @@ function CodeBlockWrapper({
           <CopyButton
             getValue={getCodeText}
             className="p-1.5 hover:text-foreground data-checked:text-foreground"
-            ariaLabel="Copy code"
+            ariaLabel="复制代码"
           />
         </div>
       )}

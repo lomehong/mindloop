@@ -7,7 +7,7 @@ export function LiveBadge() {
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
         <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
       </span>
-      live
+      运行中
     </Badge>
   );
 }

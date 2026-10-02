@@ -271,7 +271,7 @@ function ExportSection({ identityId }: { identityId: string }) {
   const remove = useMutation({
     mutationFn: (jobId: string) => deleteExportJob(jobId),
     onSuccess: refresh,
-    onError: (e: Error) => toast.error(`Could not delete export: ${e.message}`),
+    onError: (e: Error) => toast.error(`删除导出任务失败：${e.message}`),
   });
 
   const running =

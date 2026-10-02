@@ -241,7 +241,7 @@ export default function IdentityPage() {
             <div className="sticky top-28 max-h-[calc(100vh-8rem)] space-y-4 overflow-y-auto pb-4">
               <div>
                 <h3 className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                  Step types
+                  步骤类型
                 </h3>
                 <div className="space-y-1">
                   {typeCounts.map(([type, count]) => (
@@ -262,7 +262,7 @@ export default function IdentityPage() {
               {sources.length > 0 && (
                 <div>
                   <h3 className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    Source
+                    来源
                   </h3>
                   <Select
                     value={sourceFilter}
@@ -272,7 +272,7 @@ export default function IdentityPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">all sources</SelectItem>
+                      <SelectItem value="all">全部来源</SelectItem>
                       {sources.map((source) => (
                         <SelectItem key={source} value={source} className="font-mono text-xs">
                           {source}
@@ -301,8 +301,8 @@ export default function IdentityPage() {
                   onClick={() => void loadOlder()}
                 >
                   {loadingOlder
-                    ? "loading…"
-                    : `load older (${hiddenOlder} earlier steps)`}
+                    ? "加载中…"
+                    : `加载更早（还有 ${hiddenOlder} 步）`}
                 </Button>
               </div>
             )}

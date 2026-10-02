@@ -36,7 +36,7 @@ function label(activity: IdentityActivity): string {
   switch (activity.state) {
     case "working":
       return [
-        "working",
+        "工作中",
         stepAge ? `步骤 ${stepAge} 前` : null,
         run ? `运行 ${run}` : null,
       ]

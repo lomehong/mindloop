@@ -71,7 +71,7 @@ function CopyLinkButton() {
   return (
     <button
       type="button"
-      aria-label="Copy link"
+      aria-label="复制链接"
       title="复制此条目的链接"
       className="absolute right-10 top-3 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
       onClick={copy}
@@ -139,7 +139,7 @@ export function Modal({
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close"
+          aria-label="关闭"
           className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <X className="h-4 w-4" />
@@ -264,14 +264,14 @@ export function TimelineDetailModal({
             <div className="mt-3 space-y-0.5 border-t pt-2">
               {trigger && (
                 <RelatedStepRow
-                  label="triggered by"
+                  label="触发自"
                   step={trigger}
                   onClick={() => onSelect({ kind: "step", step: trigger })}
                 />
               )}
               {runBlock && (
                 <RelatedRunRow
-                  label="written inside"
+                  label="写于 run"
                   block={runBlock}
                   onClick={() => onSelect({ kind: "run", block: runBlock })}
                 />
@@ -279,7 +279,7 @@ export function TimelineDetailModal({
               {triggeredRuns.map((b) => (
                 <RelatedRunRow
                   key={b.run.run_id}
-                  label="triggered run"
+                  label="触发的 run"
                   block={b}
                   onClick={() => onSelect({ kind: "run", block: b })}
                 />
@@ -322,7 +322,7 @@ function RunModal({
           </Badge>
           {run.launched_by && (
             <span className="font-mono text-xs text-muted-foreground">
-              launched by <span className="text-foreground">{run.launched_by}</span>
+              启动者 <span className="text-foreground">{run.launched_by}</span>
             </span>
           )}
           <span className="ml-auto flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
@@ -339,7 +339,7 @@ function RunModal({
           <div className="mb-2 space-y-1 border-t pt-2">
             {trigger && (
               <RelatedStepRow
-                label="triggered by"
+                label="触发自"
                 step={trigger}
                 onClick={() => onSelect({ kind: "step", step: trigger })}
               />
@@ -347,7 +347,7 @@ function RunModal({
             {result && (
               <div className="rounded border bg-muted/30 px-2 py-1.5">
                 <div className="mb-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                  result
+                  结果
                 </div>
                 <ExpandableText text={result} expandAll={false} />
               </div>
@@ -366,7 +366,7 @@ function RunModal({
             ) : (
               <ChevronRight className="h-3.5 w-3.5" />
             )}
-            steps ({block.members.length})
+            步骤（{block.members.length}）
           </button>
           {showSteps && (
             <div className="mt-1 space-y-0.5">

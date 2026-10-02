@@ -45,17 +45,17 @@ export function StepHeader({ step }: { step: NormalizedStep }) {
         title={step.ts}
         onClick={() => {
           navigator.clipboard.writeText(step.ts);
-          toast.success("Copied timestamp");
+          toast.success("已复制时间戳");
         }}
         className="tabular-nums text-muted-foreground"
       >
         {formatClock(step.ts)}
       </Chip>
-      <Chip className={color.chip} onClick={copyId} title={`step ${step.step_id} — click to copy`}>
+      <Chip className={color.chip} onClick={copyId} title={`步骤 ${step.step_id} — 点击复制`}>
         {step.type}
       </Chip>
       {step.source ? (
-        <Chip className="bg-muted text-muted-foreground" title={`written by ${step.source}`}>
+        <Chip className="bg-muted text-muted-foreground" title={`由 ${step.source} 写入`}>
           <Bot className="h-2.5 w-2.5" />
           {step.source}
         </Chip>
@@ -65,7 +65,7 @@ export function StepHeader({ step }: { step: NormalizedStep }) {
         </Chip>
       )}
       {typeof step.raw.model === "string" && step.raw.model && step.type !== "shellm-run" && (
-        <Chip className="text-muted-foreground/60" title={`model ${step.raw.model}`}>
+        <Chip className="text-muted-foreground/60" title={`模型 ${step.raw.model}`}>
           <Cpu className="h-2.5 w-2.5" />
           {step.raw.model}
         </Chip>

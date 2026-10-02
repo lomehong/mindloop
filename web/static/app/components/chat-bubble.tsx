@@ -117,7 +117,7 @@ export function ChatBubble({
               rel="noreferrer"
               className="mt-1 inline-flex items-center gap-1 font-mono text-[10px] opacity-70 hover:underline"
             >
-              Open in Slack <ExternalLink className="h-3 w-3" />
+              在 Slack 中打开 <ExternalLink className="h-3 w-3" />
             </a>
           )
         )}

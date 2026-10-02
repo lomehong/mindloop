@@ -298,7 +298,7 @@ export default function TalkChat() {
               "inline-block h-2 w-2 rounded-full",
               chat?.live ? "bg-green-500" : "bg-muted-foreground/30"
             )}
-            title={chat?.live ? "live" : "idle"}
+            title={chat?.live ? "在线" : "空闲"}
           />
         </div>
         <Link

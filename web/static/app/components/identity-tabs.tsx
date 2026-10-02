@@ -55,7 +55,7 @@ export function IdentityTabs({
   return (
     <div className="sticky top-12 z-40 mb-4 flex flex-wrap items-center gap-3 border-b bg-background/95 py-2 backdrop-blur">
       <Link to="/" className="text-sm text-muted-foreground hover:underline">
-        identities
+        身份
       </Link>
       <span className="text-muted-foreground">/</span>
       <h1 className="font-mono text-lg font-semibold">{displayName}</h1>

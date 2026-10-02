@@ -155,7 +155,7 @@ function StreamCard({
         long && "cursor-pointer"
       )}
       onClick={long ? () => setExpanded((v) => !v) : undefined}
-      title={long && !expanded ? "click to expand" : undefined}
+      title={long && !expanded ? "点击展开" : undefined}
     >
       <div className="mb-2 flex items-baseline gap-4">
         <span className={cn("font-mono text-sm tracking-wide", style.label)}>
@@ -362,7 +362,7 @@ export default function Mindlog2Page() {
           <div className="mt-6 flex flex-col gap-5 pb-10">
             {cards.length === 0 && (
               <div className="py-16 text-center font-mono text-sm text-zinc-500">
-                waiting for thoughts…
+                等待思考到来…
               </div>
             )}
             {cards.map(({ card, abs }) => (

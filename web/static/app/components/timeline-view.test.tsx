@@ -197,7 +197,7 @@ describe("timeline deeplinks", () => {
 
   it("?run= for a loaded run opens the run modal and flashes its block", async () => {
     const { container } = renderTimeline({ url: "?run=r1" });
-    await screen.findByText("steps (2)");
+    await screen.findByText("步骤（2）");
     const flash = container.querySelector(".tl-flash");
     expect(flash).not.toBeNull();
     expect(flash!.getAttribute("title")).toContain("[run]");
@@ -205,25 +205,25 @@ describe("timeline deeplinks", () => {
 
   it("an unknown step id falls back to the fetch-one StepModal", async () => {
     renderTimeline({ url: "?step=nope" });
-    await screen.findByText("Step not found.");
+    await screen.findByText("未找到步骤。");
   });
 
   it("an unknown run id shows the load-older notice", async () => {
     renderTimeline({ url: "?run=ghost" });
-    await screen.findByText(/older than the loaded part of the timeline/);
+    await screen.findByText(/早于时间线已加载的范围/);
   });
 
   it("an unknown step id without traj context still shows a notice", async () => {
     renderTimeline({ url: "?step=nope", traj: null });
-    await screen.findByText(/not in the loaded part of the timeline/);
+    await screen.findByText(/不在时间线已加载的范围内/);
   });
 
   it("holds a pending deeplink while the layout is still empty", async () => {
     // Pre-fix, an empty first layout consumed the deeplink and declared the
     // step missing; the real modal never opened once data arrived.
     const view = renderTimeline({ url: "?step=s-thought", layout: emptyLayout() });
-    expect(screen.queryByText("loading…")).toBeNull();
-    expect(screen.queryByText("Step not found.")).toBeNull();
+    expect(screen.queryByText("加载中…")).toBeNull();
+    expect(screen.queryByText("未找到步骤。")).toBeNull();
     view.update({ layout: fullLayout() });
     await screen.findByText("full pondering content");
   });
@@ -232,10 +232,10 @@ describe("timeline deeplinks", () => {
     const view = renderTimeline({ url: "?step=s-thought" });
     await screen.findByText("full pondering content");
     view.update({ url: "?run=r1" });
-    await screen.findByText("steps (2)");
+    await screen.findByText("步骤（2）");
     expect(screen.queryByText("full pondering content")).toBeNull();
     view.update({ url: "" });
-    await waitFor(() => expect(screen.queryByText("steps (2)")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("步骤（2）")).toBeNull());
     view.update({ url: "?step=s-thought" });
     await screen.findByText("full pondering content");
   });
@@ -252,10 +252,10 @@ describe("timeline deeplinks", () => {
 
   it("arrives unpinned with a deeplink param and pinned without", async () => {
     const withParam = renderTimeline({ url: "?step=s-thought", live: true });
-    await screen.findByText("paused · resume");
+    await screen.findByText("已暂停 · 恢复跟随");
     withParam.unmount();
     renderTimeline({ url: "", live: true });
-    await screen.findByText("following");
+    await screen.findByText("跟随中");
   });
 
   it("a rejecting clipboard leaves no unhandled rejection behind copy-link", async () => {
@@ -271,8 +271,8 @@ describe("timeline deeplinks", () => {
     });
     try {
       renderTimeline({ url: "?run=r1" });
-      await screen.findByText("steps (2)");
-      fireEvent.click(screen.getByLabelText("Copy link"));
+      await screen.findByText("步骤（2）");
+      fireEvent.click(screen.getByLabelText("复制链接"));
       await new Promise((r) => setTimeout(r, 0));
     } finally {
       delete (navigator as unknown as Record<string, unknown>).clipboard;
@@ -290,7 +290,7 @@ describe("timeline deeplinks", () => {
     });
     try {
       renderTimeline({ url: "?run=r1" });
-      fireEvent.click(await screen.findByText("steps (2)"));
+      fireEvent.click(await screen.findByText("步骤（2）"));
       const buttons = screen.getAllByLabelText("复制此步骤的链接");
       expect(buttons).toHaveLength(2);
       for (const b of buttons) fireEvent.click(b);
@@ -316,7 +316,7 @@ describe("timeline deeplinks", () => {
     await waitFor(() => {
       expect(updates.at(-1)?.searchParams.get("step")).toBe("s-thought");
     });
-    fireEvent.click(screen.getByLabelText("Close"));
+    fireEvent.click(screen.getByLabelText("关闭"));
     await waitFor(() => {
       expect(updates.at(-1)?.searchParams.get("step")).toBeNull();
     });

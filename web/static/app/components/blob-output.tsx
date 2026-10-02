@@ -29,7 +29,7 @@ export function BlobLoader({
   if (!ctx) {
     return (
       <div className="mt-1 text-[11px] text-muted-foreground">
-        truncated{totalBytes != null && <> — {kb(totalBytes)} total</>}
+        已截断{totalBytes != null && <> — 共 {kb(totalBytes)}</>}
       </div>
     );
   }
@@ -71,14 +71,14 @@ export function BlobLoader({
 
   return (
     <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-      <span>truncated{totalBytes != null && <> — {kb(totalBytes)} total</>}</span>
+      <span>已截断{totalBytes != null && <> — 共 {kb(totalBytes)}</>}</span>
       <button
         type="button"
         onClick={load}
         disabled={loading}
         className="text-foreground/80 underline-offset-2 hover:underline disabled:opacity-50"
       >
-        {loading ? "loading…" : "load full output"}
+        {loading ? "加载中…" : "加载完整输出"}
       </button>
       {error && <span className="text-red-600 dark:text-red-400">{error}</span>}
     </div>

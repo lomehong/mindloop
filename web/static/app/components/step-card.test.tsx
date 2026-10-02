@@ -32,7 +32,7 @@ describe("Slack source links", () => {
 
     render(<StepContent step={step} expandAll />);
 
-    const link = screen.getByRole("link", { name: /open in slack/i });
+    const link = screen.getByRole("link", { name: /在 Slack 中打开/ });
     expect(link.getAttribute("href")).toBe(sourceUrl);
   });
 });

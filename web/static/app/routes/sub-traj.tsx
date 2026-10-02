@@ -60,7 +60,7 @@ export default function SubTrajPage() {
           <EmptyHeader>
             <EmptyTitle>未找到轨迹</EmptyTitle>
             <EmptyDescription>
-              No trajectory {trajId} under {identityId}.
+              身份 {identityId} 下不存在轨迹 {trajId}。
             </EmptyDescription>
           </EmptyHeader>
         </Empty>

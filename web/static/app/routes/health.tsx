@@ -142,9 +142,8 @@ export default function HealthPage() {
           </div>
           {activity.state === "stalled" && (
             <div className="mt-3 text-xs text-amber-600 dark:text-amber-400">
-              Busy but the mind log has been quiet past the threshold — a
-              step may be hung (a hung step also holds off the dispatcher
-              watchdog).
+              忙碌中但思维日志已超过阈值没有动静——可能有步骤卡住了
+              （卡住的步骤也会拖住调度器的看门狗）。
             </div>
           )}
         </Section>
@@ -178,11 +177,11 @@ export default function HealthPage() {
                   value={fmtDuration(responses.p90_s) ?? "—"}
                 />
                 <Stat
-                  label={`fast path (${responses.paths?.fast.n ?? 0})`}
+                  label={`快速路径（${responses.paths?.fast.n ?? 0}）`}
                   value={fmtDuration(responses.paths?.fast.median_s ?? null) ?? "—"}
                 />
                 <Stat
-                  label={`in-run (${responses.paths?.inline.n ?? 0})`}
+                  label={`运行中回复（${responses.paths?.inline.n ?? 0}）`}
                   value={fmtDuration(responses.paths?.inline.median_s ?? null) ?? "—"}
                 />
               </div>
@@ -245,11 +244,11 @@ export default function HealthPage() {
                   <tr>
                     <th className="py-1 pr-4 font-normal">时间</th>
                     <th className="py-1 pr-4 font-normal">来自</th>
-                    <th className="py-1 pr-4 font-normal">reply via</th>
-                    <th className="py-1 pr-4 font-normal">total</th>
-                    <th className="py-1 pr-4 font-normal">note written</th>
-                    <th className="py-1 pr-4 font-normal">call in flight</th>
-                    <th className="py-1 font-normal">reply call</th>
+                    <th className="py-1 pr-4 font-normal">回复路径</th>
+                    <th className="py-1 pr-4 font-normal">总耗时</th>
+                    <th className="py-1 pr-4 font-normal">写入提示</th>
+                    <th className="py-1 pr-4 font-normal">等待在途调用</th>
+                    <th className="py-1 font-normal">回复调用</th>
                   </tr>
                 </thead>
                 <tbody className="font-mono">
@@ -262,7 +261,7 @@ export default function HealthPage() {
                       <td className="py-1 pr-4">
                         {event.path ?? (
                           <span className="text-amber-600 dark:text-amber-400">
-                            no reply
+                            未回复
                           </span>
                         )}
                       </td>
@@ -281,10 +280,9 @@ export default function HealthPage() {
                 </tbody>
               </table>
               <div className="mt-2 text-xs text-muted-foreground">
-                A message that arrives mid-run gets a dispatcher note in the
-                trajectory; "call in flight" is the wait for the running model
-                call to finish, "reply call" the one that composed the answer.
-                "fast" means the run ended first and the fast path replied.
+                运行中到达的消息会先在轨迹里写入一条调度器提示；「等待在途调用」
+                是等正在运行的模型调用结束的耗时，「回复调用」是组织答复的那次
+                调用；「快速」表示 run 先结束、由快速路径直接回复。
               </div>
             </>
           )}
@@ -293,8 +291,7 @@ export default function HealthPage() {
         <Section title="模型调用">
           {!responses?.model?.calls ? (
             <div className="text-sm text-muted-foreground">
-              窗口期内还没有打章的模型调用 (llm_s lands with the
-              observability deploy).
+              窗口期内还没有可统计的模型调用（llm_s 指标将随可观测性部署上线）。
             </div>
           ) : (
             <>
@@ -325,11 +322,11 @@ export default function HealthPage() {
                 <table className="mt-3 w-full text-left text-xs">
                   <thead className="text-muted-foreground">
                     <tr>
-                      <th className="py-1 pr-4 font-normal">day (utc)</th>
-                      <th className="py-1 pr-4 font-normal">calls</th>
-                      <th className="py-1 pr-4 font-normal">input</th>
-                      <th className="py-1 pr-4 font-normal">output</th>
-                      <th className="py-1 font-normal">thinking</th>
+                      <th className="py-1 pr-4 font-normal">日期（UTC）</th>
+                      <th className="py-1 pr-4 font-normal">调用</th>
+                      <th className="py-1 pr-4 font-normal">输入</th>
+                      <th className="py-1 pr-4 font-normal">输出</th>
+                      <th className="py-1 font-normal">思考</th>
                     </tr>
                   </thead>
                   <tbody className="font-mono">

@@ -86,10 +86,10 @@ export function RunGroupBlock({
                   : "text-amber-700 dark:text-amber-400"
             )}
           >
-            {run.status === "done" ? "done" : live ? "running" : "incomplete"}
+            {run.status === "done" ? "完成" : live ? "运行中" : "未完成"}
           </Badge>
           {duration && <span>{duration}</span>}
-          <span>{steps.length} steps</span>
+          <span>{steps.length} 步</span>
         </div>
       </button>
       {open && (

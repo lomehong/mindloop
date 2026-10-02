@@ -2,7 +2,7 @@ import { cn } from "~/lib/utils";
 
 function LoadingDots({
   className,
-  text = "Loading",
+  text = "加载中",
 }: {
   className?: string;
   text?: string;

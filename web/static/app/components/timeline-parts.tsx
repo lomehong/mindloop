@@ -148,7 +148,7 @@ export const StepCellButton = memo(function StepCellButton({
       }}
       title={
         idleCount
-          ? `[idle ×${idleCount}] ${idleSpan} quiet`
+          ? `[空闲 ×${idleCount}] ${idleSpan} 无活动`
           : `[${step.type}] ${step.preview}`
       }
     >
@@ -178,7 +178,7 @@ export const StepCellButton = memo(function StepCellButton({
           )}
         >
           {idleCount
-            ? `idle ×${idleCount} · ${idleSpan}`
+            ? `空闲 ×${idleCount} · ${idleSpan}`
             : step.preview || step.type}
         </span>
       )}
@@ -259,10 +259,10 @@ export const RunChip = memo(function RunChip({
           {route && <span className={palette.chipRoute}>→ {route} · </span>}
           {run.status !== "done" && !run.ended_ts
             ? live
-              ? "running"
-              : "incomplete"
-            : duration ?? "done"}
-          {iters > 0 && <> · {iters} iter</>}
+              ? "运行中"
+              : "未完成"
+            : duration ?? "完成"}
+          {iters > 0 && <> · {iters} 轮</>}
           {run.model && <> · {run.model.replace(/^claude-/, "")}</>}
         </span>
       </button>
@@ -302,7 +302,7 @@ export const LaneHeader = memo(function LaneHeader({
         key={lane.id}
         type="button"
         onClick={() => onToggle(lane.id)}
-        title={`expand ${lane.label}`}
+        title={`展开 ${lane.label}`}
         style={{ left, width, height: headerH }}
         className={cn(
           "absolute top-0 flex items-center justify-center rounded-t",
@@ -497,16 +497,16 @@ export function TimelineModals({
       {missing?.kind === "step" && identityId === null && (
         <Modal onClose={() => onDismissMissing("step")}>
           <div className="py-4 pr-8 text-sm text-muted-foreground">
-            This step is not in the loaded part of the timeline. Use “load
-            older” to page more history in, then open the link again.
+            该步骤不在时间线已加载的范围内。请先用「加载更早」翻出更多
+            历史，再重新打开此链接。
           </div>
         </Modal>
       )}
       {missing?.kind === "run" && (
         <Modal onClose={() => onDismissMissing("run")}>
           <div className="py-4 pr-8 text-sm text-muted-foreground">
-            This run is older than the loaded part of the timeline. Use
-            “load older” to page more history in, then open the link again.
+            该 run 早于时间线已加载的范围。请先用「加载更早」翻出更多
+            历史，再重新打开此链接。
           </div>
         </Modal>
       )}
@@ -526,7 +526,7 @@ export function FollowPill({ pinned, onResume }: FollowPillProps) {
       <div className="absolute bottom-3 right-3 z-30">
         <div className="flex items-center gap-1.5 rounded-full border bg-background/90 px-3 py-1.5 font-mono text-[11px] text-muted-foreground shadow-md backdrop-blur">
           <ArrowDownToLine className="h-3 w-3 text-green-500" />
-          following
+          跟随中
         </div>
       </div>
     );
@@ -539,7 +539,7 @@ export function FollowPill({ pinned, onResume }: FollowPillProps) {
         className="flex items-center gap-1.5 rounded-full border bg-background/90 px-3 py-1.5 font-mono text-[11px] shadow-md backdrop-blur hover:bg-accent"
       >
         <Pause className="h-3 w-3 text-amber-500" />
-        paused · resume
+        已暂停 · 恢复跟随
       </button>
     </div>
   );

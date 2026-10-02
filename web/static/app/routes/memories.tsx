@@ -42,7 +42,7 @@ function readableSlug(slug: string) {
   const readable = slug.replace(/[-_]+/g, " ").trim();
   return readable
     ? readable.charAt(0).toLocaleUpperCase() + readable.slice(1)
-    : "Untitled memory";
+    : "未命名记忆";
 }
 
 function memoryDate(created: string | null, mtime: number) {
@@ -268,7 +268,7 @@ export default function MemoriesPage() {
           <div className="min-h-72 min-w-0 flex-1 rounded-lg border bg-card p-4 sm:p-6">
             {!active ? (
               <div className="flex min-h-60 items-center justify-center text-sm text-muted-foreground">
-                Choose a different filter to view a memory.
+                换一个筛选条件以查看记忆。
               </div>
             ) : memory ? (
               <>

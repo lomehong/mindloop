@@ -74,7 +74,7 @@ function NewIdentityForm() {
   const mutation = useMutation({
     mutationFn: createIdentity,
     onSuccess: (created) => {
-      toast.success(`Created identity ${created.name}`);
+      toast.success(`已创建身份 ${created.name}`);
       queryClient.invalidateQueries({ queryKey: ["identities"] });
       setOpen(false);
       setName("");
@@ -138,8 +138,8 @@ function ImportIdentityForm() {
       const names = result.imported.map((i) => i.name);
       toast.success(
         names.length === 1
-          ? `Imported identity ${names[0]}`
-          : `Imported ${names.length} identities: ${names.join(", ")}`
+          ? `已导入身份 ${names[0]}`
+          : `已导入 ${names.length} 个身份：${names.join(", ")}`
       );
       queryClient.invalidateQueries({ queryKey: ["identities"] });
       setOpen(false);
@@ -160,7 +160,7 @@ function ImportIdentityForm() {
         onClick={() => setOpen(true)}
       >
         <Upload className="size-3" />
-        Import
+        导入
       </Button>
     );
   }
@@ -368,7 +368,7 @@ export default function Home() {
                       </TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">
                         {identity.thinkers_total > 0
-                          ? `${identity.thinkers_active}/${identity.thinkers_total} active`
+                          ? `${identity.thinkers_active}/${identity.thinkers_total} 活跃`
                           : "—"}
                       </TableCell>
                       <TableCell className="text-muted-foreground">

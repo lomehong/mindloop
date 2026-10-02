@@ -57,7 +57,7 @@ export function ExpandableText({
           onClick={() => setExpanded((v) => !v)}
           className="mt-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
         >
-          {expanded ? "show less" : "show more"}
+          {expanded ? "收起" : "展开更多"}
         </button>
       )}
     </div>

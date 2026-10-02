@@ -40,14 +40,14 @@ export function useThinkerMutation(identityId: string) {
       return stopThinkers(identityId, names, force ?? false);
     },
     onSuccess: (result) => {
-      const target = result.names.length ? result.names.join(", ") : "all thinkers";
+      const target = result.names.length ? result.names.join(", ") : "全部思考者";
       if (result.action === "step") {
-        toast.success(`Triggered ${target} — output lands in its log`);
+        toast.success(`已触发 ${target} — 输出会写入其日志`);
       } else {
         // The CLI reports progress on stderr; last line is the most useful.
         const lines = (result.stderr ?? "").split("\n").filter(Boolean);
         toast.success(
-          `${result.action === "start" ? "Started" : "Stopped"} ${target}`,
+          `${result.action === "start" ? "已启动" : "已停止"} ${target}`,
           { description: lines[lines.length - 1] }
         );
       }
@@ -83,7 +83,7 @@ export function StartStopButtons({
   if (!enabled) return null;
 
   const isAll = names.length === 0;
-  const label = isAll ? "all" : names.join(", ");
+  const label = isAll ? "全部" : names.join(", ");
 
   if (running) {
     return (
@@ -131,7 +131,7 @@ export function StartStopButtons({
       variant="outline"
       size="sm"
       disabled={mutation.isPending || startDisabled}
-      title={startDisabled ? startDisabledReason : `Start ${label}`}
+      title={startDisabled ? startDisabledReason : `启动 ${label}`}
       onClick={() => mutation.mutate({ action: "start", names })}
     >
       <Play className="size-3" />

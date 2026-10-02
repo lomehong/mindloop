@@ -64,7 +64,7 @@ function NodeRow({
           title={node.tldr ?? node.slug}
         >
           <span className="truncate">
-            {depth === 0 ? "root" : node.slug.slice(0, 8)}
+            {depth === 0 ? "主轨迹" : node.slug.slice(0, 8)}
           </span>
           {node.has_final ? (
             <Check className="h-2.5 w-2.5 shrink-0 text-green-600 dark:text-green-400" />
@@ -99,7 +99,7 @@ function NodeRow({
               className="py-0.5 font-mono text-[11px] text-muted-foreground hover:underline"
               style={{ paddingLeft: (depth + 1) * 12 + 16 }}
             >
-              …{children.length - shown} more
+              …还有 {children.length - shown} 个
             </button>
           )}
         </div>
@@ -129,7 +129,7 @@ export function ForkTree({
   return (
     <div>
       <h3 className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        Fork tree
+        分叉树
       </h3>
       <NodeRow
         identityId={identityId}

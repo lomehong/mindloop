@@ -27,7 +27,7 @@ function ThemeToggle() {
       size="icon"
       className="h-8 w-8"
       onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-      aria-label="Toggle theme"
+      aria-label="切换主题"
     >
       {resolvedTheme === "dark" ? (
         <Sun className="h-4 w-4" />
@@ -118,7 +118,7 @@ function LlmHealthChip() {
         className={`inline-flex h-8 items-center gap-1.5 font-mono text-[11px] leading-none hover:text-foreground ${
           hardFail ? "rounded bg-red-600/15 px-2 font-semibold text-red-600" : "text-muted-foreground"
         }`}
-        title={`LLM provider: ${health.status}${failLabel ? ` — ${failLabel}` : ""}`}
+        title={`LLM 供应商：${health.status}${failLabel ? ` — ${failLabel}` : ""}`}
         onClick={() => setOpen(!open)}
       >
         <span className={`inline-block h-2 w-2 rounded-full ${HEALTH_DOT[health.status]}`} />
@@ -130,10 +130,10 @@ function LlmHealthChip() {
           <div className="absolute right-0 top-8 z-50 w-80 space-y-2 rounded-md border bg-background p-3 text-xs shadow-md">
             <div className="flex items-baseline justify-between">
               <span className="font-medium">
-                LLM provider: <span className="font-mono">{health.status}</span>
+                LLM 供应商：<span className="font-mono">{health.status}</span>
               </span>
               <span className="text-[10px] text-muted-foreground">
-                {health.failures_1h} failure(s) in the last hour
+                最近一小时 {health.failures_1h} 次失败
               </span>
             </div>
             {last && !last.ok && (
@@ -143,23 +143,22 @@ function LlmHealthChip() {
                 }`}
               >
                 <div className="font-semibold">
-                  Last call failed: {failLabel}
-                  {last.http_code ? ` (HTTP ${last.http_code})` : ""}
+                  最近一次调用失败：{failLabel}
+                  {last.http_code ? `（HTTP ${last.http_code}）` : ""}
                 </div>
                 {last.message && (
                   <div className="mt-1 break-words text-[11px] text-muted-foreground">{last.message}</div>
                 )}
                 {last.kind === "credit" && (
                   <div className="mt-1 text-[11px]">
-                    The mind keeps trying but every thought fails until the key has credit.
+                    心智仍在持续尝试，但在密钥充值之前，每次思考都会失败。
                     {last.provider && LAST_CALL_HINT[last.provider] && (
                       <>
-                        {" "}
-                        Top up at{" "}
+                        前往{" "}
                         <a className="underline" href={LAST_CALL_HINT[last.provider]} target="_blank" rel="noreferrer">
                           {LAST_CALL_HINT[last.provider]}
                         </a>
-                         充值，或在服务根目录的 .env 里更新 key 后重启心智。
+                        {" "}充值，或在服务根目录的 .env 里更新 key 后重启心智。
                       </>
                     )}
                   </div>
@@ -167,31 +166,31 @@ function LlmHealthChip() {
                 {last.kind === "auth" && (
                   <div className="mt-1 text-[11px]">请在服务根目录的 .env 里填入有效的 key，然后重启心智。</div>
                 )}
-                {last.ts && <div className="mt-1 text-[10px] text-muted-foreground">last tried {last.ts}</div>}
+                {last.ts && <div className="mt-1 text-[10px] text-muted-foreground">最近尝试 {last.ts}</div>}
               </div>
             )}
             {health.identities.map((identity) => (
               <div key={identity.id} className="rounded border p-2">
                 <div className="flex items-baseline gap-2 font-mono">
                   <span>{identity.name}</span>
-                  {identity.live && <span className="text-green-600">live</span>}
+                  {identity.live && <span className="text-green-600">运行中</span>}
                   <span className="ml-auto text-muted-foreground">
                     {identity.failures_1h > 0
-                      ? `${identity.failures_1h} fail/h`
-                      : "no failures"}
+                      ? `${identity.failures_1h} 次失败/小时`
+                      : "无失败"}
                   </span>
                 </div>
                 {identity.cadence && (
                   <div className="text-muted-foreground">
-                    thought cadence: {identity.cadence.recent_median_s}s median
+                    思考节奏：中位 {identity.cadence.recent_median_s}s
                     {identity.cadence.baseline_median_s
-                      ? ` (baseline ${identity.cadence.baseline_median_s}s)`
+                      ? `（基线 ${identity.cadence.baseline_median_s}s）`
                       : ""}
                   </div>
                 )}
                 {identity.last_failure && (
                   <div className="mt-1 text-[10px] text-muted-foreground">
-                    last: {identity.last_failure.content}
+                    最近：{identity.last_failure.content}
                   </div>
                 )}
               </div>
@@ -212,8 +211,8 @@ function LlmHealthChip() {
                 {probe && (
                   <div className="font-mono text-[11px]">
                     {probe.ok
-                      ? `ok · ${probe.latency_ms}ms${probe.provider ? ` · via ${probe.provider}` : ""}`
-                      : `failed · ${probe.error}`}
+                      ? `成功 · ${probe.latency_ms}ms${probe.provider ? ` · 经由 ${probe.provider}` : ""}`
+                      : `失败 · ${probe.error}`}
                   </div>
                 )}
               </div>
@@ -265,14 +264,14 @@ function BuildMenu({ config }: { config: Config }) {
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-8 z-50 w-72 space-y-2 rounded-md border bg-background p-3 text-xs shadow-md">
             <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono">
-              <span className="text-muted-foreground">commit</span>
+              <span className="text-muted-foreground">提交</span>
               <span>
                 {config.git_commit}
                 {config.git_branch ? ` (${config.git_branch})` : ""}
               </span>
-              <span className="text-muted-foreground">version</span>
+              <span className="text-muted-foreground">版本</span>
               <span>{config.version}</span>
-              <span className="text-muted-foreground">root</span>
+              <span className="text-muted-foreground">根目录</span>
               <span className="break-all">{config.root}</span>
             </div>
             {config.self_update_enabled && controlsEnabled && (
@@ -284,7 +283,7 @@ function BuildMenu({ config }: { config: Config }) {
                 onClick={runUpdate}
               >
                 <RefreshCw className={`size-3 ${updating ? "animate-spin" : ""}`} />
-                {updating ? "Updating…" : "Pull latest & restart"}
+                {updating ? "更新中…" : "拉取最新并重启"}
               </Button>
             )}
           </div>

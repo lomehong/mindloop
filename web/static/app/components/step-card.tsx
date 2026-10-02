@@ -72,7 +72,7 @@ function OutputBlock({
           <BlobLoader blobRef={blobRef} totalBytes={totalBytes} />
         ) : (
           <div className="mt-1 text-[11px] text-muted-foreground">
-            truncated{totalBytes != null && <> — {kb(totalBytes)} total</>}
+            已截断{totalBytes != null && <> — 共 {kb(totalBytes)}</>}
           </div>
         ))}
     </div>
@@ -145,7 +145,7 @@ export function StepContent({
             )}
             {raw.timed_out === true && (
               <Badge variant="outline" className="text-[10px] text-amber-700 dark:text-amber-400">
-                timed out
+                已超时
               </Badge>
             )}
           </div>
@@ -177,7 +177,7 @@ export function StepContent({
         raw.model && `model ${str(raw.model)}`,
         raw.effort && `effort ${str(raw.effort)}`,
         (raw.env as { name?: string })?.name && `env ${(raw.env as { name?: string }).name}`,
-        raw.resumed === true && "resumed",
+        raw.resumed === true && "续跑",
       ].filter(Boolean) as string[];
       return (
         <div className="space-y-1.5">
@@ -188,7 +188,7 @@ export function StepContent({
               </Badge>
             ))}
           </div>
-          <CollapsedBlock summary={`command (${str(raw.command).length} chars)`} expandAll={expandAll}>
+          <CollapsedBlock summary={`命令（${str(raw.command).length} 字符）`} expandAll={expandAll}>
             <CodeBlock code={str(raw.command)} lang="bash" wrap />
           </CollapsedBlock>
         </div>
@@ -196,7 +196,7 @@ export function StepContent({
     }
     case "prompt":
       return (
-        <CollapsedBlock summary={`prompt (${str(raw.content).length} chars)`} expandAll={expandAll}>
+        <CollapsedBlock summary={`prompt（${str(raw.content).length} 字符）`} expandAll={expandAll}>
           <CodeBlock code={str(raw.content)} lang="text" wrap />
         </CollapsedBlock>
       );
@@ -206,7 +206,7 @@ export function StepContent({
         <div className="space-y-1.5">
           <div className="text-sm font-medium">{str(raw.tldr)}</div>
           {full && (
-            <CollapsedBlock summary="full summary" expandAll={expandAll}>
+            <CollapsedBlock summary="完整摘要" expandAll={expandAll}>
               <Markdown className="text-sm">{full}</Markdown>
             </CollapsedBlock>
           )}
@@ -224,7 +224,7 @@ export function StepContent({
           {content && (
             <div className="rounded border bg-muted/30 px-2 py-1.5">
               <div className="mb-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                result
+                结果
               </div>
               <ExpandableText text={content} expandAll={expandAll} />
             </div>
@@ -256,7 +256,7 @@ export function StepContent({
               rel="noreferrer"
               className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
             >
-              Open in Slack <ExternalLink className="h-3 w-3" />
+              在 Slack 中打开 <ExternalLink className="h-3 w-3" />
             </a>
           )}
         </div>
@@ -274,7 +274,7 @@ export function StepContent({
             </TrajLink>
           ) : (
             <span className="truncate" title="磁盘上未找到子轨迹">
-              {label} (unresolved)
+              {label}（未解析）
             </span>
           )}
         </div>
@@ -292,7 +292,7 @@ export function StepContent({
             <div className="flex items-center gap-1.5 font-mono text-[11px] text-fuchsia-600 dark:text-fuchsia-400">
               <Undo2 className="h-3 w-3" />
               <TrajLink trajId={step.writeback.from_traj}>
-                returned from {step.writeback.from_traj.slice(0, 8)} ↗
+                回写自 {step.writeback.from_traj.slice(0, 8)} ↗
               </TrajLink>
             </div>
           )}

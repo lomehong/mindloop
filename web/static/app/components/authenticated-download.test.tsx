@@ -110,7 +110,7 @@ it("下载进行中禁用重复点击，401 后显示凭据提示并允许再次
 
 it("完整输出读取及原始文件下载都携带凭据", async () => {
   mountBlob();
-  fireEvent.click(screen.getByRole("button", { name: "load full output" }));
+  fireEvent.click(screen.getByRole("button", { name: "加载完整输出" }));
   expect(await screen.findByText("完整测试输出")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "下载原始输出" }));
   await waitFor(() => expect(downloaded).toHaveLength(1));
@@ -121,7 +121,7 @@ it("完整输出读取及原始文件下载都携带凭据", async () => {
 it("完整输出的 401 使用统一提示且不显示未授权内容", async () => {
   failDownloads = true;
   mountBlob();
-  fireEvent.click(screen.getByRole("button", { name: "load full output" }));
+  fireEvent.click(screen.getByRole("button", { name: "加载完整输出" }));
   expect(await screen.findByText(/访问凭据缺失或已失效/)).toBeDefined();
   expect(screen.queryByText("完整测试输出")).toBeNull();
 });

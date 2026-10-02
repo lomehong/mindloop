@@ -18,9 +18,9 @@ import { cn } from "~/lib/utils";
 const DEBOUNCE_MS = 300;
 
 const SCOPE_HELP =
-  '"thoughts" searches the mind-level steps: thoughts, messages, ' +
-  'observations, actions. "everything" also searches run machinery: ' +
-  "prompts, model reasoning, and shell output — noisier, but complete.";
+  '「心智」只搜索心智层面的步骤：思考、消息、观察、行动；' +
+  '「全部」还会搜索运行机制：prompt、模型推理与 shell 输出' +
+  "——更嘈杂，但更完整。";
 
 function hitTime(ts: string | null): string {
   if (!ts) return "";
@@ -87,7 +87,7 @@ export function StepModal({
       >
         <button
           type="button"
-          aria-label="Close"
+          aria-label="关闭"
           className="absolute right-3 top-3 rounded p-1 hover:bg-accent"
           onClick={onClose}
         >
@@ -95,16 +95,15 @@ export function StepModal({
         </button>
         {isError ? (
           <div className="py-6 text-sm text-muted-foreground">
-            Step not found.
+            未找到步骤。
           </div>
         ) : !data ? (
-          <div className="py-6 text-sm text-muted-foreground">loading…</div>
+          <div className="py-6 text-sm text-muted-foreground">加载中…</div>
         ) : (
           <>
             <div className="mb-2 pr-8 font-mono text-[10px] text-muted-foreground">
-              step {data.index + 1}
-              {stepCount !== undefined && <> of {stepCount}</>} — older than
-              the loaded window
+              步骤 {data.index + 1}
+              {stepCount !== undefined && <> / 共 {stepCount} 步</>} — 早于已加载窗口
             </div>
             <StepCard step={data.step} expandAll />
           </>
@@ -182,10 +181,10 @@ export function MindlogSearch({
             <span>
               {data
                 ? data.total > hits.length
-                  ? `${hits.length} of ${data.total} matches`
-                  : `${data.total} match${data.total === 1 ? "" : "es"}`
+                  ? `${hits.length}/${data.total} 个匹配`
+                  : `${data.total} 个匹配`
                 : isFetching
-                  ? "searching…"
+                  ? "搜索中…"
                   : ""}
             </span>
             <div className="ml-auto flex items-center gap-1">
@@ -201,7 +200,7 @@ export function MindlogSearch({
                       : "hover:text-foreground"
                   )}
                 >
-                  {s === "all" ? "everything" : "thoughts"}
+                  {s === "all" ? "全部" : "心智"}
                 </button>
               ))}
               <TooltipProvider delayDuration={100}>
@@ -219,7 +218,7 @@ export function MindlogSearch({
           <div className="max-h-96 overflow-y-auto">
             {data && hits.length === 0 && !isFetching && (
               <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                No matches.
+                无匹配结果。
               </div>
             )}
             {hits.map((hit) => (
@@ -246,7 +245,7 @@ export function MindlogSearch({
                     {hit.type}
                   </span>
                   <span>{hitTime(hit.ts)}</span>
-                  {hit.index < windowStart && <span>· not loaded</span>}
+                  {hit.index < windowStart && <span>· 未加载</span>}
                 </div>
                 <div className="line-clamp-2 text-xs">
                   <Snippet text={hit.snippet} q={debouncedQ} />

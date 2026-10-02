@@ -514,13 +514,13 @@ export function TimelineView({
     <div className="relative">
       {hidden.size > 0 && (
         <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-          <span className="font-mono text-[10px] text-muted-foreground">hidden:</span>
+          <span className="font-mono text-[10px] text-muted-foreground">已隐藏：</span>
           {[...hidden].map((id) => (
             <button
               key={id}
               type="button"
               onClick={() => unhideLane(id)}
-              title={`show ${id}`}
+              title={`显示 ${id}`}
               className="flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <EyeOff className="h-2.5 w-2.5" />

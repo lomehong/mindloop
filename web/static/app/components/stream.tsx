@@ -92,7 +92,7 @@ export function IdleStrip({
       >
         <span className="h-px flex-1 bg-border" />
         <span className="font-mono">
-          idle ×{steps.length} ({first}–{last}) {show ? "hide" : "show"}
+          空闲 ×{steps.length}（{first}–{last}）{show ? "收起" : "展开"}
         </span>
         <span className="h-px flex-1 bg-border" />
       </button>

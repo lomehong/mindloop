@@ -127,9 +127,9 @@ function VersionCell({
           <>
             <Badge
               className="bg-amber-100 text-[10px] text-amber-800 dark:bg-amber-950 dark:text-amber-300"
-              title={`Differs from the bundled copy: ${sync.changed_files.join(", ")}`}
+              title={`与内置副本不一致的文件：${sync.changed_files.join(", ")}`}
             >
-              update available
+              有更新
             </Badge>
             {controlsEnabled && (
               <Button
@@ -137,18 +137,18 @@ function VersionCell({
                 size="sm"
                 className="h-6 px-1.5 text-[11px]"
                 disabled={pull.isPending}
-                title={`Pull bundled ${sync.name} (${sync.changed_files.join(", ")}); subscriptions and disabled marker are kept`}
+                title={`拉取内置 ${sync.name}（${sync.changed_files.join(", ")}）；订阅关系与停用标记会保留`}
                 onClick={() => pull.mutate([sync.name])}
               >
                 <DownloadCloud className="size-3" />
-                pull
+                拉取
               </Button>
             )}
           </>
         )}
         {sync.status === "local_only" && (
           <Badge variant="outline" className="text-[10px]" title="无内置对应物——拉取操作不会触及它">
-            local only
+            仅本地
           </Badge>
         )}
       </div>
@@ -179,7 +179,7 @@ function ThinkerRow({
       } else if (result.needs_restart) {
         toast.success(`已启用 ${result.name}`, {
           description:
-            "The running dispatcher won't see its subscriptions — stop and start thinkers to pick it up.",
+            "运行中的调度器还看不到它的订阅——需要停止再启动思考者才能生效。",
         });
       } else {
         toast.success(`已启用 ${result.name}`);
@@ -375,17 +375,17 @@ function StatusPanel({ identityId }: { identityId: string }) {
               )}
               {entry.status === "in_sync" && (
                 <Badge variant="outline" className="text-[10px]">
-                  up to date
+                  已是最新
                 </Badge>
               )}
               {entry.status === "outdated" && (
                 <Badge className="bg-amber-100 text-[10px] text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                  update available
+                  有更新
                 </Badge>
               )}
               {entry.status === "not_installed" && (
                 <Badge variant="outline" className="text-[10px]">
-                  not installed
+                  未安装
                 </Badge>
               )}
               {controlsEnabled &&
@@ -399,7 +399,7 @@ function StatusPanel({ identityId }: { identityId: string }) {
                     onClick={() => pull.mutate([entry.name])}
                   >
                     <DownloadCloud className="size-3" />
-                    {entry.status === "not_installed" ? "install" : "pull"}
+                    {entry.status === "not_installed" ? "安装" : "拉取"}
                   </Button>
                 )}
             </span>
@@ -410,11 +410,11 @@ function StatusPanel({ identityId }: { identityId: string }) {
               size="sm"
               className="ml-auto h-6 px-2 text-[11px]"
               disabled={pull.isPending}
-              title={`Pull ${outdated.map((entry) => entry.name).join(", ")}`}
+              title={`拉取 ${outdated.map((entry) => entry.name).join(", ")}`}
               onClick={() => pull.mutate(outdated.map((entry) => entry.name))}
             >
               <DownloadCloud className="size-3" />
-              Pull all updates
+              全部拉取
             </Button>
           )}
         </div>
@@ -450,19 +450,19 @@ function LogView({
   return (
     <div>
       <div className="mb-1.5 flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
-        <span>{formatBytes(log.total_bytes)} total</span>
+        <span>共 {formatBytes(log.total_bytes)}</span>
         {log.truncated && (
           <button
             type="button"
             onClick={() => setTailBytes((n) => n * 4)}
             className="hover:underline"
           >
-            showing last {formatBytes(tailBytes)} — load more
+            仅显示最后 {formatBytes(tailBytes)} — 加载更多
           </button>
         )}
       </div>
       <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-card p-3 font-mono text-[11px]">
-        {log.content || "(empty)"}
+        {log.content || "（空）"}
       </pre>
     </div>
   );
@@ -508,12 +508,12 @@ function DispatchView({
         >
           {event.kind === "step" && (
             <>
-              <span className="text-muted-foreground">step</span>
+              <span className="text-muted-foreground">步骤</span>
               <Badge variant="outline" className="text-[10px]">
                 {event.type}
               </Badge>
               {event.source && (
-                <span className="text-muted-foreground">from {event.source}</span>
+                <span className="text-muted-foreground">来自 {event.source}</span>
               )}
             </>
           )}
