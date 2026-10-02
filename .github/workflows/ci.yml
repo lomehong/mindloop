@@ -33,13 +33,24 @@ jobs:
         # 匿名可读（API 日志要 admin），CI 红时本地复现不用猜。
         # 注意：不用 `go test | tee` + pipefail——管道退出码会掺入
         # 下游命令的状态，与 go test 本身语义脱钩。
+        # -race 的 ubuntu job 用 -p 2 限制包级并行：2 核 runner 上
+        # 全量并行包 + -race 拖慢 3-5 倍，时序敏感测试（调度器投递、
+        # 出站泵）会被资源竞争饿到超预算（2026-10-02 起多次实证，
+        # 预算棘轮 connector 30s→90s、working 30s 只是止血）。串行
+        # 包换稳定，wall time 换取真红/假红的可判性。
         shell: bash
         run: |
           # shell: bash 实为 bash -eo pipefail——诊断用的 grep 无匹配
           # 会以 1 中止脚本，把全绿的 go test 打成失败（实证踩坑），
           # 先关掉 errexit，退出码全部显式取自 go test。
           set +e
-          go test ${{ matrix.os == 'ubuntu-latest' && '-race' || '' }} ./... > go-test.log 2>&1
+          flags=""
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            # -race 数据竞争检测；-p 2 限制包级并行（2 核 runner 上
+            # 全量并行 + -race 会把时序敏感测试饿到超预算）。
+            flags="-race -p 2"
+          fi
+          go test $flags ./... > go-test.log 2>&1
           status=$?
           cat go-test.log
           {

@@ -48,6 +48,11 @@ const monolithWakeType = "monolith-wake"
 // 承担，这里的秒级发现延迟（默认 poll=200ms）只影响停机恢复兜底。
 const pendingEveryTicks = 5
 
+// maxStepFails 是心跳连败退避的上限：连续这么多次 step 失败才按
+// 结构性故障退出（瞬时文件争用在退避窗口内自愈，见 Run 的注释）。
+// 10 次 × 递增退避 ≈ 11 秒的容忍窗。
+const maxStepFails = 10
+
 // Wake 是交给思考者的一次唤醒。
 type Wake struct {
 	// Step 是触发步骤；合成唤醒时是内存构造的步骤，不落盘。
@@ -265,6 +270,12 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 	d.logf("调度器启动，跟踪 %s", d.tl.Path)
 	tick := time.NewTicker(d.poll)
 	defer tick.Stop()
+	// 心跳连败容忍（roadmap §6 伴生发现的修复）：step 的错误源是
+	// 轨迹/待办/控制面的文件读取——Windows 文件争用的一次瞬时失败
+	// 不该永久杀死调度器（调度器死了心智就死了，前台模式无人重启）。
+	// 连败退避重试，单拍成功清零；连续 maxStepFails 次才按结构性
+	// 故障退出（服务模式由 RestartOnFailure 兜底重启）。
+	stepFails := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -280,8 +291,15 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 					d.logf("调度器优雅退出")
 					return nil
 				}
-				return err
+				stepFails++
+				if stepFails >= maxStepFails {
+					return fmt.Errorf("mind: 连续 %d 次心跳失败（结构性故障）: %w", stepFails, err)
+				}
+				d.logf("!! 心跳失败（连续 %d/%d，退避后重试）: %v", stepFails, maxStepFails, err)
+				time.Sleep(time.Duration(stepFails) * 200 * time.Millisecond)
+				continue
 			}
+			stepFails = 0
 		}
 	}
 }

@@ -47,7 +47,15 @@ func TryDirLock(ctx context.Context, dir string) (release func() error, owned bo
 	}
 	merr := os.Mkdir(dir, 0o755)
 	if merr == nil {
-		return claimDir(dir)
+		id, ok := dirIdentity(dir)
+		if !ok {
+			return nil, false, fmt.Errorf("mindloop: 锁 %s: 目录身份不可读", dir)
+		}
+		rel, owned, _, err := claimDir(dir, id)
+		if err != nil {
+			return nil, false, err
+		}
+		return rel, owned, nil
 	}
 	if !errors.Is(merr, os.ErrExist) && !errors.Is(merr, os.ErrPermission) {
 		return nil, false, fmt.Errorf("mindloop: 锁 %s: %w", dir, merr)
@@ -98,7 +106,11 @@ func acquireDirLock(ctx context.Context, dir string, timeout time.Duration) (fun
 		}
 		err := os.Mkdir(dir, 0o755)
 		if err == nil {
-			rel, _, cerr := claimDir(dir)
+			id, ok := dirIdentity(dir)
+			if !ok {
+				return nil, fmt.Errorf("mindloop: 锁 %s: 目录身份不可读", dir)
+			}
+			rel, _, _, cerr := claimDir(dir, id)
 			if cerr != nil {
 				return nil, cerr
 			}
@@ -215,7 +227,19 @@ func stealLock(dir string) (release func() error, ok bool) {
 	//（GOMAXPROCS=2 压测实证）。scratch 是我们独占的路径，声明无
 	// 竞争；rename 在目标已存在时失败 = 原路径已被并发方重占，放弃
 	// 并交还 scratch，绝不覆盖他人的锁。
-	rel, owned, err := claimDir(scratch)
+	//
+	// 残余窗（POSIX 特有）：挑战者的裸 mkdir 落在空窗内、其写属主
+	// 尚未发生时，我们的 rename-back 会在 POSIX 上替换掉它的空目录
+	//（rename(2) 对空目录目标有替换语义；Windows 的 MoveFileEx 不
+	// 能替换目录，结构上免疫）——挑战者随后会把属主写进我们的
+	// inode，双赢家。闭合靠身份守卫：mkdir 时记录文件身份，写属主
+	// 前后各验一次，被替换者放弃且绝不清理（清理会删掉赢家的锁）。
+	scratchID, ok := dirIdentity(scratch)
+	if !ok {
+		_ = os.RemoveAll(scratch)
+		return nil, false
+	}
+	rel, owned, claimed, err := claimDir(scratch, scratchID)
 	if err != nil || !owned {
 		_ = os.RemoveAll(scratch)
 		return nil, false
@@ -224,11 +248,22 @@ func stealLock(dir string) (release func() error, ok bool) {
 		_ = rel()
 		return nil, false
 	}
-	// release 要删的是声明后的最终路径（rel 闭包捕获的是 scratch）。
-	return func() error {
-		_ = rel()
-		return os.RemoveAll(dir)
-	}, true
+	// 终验：我们的属主声明必须原样在位。失败者已被身份守卫拦在写入
+	// 前（守卫的 pre-write 检查），这里是兜底——声明被迟到写入覆盖
+	// 就重写一次；仍不对则交还锁（宁可失败，不占身份不明的锁）。
+	for attempt := 0; attempt < 2; attempt++ {
+		data, rerr := os.ReadFile(filepath.Join(dir, ownerFile))
+		if rerr == nil && bytes.Equal(data, claimed) {
+			// release 要删的是声明后的最终路径（rel 闭包捕获的是 scratch）。
+			return func() error {
+				_ = rel()
+				return os.RemoveAll(dir)
+			}, true
+		}
+		_ = os.WriteFile(filepath.Join(dir, ownerFile), claimed, 0o644)
+	}
+	_ = rel()
+	return nil, false
 }
 
 // probeLock 描述锁的当前占用者，用于超时报错：运维拿到错误就能
@@ -261,29 +296,44 @@ func probeLock(dir string) string {
 // 独占，直接写入即可——读者要么读到完整的属主文件，要么读到半行
 // （解析失败后走宽限路径，同样保守）。绝不经过共享的临时文件：并
 // 发声明会互相踩踏，把彼此的锁整个删掉。
-// 写完读回校验：目录里的 owner.json 必须逐字节等于我们刚写的内容，
-// 否则说明声明被并发者覆盖（病理场景，宽限期本应挡住它）——交还
-// 锁并报错，绝不占着一把已被别人改写的锁。
-func claimDir(dir string) (release func() error, owned bool, err error) {
-	rel, claimed, werr := writeClaim(dir)
+//
+// 写完读回校验 + 文件身份守卫：wantID 是调用方在获得目录时记录的
+// 文件身份（mkdir 后 / scratch 隔离后）。写前、写后各验一次——
+// POSIX 上 rename 可替换空目录，声明中途目录可能被并发者的
+// rename-back 整体替换：身份变了说明路径已不属于我们，放弃且
+// 【绝不调用 rel 清理】（清理会 RemoveAll 赢家的锁）。
+func claimDir(dir string, wantID string) (release func() error, owned bool, claimed []byte, err error) {
+	if id, ok := dirIdentity(dir); !ok || id != wantID {
+		return nil, false, nil, fmt.Errorf("mindloop: 锁 %s: 声明前目录身份已变更（并发竞争，放弃）", dir)
+	}
+	rel, claimed, werr := writeClaim(dir, wantID)
 	if werr != nil {
-		return nil, false, werr
+		return nil, false, nil, werr
 	}
 	data, rerr := os.ReadFile(filepath.Join(dir, ownerFile))
 	if rerr != nil || !bytes.Equal(data, claimed) {
 		_ = rel()
-		return nil, false, fmt.Errorf("mindloop: 锁 %s: 属主文件写后即被覆盖", dir)
+		return nil, false, nil, fmt.Errorf("mindloop: 锁 %s: 属主文件写后即被覆盖", dir)
 	}
-	return rel, true, nil
+	if id, ok := dirIdentity(dir); !ok || id != wantID {
+		// 目录被整体替换：绝不清理（清理会删掉赢家的锁）。
+		return nil, false, nil, fmt.Errorf("mindloop: 锁 %s: 声明期间目录被整体替换（并发竞争，放弃）", dir)
+	}
+	return rel, true, claimed, nil
 }
 
-func writeClaim(dir string) (release func() error, claimed []byte, err error) {
+func writeClaim(dir string, wantID string) (release func() error, claimed []byte, err error) {
 	exe, _ := os.Executable()
 	o := lockOwner{PID: os.Getpid(), Created: NowString(), Exe: filepath.Base(exe)}
 	claimed, err = json.Marshal(o)
 	if err != nil {
 		os.RemoveAll(dir)
 		return nil, nil, fmt.Errorf("mindloop: 序列化锁属主: %w", err)
+	}
+	// 写前身份复验：身份已变就一个字节都不写——这是身份守卫闭合
+	// 双赢家窗口的关键半边（失败者绝不能覆盖赢家的属主文件）。
+	if id, ok := dirIdentity(dir); !ok || id != wantID {
+		return nil, nil, fmt.Errorf("mindloop: 锁 %s: 写属主前目录身份已变更（并发竞争，放弃）", dir)
 	}
 	if err := os.WriteFile(filepath.Join(dir, ownerFile), claimed, 0o644); err != nil {
 		os.RemoveAll(dir)
