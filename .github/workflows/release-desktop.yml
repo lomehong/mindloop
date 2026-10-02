@@ -33,6 +33,8 @@ jobs:
           go build -tags release -o
           desktop/src-tauri/binaries/mindloop-x86_64-pc-windows-msvc.exe
           ./cmd/mindloop
+      - name: 同步 viewer 资源（bundle.resources 需要）
+        run: Copy-Item -Recurse -Force web/static/build/client desktop/src-tauri/viewer-static
       - name: Tauri 打包（NSIS）
         working-directory: desktop
         run: npx @tauri-apps/cli@2 build
