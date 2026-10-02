@@ -17,6 +17,12 @@ web/static/node_modules/
 web/static/build/
 web/static/.react-router/
 
+# 桌面壳（desktop/）
+desktop/src-tauri/target/
+desktop/src-tauri/binaries/
+desktop/src-tauri/viewer-static/
+desktop/src-tauri/gen/schemas/
+
 # 临时文件
 .tmp_*
 go-test.zip

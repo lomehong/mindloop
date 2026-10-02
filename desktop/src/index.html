@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>mindloop</title>
+    <link rel="stylesheet" href="chrome.css" />
+  </head>
+  <body>
+    <header id="titlebar" data-tauri-drag-region>
+      <div class="brand" data-tauri-drag-region>
+        <span class="logo-dot" aria-hidden="true"></span>
+        <span class="name" data-tauri-drag-region>mindloop</span>
+      </div>
+      <div class="status" title="后端连接状态">
+        <span id="status-dot" class="dot connecting"></span>
+        <span id="status-text">连接中…</span>
+      </div>
+      <div class="spring" data-tauri-drag-region></div>
+      <div class="controls">
+        <button id="btn-min" title="最小化" aria-label="最小化">
+          <svg viewBox="0 0 10 10"><path d="M0 5h10" /></svg>
+        </button>
+        <button id="btn-max" title="最大化 / 还原" aria-label="最大化或还原">
+          <svg viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" /></svg>
+        </button>
+        <button id="btn-close" title="关闭（缩入托盘）" aria-label="关闭">
+          <svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" /></svg>
+        </button>
+      </div>
+    </header>
+
+    <main id="stage">
+      <div id="boot">
+        <span class="boot-dot" aria-hidden="true"></span>
+        <div id="boot-text">正在连接 mindloop…</div>
+        <div id="boot-detail"></div>
+        <button id="btn-retry" hidden>重试</button>
+      </div>
+      <iframe id="app-frame" hidden title="mindloop 仪表盘"></iframe>
+    </main>
+
+    <dialog id="quit-dialog">
+      <h2>退出 mindloop？</h2>
+      <p>
+        关闭窗口只是缩入托盘，mindloop 会继续运行。<b id="quit-scope"></b>
+      </p>
+      <label class="remember">
+        <input type="checkbox" id="quit-remember" />
+        不再询问，退出时直接停止 mindloop
+      </label>
+      <div class="dialog-actions">
+        <button id="quit-cancel">取消</button>
+        <button id="quit-confirm" class="primary">停止并退出</button>
+      </div>
+    </dialog>
+
+    <script src="chrome.js"></script>
+  </body>
+</html>
