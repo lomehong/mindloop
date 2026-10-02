@@ -118,6 +118,7 @@ func (c *CLI) newRootCmd() *cobra.Command {
 	root.SetVersionTemplate("mindloop v{{.Version}}\n")
 	root.AddCommand(
 		c.newInitCmd(),
+		c.newDoctorCmd(),
 		c.newRootChatCmd(),
 		c.newTrajCmd(),
 		c.newPromptCmd(),

@@ -77,7 +77,7 @@ func (c *CLI) runWeb(cfg *webCfg) error {
 	if root == "" {
 		root = identity.Home()
 	}
-	viewerDir, viewerFS, viewerOK := resolveViewerSource(cfg.viewerDir)
+	viewerDir, viewerFS, _, viewerOK := resolveViewerSource(cfg.viewerDir)
 	if cfg.viewerDir == "" && !viewerOK {
 		// 未显式指定也找不到构建产物：API 仍可用（curl/集成），
 		// 但不开浏览器——开一个 404 页面毫无意义。
@@ -127,21 +127,29 @@ func (c *CLI) runWeb(cfg *webCfg) error {
 	return nil
 }
 
+// viewer 来源分级：doctor 报告"命中哪一级"用。
+const (
+	tierFlag     = "flag"
+	tierEnv      = "env"
+	tierEmbedded = "embedded"
+	tierAuto     = "auto"
+)
+
 // resolveViewerSource 按 显式旗标 > MINDLOOP_VIEWER_DIR > 嵌入产物
 // （release 构建）> 磁盘自动探测 的顺序解析 viewer 来源。返回的
 // dir 与 fsys 至多一个非零（web.Config 同名二字段的语义）；ok 表示
 // 来源真的可用（磁盘：有 index.html；嵌入：FS 非 nil 且有
-// index.html）。
-func resolveViewerSource(flagValue string) (dir string, fsys fs.FS, ok bool) {
+// index.html）；tier 说明命中的是哪一级。
+func resolveViewerSource(flagValue string) (dir string, fsys fs.FS, tier string, ok bool) {
 	if flagValue != "" {
-		return flagValue, nil, viewerReady(flagValue)
+		return flagValue, nil, tierFlag, viewerReady(flagValue)
 	}
 	if env := os.Getenv("MINDLOOP_VIEWER_DIR"); env != "" {
-		return env, nil, viewerReady(env)
+		return env, nil, tierEnv, viewerReady(env)
 	}
 	if viewer.FS != nil {
 		if _, err := fs.Stat(viewer.FS, "index.html"); err == nil {
-			return "", viewer.FS, true
+			return "", viewer.FS, tierEmbedded, true
 		}
 	}
 	// 磁盘自动探测候选根（按优先级）：
@@ -173,10 +181,10 @@ func resolveViewerSource(flagValue string) (dir string, fsys fs.FS, ok bool) {
 	for _, r := range roots {
 		candidate := filepath.Join(r, rel)
 		if viewerReady(candidate) {
-			return candidate, nil, true
+			return candidate, nil, tierAuto, true
 		}
 	}
-	return "", nil, false
+	return "", nil, "", false
 }
 
 // viewerSourceLabel 是日志展示面：磁盘目录显示路径，嵌入产物显示
