@@ -170,7 +170,7 @@ func (s *WebSensor) reportFailure(ctx context.Context, onEvent func(PEvent), las
 	*lastFail = cause
 	onEvent(PEvent{
 		Kind: KindAnomaly, Subject: s.cfg.URL,
-		Dedup: "fail-" + time.Now().Format("2006-01-02-15"), // 同小时合并且判定层还有去重窗
+		Dedup:  "fail-" + time.Now().Format("2006-01-02-15"), // 同小时合并且判定层还有去重窗
 		Digest: "观察目标不可达: " + cause,
 	})
 	return false

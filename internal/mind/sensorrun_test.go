@@ -16,8 +16,8 @@ import (
 // stubSensor 是可编程的假感官：Watch 阻塞至 ctx 取消，测试经 fire
 // 直灌事件。
 type stubSensor struct {
-	id string
-	mu     sync.Mutex
+	id      string
+	mu      sync.Mutex
 	onEvent func(sensor.PEvent)
 }
 

@@ -48,6 +48,10 @@ const (
 	// s2+（s0/s1 是"只落轨迹不叫醒"的沉淀，
 	// dispatcher.route 按字段跳过），源字段
 	// source=sensor-id 参与 coalesced 分槽。
+	TypeTaste = "taste" // 味觉信号（operator 对产出的归因反馈）：
+	// signal=undo|approve|deny + cause（强制选因）+ run/source——
+	// S 阈值校准的证据面（perception.md Phase 4）。审批决定文件
+	// 是瞬态的（消费即删），归因必须自己落轨迹。
 )
 
 // reservedTypes 是结构性步骤类型，它们永远不会从环境继承 run id

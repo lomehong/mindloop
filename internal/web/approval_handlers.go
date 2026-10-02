@@ -18,6 +18,7 @@ import (
 
 	"github.com/lomehong/mindloop/internal/identity"
 	"github.com/lomehong/mindloop/internal/policy"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // handleApprovals 按路径段分流审批控制面；方法路由与任务面同风格
@@ -41,6 +42,15 @@ func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request, id *ide
 		}
 		if err := policy.Decide(dir, full, rest[1] == "approve"); err != nil {
 			writeApprovalError(w, err)
+			return
+		}
+		// 味觉落轨迹（持久证据；失败不影响决定——决定已生效）。
+		signal := "approve"
+		if rest[1] != "approve" {
+			signal = "deny"
+		}
+		if err := traj.AppendTasteStep(r.Context(), id.Timeline, signal, "", full); err != nil {
+			writeJSON(w, 200, map[string]string{"hash": full, "decision": rest[1], "taste": "落盘失败"})
 			return
 		}
 		writeJSON(w, 200, map[string]string{"hash": full, "decision": rest[1]})

@@ -81,6 +81,12 @@ func (c *CLI) runStats(identityName string, days int, idleWindow time.Duration) 
 
 		st := obs.Derive(filtered, idleWindow)
 		c.printIdentityStats(name, st, c.taskCompletion(id), obs.LoadAdmission(id.Dir))
+		// 味觉投影（舌的证据面，perception.md Phase 4）：撤销归因/
+		// 审批/漏报匹配——窗口与台账同窗。读不动轨迹时静默跳过
+		//（stats 是评估面不是门禁）。
+		if taste, err := obs.DeriveTaste(id.Timeline, id.Name, windowStart); err == nil {
+			c.printTaste(taste)
+		}
 		shown++
 	}
 
@@ -151,6 +157,22 @@ func (c *CLI) printBudget(ad obs.AdmissionStatus) {
 	if ad.CoolingUntil != "" {
 		fmt.Fprintf(c.stdout, "  准入    ⚠ 熔断冷却中（至 %s）\n", ad.CoolingUntil)
 	}
+}
+
+// printTaste 味觉证据面一行：撤销归因（只有 proposal-redundant 算
+// "阈值过紧"证据）、审批、漏报匹配（operator 的话提及 S0 沉淀的
+// subject = 该报没报）。全零时打印提示（学习期通常如此）。
+func (c *CLI) printTaste(t obs.TasteSummary) {
+	if t.Undoes == 0 && t.Approves == 0 && t.Denies == 0 && t.MissedReports == 0 {
+		fmt.Fprintln(c.stdout, "  味觉    （窗口内无归因信号——undo --because / approve 落轨迹后出现）")
+		return
+	}
+	line := fmt.Sprintf("  味觉    撤销 %d（提案多余 %d）｜批准 %d｜拒绝 %d",
+		t.Undoes, t.UndoThresholdTight, t.Approves, t.Denies)
+	if t.MissedReports > 0 {
+		line += fmt.Sprintf("｜⚠ 漏报匹配 %d 次（%s）", t.MissedReports, strings.Join(t.MissedSubjects, "、"))
+	}
+	fmt.Fprintln(c.stdout, line)
 }
 
 func (c *CLI) printTotals(st obs.Stats) {

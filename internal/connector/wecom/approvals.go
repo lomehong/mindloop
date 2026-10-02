@@ -19,6 +19,7 @@ import (
 
 	"github.com/lomehong/mindloop/internal/connector/ws"
 	"github.com/lomehong/mindloop/internal/policy"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // clickRe 匹配审批按钮 event_key：approve/deny:<短token>。
@@ -119,6 +120,16 @@ func (b *Bridge) handleCardClick(ctx context.Context, f parsedFrame, ev eventBod
 		if err := policy.Decide(dir, hash, decision == "approve"); err != nil {
 			b.logf("审批决策落盘失败: %v", err)
 			return
+		}
+		// 味觉落轨迹（持久证据；失败只记日志——决定已生效）。
+		signal := "approve"
+		if decision != "approve" {
+			signal = "deny"
+		}
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := traj.AppendTasteStep(ctx, b.opts.Timeline, signal, "", hash); err != nil {
+			b.logf("味觉归因落盘失败（决定已生效）: %v", err)
 		}
 	}
 	outcome := "已拒绝"

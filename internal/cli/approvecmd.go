@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -34,7 +36,7 @@ id/前缀（mindloop run 场景）。
   mindloop approve ada 3f2a1b7c --deny # 拒绝`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir, err := approvalDir(args[0])
+			tl, dir, err := approvalTarget(args[0])
 			if err != nil {
 				return c.fail(err)
 			}
@@ -43,6 +45,17 @@ id/前缀（mindloop run 场景）。
 			}
 			if err := policy.Decide(dir, args[1], !denyP); err != nil {
 				return c.fail(err)
+			}
+			// 味觉落轨迹：决定文件是瞬态的（gate 消费即删），持久
+			// 证据自己写。失败只提示——决定本身已生效。
+			signal := "approve"
+			if denyP {
+				signal = "deny"
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := traj.AppendTasteStep(ctx, tl, signal, "", args[1]); err != nil {
+				fmt.Fprintf(c.stderr, "⚠ 味觉归因落盘失败（决定已生效）: %v\n", err)
 			}
 			verb := "已批准"
 			if denyP {
@@ -56,16 +69,17 @@ id/前缀（mindloop run 场景）。
 	return cmd
 }
 
-// approvalDir 解析授权控制面目录：先按身份名（心智场景），再按全局
-// 轨迹 id/前缀（run 场景）。都不匹配时给出可执行的下一步。
-func approvalDir(target string) (string, error) {
+// approvalTarget 解析授权控制面的轨迹与目录：先按身份名（心智场景），
+// 再按全局轨迹 id/前缀（run 场景）。味觉归因需要轨迹写位，所以
+// 返回 Timeline 本体。
+func approvalTarget(target string) (*traj.Timeline, string, error) {
 	if id, err := identity.Load(target); err == nil {
-		return policy.Dir(id.Timeline.Dir), nil
+		return id.Timeline, policy.Dir(id.Timeline.Dir), nil
 	}
 	if tl, err := traj.Load(target); err == nil {
-		return policy.Dir(tl.Dir), nil
+		return tl, policy.Dir(tl.Dir), nil
 	}
-	return "", fmt.Errorf("没有匹配 %q 的身份或轨迹——身份用 mindloop identity list 查看；轨迹 id 由 mindloop run 的 <traj> 参数给出", target)
+	return nil, "", fmt.Errorf("没有匹配 %q 的身份或轨迹——身份用 mindloop identity list 查看；轨迹 id 由 mindloop run 的 <traj> 参数给出", target)
 }
 
 // printPendingApprovals 渲染待批脚本：哈希前缀、归属、有效期、风险

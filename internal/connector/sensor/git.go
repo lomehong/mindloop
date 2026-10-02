@@ -101,7 +101,7 @@ func (s *GitSensor) Watch(ctx context.Context, onEvent func(PEvent)) error {
 			}
 			onEvent(PEvent{
 				Kind: KindChanged, Subject: dir + "@" + branch,
-				Dedup: head, // 指纹 = 新提交号：同一提交不重复报
+				Dedup:  head, // 指纹 = 新提交号：同一提交不重复报
 				Digest: fmt.Sprintf("%s 有新提交 %s: %s", branch, short, subject),
 			})
 			lastHead = head
@@ -113,7 +113,7 @@ func (s *GitSensor) Watch(ctx context.Context, onEvent func(PEvent)) error {
 			}
 			onEvent(PEvent{
 				Kind: KindChanged, Subject: dir + ":worktree",
-				Dedup: dirty, // 指纹 = 工作区内容哈希
+				Dedup:  dirty, // 指纹 = 工作区内容哈希
 				Digest: fmt.Sprintf("工作区变更 %d 个路径（未提交）", n),
 			})
 			lastDirty = dirty

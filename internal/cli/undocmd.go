@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -23,7 +25,7 @@ var runIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 func (c *CLI) newUndoCmd() *cobra.Command {
 	var yesP, forceP bool
-	var identityP string
+	var identityP, becauseP string
 	cmd := &cobra.Command{
 		Use:   "undo <traj> [run-id]",
 		Short: "撤销一次运行的文件效果（恢复到执行前的工作目录）",
@@ -35,24 +37,41 @@ func (c *CLI) newUndoCmd() *cobra.Command {
 定位。不带 run-id 时列出该轨迹的全部快照。边界（如实声明）：快照
 只覆盖运行工作目录（<轨迹>/runs/<run_id>）之内——脚本写目录外的
 行为不在恢复范围；超限大文件（>4MB）只记录不备份，恢复时如实报告
-"不可自动恢复"。`,
+"不可自动恢复"。
+
+--because 归因（味觉证据面，perception.md Phase 4）：撤销的原因
+决定它在 S 阈值校准里的权重——只有 proposal-redundant（提案本身
+多余）算"阈值过紧"的证据；execution-failed/changed-mind 与感知
+无关。因果混淆是校准的大敌，选因是顺手的一步。`,
 		Example: `  mindloop undo runner-demo              # 列出可撤销的运行
   mindloop undo runner-demo run-01       # 恢复指定运行（会先确认）
   mindloop undo runner-demo run-01 --yes
-  mindloop undo --identity ada run-01 --yes`,
+  mindloop undo --identity ada run-01 --yes --because proposal-redundant`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return c.runUndo(args, identityP, yesP, forceP)
+			return c.runUndo(args, identityP, yesP, forceP, becauseP)
 		},
 	}
 	fs := cmd.Flags()
 	fs.BoolVar(&yesP, "yes", false, "跳过确认")
 	fs.BoolVar(&forceP, "force", false, "对已撤销过的快照强制再恢复一次")
 	fs.StringVar(&identityP, "identity", "", "用身份的根轨迹定位（替代 <traj>，此时 <traj> 位置填 run-id）")
+	fs.StringVar(&becauseP, "because", "", "撤销归因（味觉证据面）: proposal-redundant|execution-failed|changed-mind")
 	return cmd
 }
 
-func (c *CLI) runUndo(args []string, identityName string, yes, force bool) error {
+// undoCauses 是撤销归因的封闭词表：proposal-redundant 是唯一的
+// "阈值过紧"证据（校准语义见 newUndoCmd 的 Long）。
+var undoCauses = map[string]bool{
+	"proposal-redundant": true,
+	"execution-failed":   true,
+	"changed-mind":       true,
+}
+
+func (c *CLI) runUndo(args []string, identityName string, yes, force bool, because string) error {
+	if because != "" && !undoCauses[because] {
+		return usageErr("--because 只接受 proposal-redundant|execution-failed|changed-mind")
+	}
 	var tl *traj.Timeline
 	var runArgs []string
 	switch {
@@ -114,6 +133,20 @@ func (c *CLI) runUndo(args []string, identityName string, yes, force bool) error
 		fmt.Fprintf(c.stdout, "⚠ 以下文件超限未备份，无法自动恢复，请人工处理:\n")
 		for _, rel := range skipped {
 			fmt.Fprintf(c.stdout, "  %s\n", rel)
+		}
+	}
+	// 味觉落轨迹（--because 提供时）：审批决定文件是瞬态的，归因
+	// 必须自己落轨迹才是持久证据。落盘失败不回滚恢复本身——证据
+	// 是增强，不是事务的一部分。
+	if because != "" {
+		s := traj.NewStep(traj.TypeTaste)
+		s.Fields["signal"] = "undo"
+		s.Fields["run"] = runID
+		s.Fields["cause"] = because
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := tl.Append(ctx, s); err != nil {
+			fmt.Fprintf(c.stdout, "⚠ 味觉归因落盘失败（恢复已完成）: %v\n", err)
 		}
 	}
 	return nil

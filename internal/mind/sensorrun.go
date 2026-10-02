@@ -63,13 +63,13 @@ func NewSensorRunner(opts SensorRunnerOptions) *SensorRunner {
 type SensorRunner struct {
 	opts SensorRunnerOptions
 
-	mu       sync.Mutex
-	running  map[string]*runningSensor
-	states   map[string]*sensor.State
-	buckets  map[string]*sensor.Bucket
+	mu        sync.Mutex
+	running   map[string]*runningSensor
+	states    map[string]*sensor.State
+	buckets   map[string]*sensor.Bucket
 	firstSeen map[string]time.Time // 学习期起点（sensors-state.json 持久化）
-	cancel   context.CancelFunc
-	ctx      context.Context
+	cancel    context.CancelFunc
+	ctx       context.Context
 }
 
 type runningSensor struct {
@@ -144,8 +144,10 @@ func (r *SensorRunner) logf(format string, args ...any) {
 	}
 }
 
-func (r *SensorRunner) cfgPath() string   { return filepath.Join(r.opts.IdentityDir, "sensors.json") }
-func (r *SensorRunner) statePath() string { return filepath.Join(r.opts.IdentityDir, "sensors-state.json") }
+func (r *SensorRunner) cfgPath() string { return filepath.Join(r.opts.IdentityDir, "sensors.json") }
+func (r *SensorRunner) statePath() string {
+	return filepath.Join(r.opts.IdentityDir, "sensors-state.json")
+}
 
 // learnDaysLocked 折算全局学习期天数。调用方须持 r.mu。
 func (r *SensorRunner) learnDaysLocked() int {

@@ -32,13 +32,13 @@ const (
 
 // 事件种类词表（event 步骤的 kind 字段）。
 const (
-	KindChanged   = "changed"   // 已观察主体的内容变化
-	KindAppeared  = "appeared"  // 新主体出现
-	KindRemoved   = "removed"   // 主体消失
-	KindSpike     = "spike"     // 速率突增（鼻）
-	KindThreshold = "threshold" // 阈值越界（鼻/内感受）
-	KindAnomaly   = "anomaly"   // 模式异常（鼻）
-	KindAbsence   = "absence"   // 缺席：心跳类感官该来的没来
+	KindChanged   = "changed"     // 已观察主体的内容变化
+	KindAppeared  = "appeared"    // 新主体出现
+	KindRemoved   = "removed"     // 主体消失
+	KindSpike     = "spike"       // 速率突增（鼻）
+	KindThreshold = "threshold"   // 阈值越界（鼻/内感受）
+	KindAnomaly   = "anomaly"     // 模式异常（鼻）
+	KindAbsence   = "absence"     // 缺席：心跳类感官该来的没来
 	KindGateDeny  = "gate-denied" // 预算拒绝的 S2 降级归因（monolith 写）
 )
 

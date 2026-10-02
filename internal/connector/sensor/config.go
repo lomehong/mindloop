@@ -45,8 +45,8 @@ type SensorConfig struct {
 	Type string `json:"type"` // file | git | web | webhook | self
 
 	// 观察目标（按类型取用）：
-	Path  string `json:"path,omitempty"`  // file/git：目录或仓库
-	URL   string `json:"url,omitempty"`   // web：http(s) URL 或 feed
+	Path   string `json:"path,omitempty"`   // file/git：目录或仓库
+	URL    string `json:"url,omitempty"`    // web：http(s) URL 或 feed
 	Secret string `json:"secret,omitempty"` // webhook：HMAC 共享密钥（装配层生成，不进 git）
 
 	// Interval 是 web/git 轮询间隔（"5m" 形态）；下限 5 分钟
@@ -58,7 +58,7 @@ type SensorConfig struct {
 
 	// Salience 覆盖缺省分档。
 	Salience struct {
-		Default Salience      `json:"default,omitempty"` // 缺省档（未填 = 按类型缺省）
+		Default Salience       `json:"default,omitempty"` // 缺省档（未填 = 按类型缺省）
 		Rules   []SalienceRule `json:"rules,omitempty"`
 	} `json:"salience,omitempty"`
 
