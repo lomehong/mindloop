@@ -136,6 +136,7 @@ func (c *CLI) newRootCmd() *cobra.Command {
 		c.newMCPCmd(),
 		c.newTaskCmd(),
 		c.newScheduleCmd(),
+		c.newSensorsCmd(),
 		c.newConnectorCmd(),
 		c.newServiceCmd(),
 		c.newLlmCmd(),

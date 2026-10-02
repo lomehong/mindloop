@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/lomehong/mindloop/internal/connector/sensor"
 	"github.com/lomehong/mindloop/internal/identity"
 	"github.com/lomehong/mindloop/internal/mcp"
 	"github.com/lomehong/mindloop/internal/obs"
@@ -74,6 +75,7 @@ func (c *CLI) runDoctor(identityName string, noProbe bool) error {
 		c.doctorSkills(identityName),
 		c.doctorMCP(identityName),
 		c.doctorBudget(identityName),
+		c.doctorSensors(identityName),
 		doctorPolicy(),
 	}
 
@@ -299,6 +301,53 @@ func (c *CLI) doctorBudget(identityName string) *doctorCheck {
 	default:
 		ck.pass(detail)
 	}
+	return ck
+}
+
+// doctorSensors 感官配置体检（第八项，perception.md §5 Phase 1）：
+// sensors.json 可解析（整包校验）+ 观察目标可达 + 自发档预算提醒
+// ——配置错误绝不静默，"感知没醒"要能诊断。
+func (c *CLI) doctorSensors(identityName string) *doctorCheck {
+	ck := &doctorCheck{name: "感知"}
+	if identityName == "" {
+		ck.pass("按身份配置——加 --identity <名字> 检查 sensors.json")
+		return ck
+	}
+	dir := filepath.Join(identity.Home(), identityName)
+	file, err := sensor.Load(filepath.Join(dir, "sensors.json"))
+	if err != nil {
+		ck.fail(err.Error())
+		return ck
+	}
+	if file == nil || len(file.Sensors) == 0 {
+		ck.pass("未配置（sensors add file|git|web 可接入观察目标）")
+		return ck
+	}
+	var problems []string
+	enabled := 0
+	for _, cfg := range file.Sensors {
+		if !cfg.IsEnabled() {
+			continue
+		}
+		enabled++
+		switch cfg.Type {
+		case "file", "git":
+			if _, err := os.Stat(cfg.Path); err != nil {
+				problems = append(problems, fmt.Sprintf("%s（目标不可达: %s）", cfg.ID, cfg.Path))
+			}
+		}
+	}
+	// 预算提醒：启用感官而未设自发档预算——首个坏体验是账单不是
+	// 打扰（perception.md §6）。
+	if enabled > 0 && os.Getenv("MINDLOOP_SPONTANEOUS_TOKENS") == "" {
+		problems = append(problems, "未设 MINDLOOP_SPONTANEOUS_TOKENS（感官唤醒无自发档预算上限）")
+	}
+	detail := fmt.Sprintf("%d 个感官（%d 启用）", len(file.Sensors), enabled)
+	if len(problems) > 0 {
+		ck.warn(detail + "；" + strings.Join(problems, "；"))
+		return ck
+	}
+	ck.pass(detail)
 	return ck
 }
 

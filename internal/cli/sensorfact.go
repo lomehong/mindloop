@@ -16,9 +16,14 @@ import (
 func sensorFactory(id *identity.Identity) mind.SensorFactory {
 	return func(cfg sensor.SensorConfig) (sensor.Sensor, error) {
 		switch cfg.Type {
+		case "file":
+			return sensor.NewFileSensor(cfg)
+		case "git":
+			return sensor.NewGitSensor(cfg)
+		case "web":
+			return sensor.NewWebSensor(cfg)
 		default:
-			return nil, fmt.Errorf("sensor: 类型 %q 尚未实现（当前支持：%s）",
-				cfg.Type, "file git web webhook self")
+			return nil, fmt.Errorf("sensor: 类型 %q 尚未接入（当前支持：file git web）", cfg.Type)
 		}
 	}
 }
