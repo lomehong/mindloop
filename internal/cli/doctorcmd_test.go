@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -91,20 +92,24 @@ func TestDoctorMCPBrokenCommand(t *testing.T) {
 	}
 }
 
-// TestDoctorTierLabel：viewer 来源分级进入体检输出（本机命中哪级
-// 都行，但必须带可读的分级说明）。
+// TestDoctorTierLabel：viewer 来源分级进入体检输出。来源显式钉在
+// "环境变量指定"档（伪造一份已构建产物——index.html 即视为就绪），
+// 测试不依赖机器上是否真的构建过前端（CI 的 go job 不构建）。
 func TestDoctorTierLabel(t *testing.T) {
-	newTestHome(t)
+	home := newTestHome(t)
 	t.Setenv("MINDLOOP_MODEL", "echo")
+	distDir := filepath.Join(home, "viewer-dist")
+	if err := os.MkdirAll(distDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeHomeFile(t, home, filepath.Join("viewer-dist", "index.html"), "<html>x</html>")
+	t.Setenv("MINDLOOP_VIEWER_DIR", distDir)
+
 	code, out, _ := runCLI(t, "doctor", "--no-probe")
 	if code != 0 {
 		t.Fatalf("exit = %d:\n%s", code, out)
 	}
-	found := strings.Contains(out, "磁盘自动探测") ||
-		strings.Contains(out, "内嵌（release 构建）") ||
-		strings.Contains(out, "旗标指定") ||
-		strings.Contains(out, "环境变量指定")
-	if !found {
-		t.Fatalf("viewer 行应带来源分级:\n%s", out)
+	if !strings.Contains(out, "viewer-dist") || !strings.Contains(out, "环境变量指定") {
+		t.Fatalf("viewer 行应报告环境变量指定的来源分级:\n%s", out)
 	}
 }
