@@ -2,7 +2,9 @@
 
 状态：v2 已按评审修订（2026-09-27）——TriggerSelf 修正为 false（零代码
 守卫）、quiet 重写为有效触发时刻单一函数模型、every+task 类型模型与
-幂等键钉死、coalesced 描述与机制对齐。待实施。
+幂等键钉死、coalesced 描述与机制对齐。**Phase 1–3 已实施（2026-09-27
+实测推送企微成功）；Phase 4 待实施。** 2026-10-02 感知系统立项后：
+§3 触发源矩阵增补第⑤行（感知事件），§4 增补 S/L 分级交叉表。
 依赖：connectors.md（外发通道）；本文件可先行实施其本地部分
 关联：`internal/schedule`（at+task/every+exec）、`internal/mind/dispatcher.go`
 （WantWake/订阅面）、`internal/obs`（用量台账）、`internal/recap`
@@ -40,6 +42,11 @@
 | ② 周期巡检 | **every+task（新增组合）** | 模型：无事则空唤醒结束，零输出 | 高频低耗（REQUEST_MODEL 档） |
 | ③ 异常告警 | **exec 失败钩子写 alert 步骤（新类型）** | 代码保证叫醒，模型判断升级与否 | 仅失败时 |
 | ④ 自主自查 | WantWake（已有） | 模型 | 教学层面收编 |
+| ⑤ 感知事件 | **event 步骤（2026-10-02 新增，权威定义见 `perception.md` §4）** | 反射层代码判定 S0-S3，S2 进订阅面叫醒 | S0-S1 零模型；S2 走自发档预算 |
+
+选型律（perception.md §6）：世界状态可代码判定的用感官（⑤），
+需要模型判断内容的用巡检（②）——KindPatrol 不废弃，远期收编进
+event 管线。
 
 ### 3.1 every+task：周期巡检任务
 
@@ -180,6 +187,12 @@ func effectiveFires(p Parsed, lastSeen, now time.Time) []Fire
 | L4 告警 | exec 失败升级、健康异常 | 思考档（评估后） | ≤150 字 |
 
 降噪纪律（全部是教学与配置，不是代码）：
+
+**S/L 分级交叉表（2026-10-02 补，S 级权威定义在 `perception.md`
+§4.3）**：S0 不产生通知（仅轨迹沉淀）；S1 → L2 素材（进报告/巡检
+投影，受 top-k 容量上限约束）；S2 → 对话流回复（`to=operator`，
+不上手机通道，见 perception §6）；S3 → L4 告警（按模板路由）。
+
 1. **无事不报是一等公民**：every+task 模板首句永远是"无新事项则直接
    FINAL"；空唤醒走 REQUEST 档，成本有界（双模型分层保证）。
 2. **报告先落盘后摘要**：全文在 `activity/reports/`（或推广的
