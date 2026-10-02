@@ -168,9 +168,7 @@ internal/connector/ws 保留为认知锚点）。
   事件出口；JSONL 撕裂语义统一 + `mindloop gc` 轮转归档；故障注入
   进 CI（含 steal 锁残余双赢家窗口的追查，见 0.7.0 已知问题）。
 
-## 4. 明确不做 / 反对项（评审结论存档）
-
-- **不用 JSON mode/结构化输出替代 bash+FINAL**：副作用协议是对格式
+## 4. 明确不做 / 反对项（评审结论存档）- **不用 JSON mode/结构化输出替代 bash+FINAL**：副作用协议是对格式
   漂移的免疫设计，是资产不是债。
 - **不做分布式调度器**：背压二分、watchdog、冷启动不重放的正确性
   全部建立在"单目录锁 + 单 EOF"上；多设备 = 轨迹整体迁移，不拆脑。
@@ -190,3 +188,14 @@ internal/connector/ws 保留为认知锚点）。
   再动手；门禁残余用"换形状"手段，不用抑制注释（无效）。
 - **现状校准**：扩充本路线前先对照 CHANGELOG——README 的进度
   描述可能滞后于 0.7.0 实际落地内容。
+
+## 6. 已知问题（2026-10-02 记录）
+
+- **working 投影测试间歇挂起**：全量并行测试负载下，
+  `TestDispatcherWorkingProjectionLifecycle` / `...QuarantineRetainsEntry`
+  偶发"思考者释放后 working 文件永不回收"（120s 不恢复；单跑与
+  受影响包合跑必绿，间歇复现，16 核本机实证）。测试内已埋自诊断：
+  失败时自动导出 working 文件内容与全场 goroutine 栈
+  （working_test.go 的 Cleanup 埋点）——下次失败即有现场。怀疑
+  方向：dispatcher 的迟归思考者释放后回收路径丢失唤醒，或 Windows
+  文件删除挂起（delete-pending）。待现场驱动排查，不要盲改。

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -60,9 +61,26 @@ func TestDispatcherWorkingProjectionLifecycle(t *testing.T) {
 		t.Fatalf("busy[0].since = %q 不是 RFC3339: %v", e.Since, err)
 	}
 
-	// 释放后：忙集变空，文件删除。
+	// 释放后：忙集变空，文件删除。已知问题（2026-10-02 记录）：全量
+	// 并行测试负载下偶发"释放后文件永不回收"（120s 不恢复、单跑必
+	// 绿、间歇复现）——失败时 Cleanup 自动导出 working 文件与全场
+	// goroutine 栈，待现场驱动排查。
 	close(tk.release)
+	t.Cleanup(func() {
+		if t.Failed() {
+			data, _ := os.ReadFile(workingPath(tl.Dir))
+			t.Logf("失败现场 working 文件: %s", data)
+			t.Logf("goroutine 栈:\n%s", stacksAll())
+		}
+	})
 	waitFor(t, 30*time.Second, func() bool { return readWorking(t, tl.Dir) == nil })
+}
+
+// stacksAll 是调试用全场栈导出（runtime.Stack 的包内别名）。
+func stacksAll() string {
+	buf := make([]byte, 1<<20)
+	n := runtime.Stack(buf, true)
+	return string(buf[:n])
 }
 
 // 未退出的超时执行仍在忙集，并对外暴露隔离诊断。
@@ -95,6 +113,7 @@ func TestDispatcherWorkingQuarantineRetainsEntry(t *testing.T) {
 		return json.Unmarshal(data, &ws) == nil && ws.Working && len(ws.Busy) == 1 && ws.Busy[0].State == "quarantined"
 	})
 	h.release <- struct{}{}
+	// 同上：释放后的回收偶发永不完成（已知问题，见上）。
 	waitFor(t, 30*time.Second, func() bool { return readWorking(t, tl.Dir) == nil })
 }
 
