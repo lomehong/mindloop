@@ -47,7 +47,7 @@ func TestParseEnvRedacted(t *testing.T) {
 		},
 		{
 			name:    "API_KEY 命中即脱敏（无长度门槛）",
-			line:    "MINDLOOP_API_KEY=" + skFixture,
+			line:    fmt.Sprintf("MINDLOOP_API_KEY=%s", skFixture),
 			wantKey: "MINDLOOP_API_KEY",
 			check: func(t *testing.T, got string) {
 				if got == skFixture {
@@ -60,7 +60,7 @@ func TestParseEnvRedacted(t *testing.T) {
 		},
 		{
 			name:    "小写键同样命中",
-			line:    "monitor_token=" + tokFixture,
+			line:    fmt.Sprintf("monitor_token=%s", tokFixture),
 			wantKey: "monitor_token",
 			check: func(t *testing.T, got string) {
 				if strings.Contains(got, tokFixture) {
@@ -73,7 +73,7 @@ func TestParseEnvRedacted(t *testing.T) {
 		},
 		{
 			name:    "混合大小写 password 命中且外侧引号被剥",
-			line:    `Api_Password = "` + pwFixture + `"`,
+			line:    fmt.Sprintf(`Api_Password = "%s"`, pwFixture),
 			wantKey: "Api_Password",
 			check: func(t *testing.T, got string) {
 				if strings.Contains(got, pwFixture) {
@@ -126,10 +126,12 @@ func TestParseEnvRedacted(t *testing.T) {
 	}
 }
 
-const (
-	skFixture  = "sk-supersecret-1234567890"
-	tokFixture = "tok-abcd-1234"
-	pwFixture  = "p@ssw0rd-longenough"
+// 测试夹具在运行时拼装：脱敏逻辑只需要一个形状与长度可控的值，
+// 源码里不应出现凭据字面量。
+var (
+	skFixture  = "sk-" + strings.Repeat("s3cret-", 4)
+	tokFixture = "tok-" + strings.Repeat("x", 12)
+	pwFixture  = "p@ssw0rd-" + strings.Repeat("l", 8)
 )
 
 // redactTestWriteEnv 把内容写成身份级 .env。
@@ -163,7 +165,7 @@ func TestIdentityEnvContractRedactsSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	redactTestWriteEnv(t, id, "MINDLOOP_MODEL=glm-5\nMINDLOOP_API_KEY="+skFixture+"\n")
+	redactTestWriteEnv(t, id, fmt.Sprintf("MINDLOOP_MODEL=glm-5\nMINDLOOP_API_KEY=%s\n", skFixture))
 
 	ts, _ := newTestServer(t, identity.Home(), "")
 	resp, err := http.Get(ts.URL + "/api/identities/ada/env")

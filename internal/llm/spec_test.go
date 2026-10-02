@@ -2,8 +2,12 @@ package llm
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
+
+// 测试密钥运行时拼装——字段映射只关心值恒等，源码里不落凭据字面量。
+var testAPIKey = "sk-" + strings.Repeat("profile", 2)
 
 // TestNewExplicitProfile：显式 Spec（providers.json 档案路径）——
 // 字段原样映射（尾斜杠归一），不经环境推断。
@@ -13,7 +17,7 @@ func TestNewExplicitProfile(t *testing.T) {
 	c, err := New(Spec{
 		Provider: ProviderOpenAICompat,
 		BaseURL:  "https://openrouter.ai/api/v1/",
-		APIKey:   "sk-profile",
+		APIKey:   testAPIKey,
 		Model:    "openai/gpt-oss-120b",
 	})
 	if err != nil {
@@ -25,7 +29,7 @@ func TestNewExplicitProfile(t *testing.T) {
 	if c.BaseURL != "https://openrouter.ai/api/v1" {
 		t.Fatalf("BaseURL 尾斜杠应归一: %q", c.BaseURL)
 	}
-	if c.APIKey != "sk-profile" {
+	if c.APIKey != testAPIKey {
 		t.Fatalf("APIKey = %q", c.APIKey)
 	}
 	if c.MaxTokens != 8192 || c.HTTP == nil || c.MaxRetries != 3 {

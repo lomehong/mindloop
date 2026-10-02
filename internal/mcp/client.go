@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -238,8 +239,46 @@ type stdioConn struct {
 	closeErr error
 }
 
+// resolveStdioCommand 校验并解析 stdio 服务器的启动命令。mcp.json
+// 的 command 本就是"用户明确要跑的本地程序"（生态契约，等同
+// Claude Desktop）——这里收口的是解析错误与越权字符：程序名不得
+// 含控制字符与 shell 元字符；相对名经 PATH 解析为绝对路径并确认
+// 存在；args 不含 NUL。返回解析后的绝对程序路径。
+func resolveStdioCommand(cfg ServerConfig) (string, error) {
+	command := strings.TrimSpace(cfg.Command)
+	if command == "" {
+		return "", fmt.Errorf("mcp: command 为空")
+	}
+	if strings.ContainsAny(command, "\x00\r\n;&|`$<>") {
+		return "", fmt.Errorf("mcp: command 含非法字符: %q", command)
+	}
+	if !filepath.IsAbs(command) {
+		resolved, err := exec.LookPath(command)
+		if err != nil {
+			return "", fmt.Errorf("mcp: 在 PATH 中找不到 %q: %w", command, err)
+		}
+		command = filepath.Clean(resolved)
+	}
+	if fi, err := os.Stat(command); err != nil || fi.IsDir() {
+		return "", fmt.Errorf("mcp: command 不可用: %s", command)
+	}
+	for _, a := range cfg.Args {
+		if strings.ContainsRune(a, '\x00') {
+			return "", fmt.Errorf("mcp: args 含 NUL: %q", a)
+		}
+	}
+	return command, nil
+}
+
 func newStdioConn(ctx context.Context, name string, cfg ServerConfig) (*stdioConn, error) {
-	cmd := exec.Command(cfg.Command, cfg.Args...)
+	command, err := resolveStdioCommand(cfg)
+	if err != nil {
+		return nil, err
+	}
+	// 程序路径经 resolveStdioCommand 收口（绝对路径、存在、无元字
+	// 符）——用 Cmd 结构体直接装配，"用户配置即意图"的启动不经过
+	// 工厂函数的程序名推断。
+	cmd := &exec.Cmd{Path: command, Args: append([]string{command}, cfg.Args...)}
 	// MCP 子进程环境是白名单：服务器进程往往是第三方包（npx 拉来
 	// 的），只获得运行所需的基础变量与自己的显式配置凭据；父环境
 	// 里的模型网关与仪表盘凭据不下传。

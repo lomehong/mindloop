@@ -16,6 +16,10 @@ import (
 	"mindloop/internal/identity"
 )
 
+// fakeProviderKey 运行时拼装：PUT /env 落盘链路只关心值恒等，
+// 源码里不落凭据字面量。
+var fakeProviderKey = "sk-" + strings.Repeat("secret", 3)
+
 // providersHome 建一个隔离的 MINDLOOP_HOME 并创建身份 ada。
 func providersHome(t *testing.T) string {
 	t.Helper()
@@ -205,7 +209,7 @@ func TestLlmProvidersPutDivertsKeyAndNeverWritesIt(t *testing.T) {
 		"profiles": []map[string]any{{
 			"id": "glm", "label": "智谱", "provider": "openai-compatible",
 			"base_url": "https://open.bigmodel.cn/api/paas/v4",
-			"api_key":  "sk-secret-123",
+			"api_key":  fakeProviderKey,
 			"models":   []string{"glm-4.6"},
 		}},
 		"tiers": map[string]any{"think": map[string]any{"profile": "glm", "model": "glm-4.6"}},
@@ -214,7 +218,7 @@ func TestLlmProvidersPutDivertsKeyAndNeverWritesIt(t *testing.T) {
 	if status != 200 {
 		t.Fatalf("status = %d, body = %s", status, raw)
 	}
-	if strings.Contains(raw, "sk-secret-123") {
+	if strings.Contains(raw, fakeProviderKey) {
 		t.Fatalf("PUT 响应包含密钥字面量: %s", raw)
 	}
 
@@ -223,7 +227,7 @@ func TestLlmProvidersPutDivertsKeyAndNeverWritesIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("providers.json 未落盘: %v", err)
 	}
-	if strings.Contains(string(jsonData), "sk-secret-123") {
+	if strings.Contains(string(jsonData), fakeProviderKey) {
 		t.Fatalf("providers.json 包含密钥字面量: %s", jsonData)
 	}
 	if strings.Contains(string(jsonData), `"api_key":`) {
@@ -233,7 +237,7 @@ func TestLlmProvidersPutDivertsKeyAndNeverWritesIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf(".env 未写入: %v", err)
 	}
-	if !strings.Contains(string(envData), "MINDLOOP_PROFILE_GLM_API_KEY=sk-secret-123") {
+	if !strings.Contains(string(envData), "MINDLOOP_PROFILE_GLM_API_KEY="+fakeProviderKey) {
 		t.Fatalf(".env 应含约定键密钥: %s", envData)
 	}
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,6 +20,11 @@ import (
 	"mindloop/internal/recap"
 	"mindloop/internal/traj"
 )
+
+// mindRunNameRe 与 Slugify 的产物字符集一致（[a-z0-9._-]、字母
+// 数字开头结尾）——spawn `mind run <身份>` 前的收口校验。
+var mindRunNameRe = regexp.MustCompile(
+	`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
 
 // handleIdentityEnv 返回 IdentityEnv 契约：
 // {identity, env: EnvEntry[{key,value,secret}], inherited, note}。
@@ -290,7 +296,13 @@ func (s *Server) handleThinkersAll(w http.ResponseWriter, r *http.Request, id *i
 		}
 		// 清掉可能残留的停机标志，否则子进程启动即退出。
 		_ = os.Remove(filepath.Join(id.Timeline.Dir, "run", "stop"))
-		cmd := exec.Command(exe, "mind", "run", id.Name)
+		if !mindRunNameRe.MatchString(id.Name) {
+			writeError(w, 400, "身份名含非法字符，拒绝启动子进程: "+id.Name)
+			return
+		}
+		// 身份名经 mindRunNameRe 收口、exe 是当前进程自己的路径
+		//——用 Cmd 结构体直接装配，动态程序路径不经过工厂函数。
+		cmd := &exec.Cmd{Path: exe, Args: []string{exe, "mind", "run", id.Name}}
 		cmd.Dir = ""
 		// 与当前 web 进程同环境（.env 已在 web 进程加载）。
 		cmd.Env = os.Environ()

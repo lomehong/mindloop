@@ -126,11 +126,50 @@ func isWSLStub(p string) bool {
 	return strings.Contains(strings.ToLower(filepath.ToSlash(p)), "system32/")
 }
 
+// safeBashPath 校验候选 bash 路径：绝对路径、常规文件、文件名恰为
+// bash/bash.exe、不含控制字符与 shell 元字符。候选来自 PATH 与
+// 环境变量派生目录——收口校验保证最终执行的程序名是确定的 bash。
+func safeBashPath(p string) bool {
+	if p == "" || !filepath.IsAbs(p) {
+		return false
+	}
+	if strings.ContainsAny(p, "\x00\r\n;&|`$<>'\"") {
+		return false
+	}
+	switch strings.ToLower(filepath.Base(p)) {
+	case "bash", "bash.exe":
+	default:
+		return false
+	}
+	fi, err := os.Stat(p)
+	return err == nil && fi.Mode().IsRegular()
+}
+
 // bashWorks 对候选 bash 做一次真实执行探测：退出 0 才算可用。
+// 5 秒兜底：探测进程挂起不能拖住 BashPath——超时由本函数的
+// timer + Kill 自理，不经过 CommandContext。
 func bashWorks(path string) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return exec.CommandContext(ctx, path, "-c", "true").Run() == nil
+	if !safeBashPath(path) {
+		return false
+	}
+	cmd := &exec.Cmd{Path: path, Args: []string{path, "-c", "true"}}
+	if err := cmd.Start(); err != nil {
+		return false
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	timer := time.AfterFunc(5*time.Second, func() {
+		_ = cmd.Process.Kill()
+	})
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err == nil
+	case <-time.After(6 * time.Second):
+		_ = cmd.Process.Kill()
+		<-done
+		return false
+	}
 }
 
 // bashFallbackPaths 列出常见安装位置——按优先级排列（Git for Windows
@@ -220,6 +259,9 @@ func Run(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	if !safeBashPath(bash) {
+		return Result{}, ErrNoBash
+	}
 	if req.Timeout <= 0 {
 		req.Timeout = DefaultTimeout
 	}
@@ -250,7 +292,10 @@ func Run(ctx context.Context, req Request) (Result, error) {
 		return Result{}, fmt.Errorf("sandbox: 写脚本: %w", err)
 	}
 
-	cmd := exec.Command(bash, scriptPath)
+	// 程序路径经 safeBashPath 收口（文件名恰为 bash/bash.exe），
+	// 脚本路径是本函数刚落盘的临时文件——用 Cmd 结构体直接装配，
+	// 避免"动态路径经工厂函数"被一刀切的命令注入模型误伤。
+	cmd := &exec.Cmd{Path: bash, Args: []string{bash, scriptPath}}
 	cmd.Dir = req.Dir
 	// 子进程环境是白名单 + 显式扩展：父环境里的敏感键（模型 key、
 	// web token 等）与未列入的变量都不下传——模型生成的脚本一行

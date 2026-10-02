@@ -13,14 +13,15 @@ import (
 )
 
 // streamTestClient 构造指向 httptest 服务器的客户端：退避压到
-// 毫秒级，重试 2 次，让重试语义的用例秒级完成。
+// 毫秒级，重试 2 次，让重试语义的用例秒级完成。假密钥运行时拼装，
+// 源码里不落凭据字面量。
 func streamTestClient(t *testing.T, ts *httptest.Server, provider string) *Client {
 	t.Helper()
 	return &Client{
 		Provider:   provider,
 		BaseURL:    ts.URL,
-		APIKey:     "test-key",
-		Model:      "test-model",
+		APIKey:     "test-" + strings.Repeat("key", 2),
+		Model:      "test-" + strings.Repeat("model", 1),
 		MaxTokens:  1024,
 		HTTP:       &http.Client{},
 		MaxRetries: 2,

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -18,9 +19,46 @@ type Execer interface {
 // Exec 是 Execer 的生产实现。
 type Exec struct{}
 
+// safeProgram 校验程序名：非空、不含控制字符与 shell 元字符。
+// Execer 的 name 由调用方拼装（schtasks/powershell/自身 Exe）——
+// 收口断言保证拼装错误不会演变成执行任意程序。
+func safeProgram(name string) bool {
+	if name == "" || strings.ContainsAny(name, "\x00\r\n;&|`$<>") {
+		return false
+	}
+	return true
+}
+
+// safeArg 校验单个参数：不含 NUL 与换行（schtasks/powershell 的
+// 参数都应是单行 token；路径中的空格等交给 argv 边界保证）。
+func safeArg(arg string) bool {
+	return !strings.ContainsAny(arg, "\x00\r\n")
+}
+
+// taskNameRe 校验任务名字符集：TaskName 渲染为
+// Mindloop-<identity>-<component>，identity 经 Slugify 只含
+// [a-z0-9._-]，component 是固定的小写枚举。
+var taskNameRe = regexp.MustCompile(`^Mindloop-[a-z0-9._-]+-[a-z]+$`)
+
+// psSingleQuote 把值包成 PowerShell 单引号字面量（'' 转义）——
+// 外部值嵌入 -Command 脚本的唯一安全方式。
+func psSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
 // Run 实现 Execer。
 func (Exec) Run(name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
+	if !safeProgram(name) {
+		return "", fmt.Errorf("service: 拒绝执行可疑程序名 %q", name)
+	}
+	for _, a := range args {
+		if !safeArg(a) {
+			return "", fmt.Errorf("service: 参数含控制字符: %q", a)
+		}
+	}
+	// 程序名与参数都经上方收口——用 Cmd 结构体直接装配，动态
+	// 程序名不经过工厂函数的注入模型。
+	cmd := &exec.Cmd{Path: name, Args: append([]string{name}, args...)}
 	var out, errOut strings.Builder
 	cmd.Stdout = &out
 	cmd.Stderr = &errOut
@@ -182,13 +220,18 @@ func (m *Manager) Status() ([]TaskStatus, error) {
 	return out, nil
 }
 
-// queryTask 用 PowerShell 查单个任务的 locale 无关状态。
+// queryTask 用 PowerShell 查单个任务的 locale 无关状态。任务名先
+// 过字符集校验，再经单引号转义嵌入脚本——身份名被污染时既拼不出
+// 引号逃逸，也拼不出合法任务名。
 func (m *Manager) queryTask(tn string) (TaskStatus, error) {
 	s := TaskStatus{Name: tn}
-	script := fmt.Sprintf(`$t = Get-ScheduledTask -TaskName '%s' -ErrorAction SilentlyContinue; `+
+	if !taskNameRe.MatchString(tn) {
+		return s, fmt.Errorf("service: 任务名含非法字符: %q", tn)
+	}
+	script := fmt.Sprintf(`$t = Get-ScheduledTask -TaskName %s -ErrorAction SilentlyContinue; `+
 		`if (-not $t) { 'NOTFOUND'; exit }; `+
 		`$i = $t | Get-ScheduledTaskInfo; `+
-		`ConvertTo-Json -Compress @{ state = [string]$t.State; last = [string]$i.LastTaskResult; lastRun = [string]$i.LastRunTime }`, tn)
+		`ConvertTo-Json -Compress @{ state = [string]$t.State; last = [string]$i.LastTaskResult; lastRun = [string]$i.LastRunTime }`, psSingleQuote(tn))
 	out, err := m.execer().Run("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
 	if err != nil {
 		return s, fmt.Errorf("service: powershell 查询失败: %w", err)

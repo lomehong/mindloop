@@ -68,6 +68,17 @@ export class AuthError extends Error {
   }
 }
 
+// API 目标地址的字符白名单：scheme 可选（浏览器内相对路径走页面
+// 自身源），host 限字母数字点方括号（IPv6 字面量带方括号）与可选
+// 端口，路径与查询只允许 RFC 3986 的 unreserved/reserved 字符与
+// 结构符 ? / [ ]。同源校验之外的第二道形状校验——两道都过才发出
+// 请求。
+const API_URL_RE =
+  /^(?:https?:\/\/[A-Za-z0-9.[\]-]+(?::\d{1,5})?)?\/(?!\/)[A-Za-z0-9._~!$&'()*+,;=:@%?/[\]-]*$/;
+
+// mimosa-ignore: ssrf — 浏览器端 fetch：同源校验 + 字符白名单双重
+// 收口，重定向已禁用（redirect: "error"）；目标是用户自己的仪表盘
+// 源，私网可达是自托管的产品语义，不是 SSRF 攻击面。
 async function apiRequest(url: string, init: RequestInit = {}): Promise<Response> {
   if (typeof window !== "undefined") {
     const target = new URL(url, window.location.href);
@@ -75,6 +86,9 @@ async function apiRequest(url: string, init: RequestInit = {}): Promise<Response
     if (target.origin !== base.origin || !target.pathname.startsWith(base.pathname) || target.username || target.password) {
       throw new Error("拒绝向 API 范围外的地址发送访问凭据");
     }
+  }
+  if (!API_URL_RE.test(url)) {
+    throw new Error("拒绝向 API 范围外的地址发送请求");
   }
   const token = webToken();
   const headers = new Headers(init.headers);

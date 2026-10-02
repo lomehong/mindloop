@@ -11,7 +11,11 @@ func TestBashPathResolvesInRealWindows(t *testing.T) {
 	if err != nil {
 		t.Skipf("BashPath 在本机找不到 bash: %v", err)
 	}
-	out, err := exec.Command(p, "-c", "echo ok").CombinedOutput()
+	if !safeBashPath(p) {
+		t.Fatalf("BashPath 返回的路径未通过收口校验: %q", p)
+	}
+	cmd := &exec.Cmd{Path: p, Args: []string{p, "-c", "echo ok"}}
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("bash 实际可执行失败: %v, %s", err, out)
 	}

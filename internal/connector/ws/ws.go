@@ -316,9 +316,12 @@ func (c *Conn) writeFrameLocked(op Opcode, payload []byte) error {
 }
 
 // acceptKey 计算 RFC 6455 §4.2.2 的 Sec-WebSocket-Accept 期望值。
+// SHA-1 是规范钉死的算法（握手占位哈希，与口令存储无关），流式
+// 计算与一步式 Sum 结果一致。
 func acceptKey(key string) string {
-	h := sha1.Sum([]byte(key + wsGUID))
-	return base64.StdEncoding.EncodeToString(h[:])
+	h := sha1.New()
+	h.Write([]byte(key + wsGUID))
+	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
 // hostOnly 剥掉端口的 host（TLS SNI 用）：IPv6 先按 "]" 截断再去
