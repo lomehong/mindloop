@@ -1,6 +1,7 @@
-# 发布流水线：push v* tag 触发——构建前端 → GoReleaser 出全平台
-# 二进制（release tag 嵌入前端）并发布 GitHub Release。桌面安装包
-# 由 release-desktop.yml 独立产出并追加到同一 Release。
+# 发布流水线：push v* tag 触发。goreleaser job 出全平台 Go 二进制
+# 并创建 Release；tauri job（needs 串行在其后）出 NSIS 安装包追加到
+# 同一 Release——串行是因为重打 tag 重跑时 goreleaser 会先删旧
+# Release 再重建，并行的上传会赛跑。
 name: release
 
 on:
@@ -31,6 +32,10 @@ jobs:
         run: |
           npm ci
           npm run build
+      - name: 清理旧 Release（重打 tag 重跑时资产会撞名 422）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete "$GITHUB_REF_NAME" --yes || true
       - name: GoReleaser 发布
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -39,3 +44,39 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  tauri:
+    runs-on: windows-latest
+    needs: goreleaser
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/static/package-lock.json
+      - name: 构建前端
+        working-directory: web/static
+        run: |
+          npm ci
+          npm run build
+      - name: 构建 sidecar（嵌入前端）
+        run: >
+          go build -tags release -o
+          desktop/src-tauri/binaries/mindloop-x86_64-pc-windows-msvc.exe
+          ./cmd/mindloop
+      - name: 同步 viewer 资源（bundle.resources 需要）
+        run: Copy-Item -Recurse -Force web/static/build/client desktop/src-tauri/viewer-static
+      - name: Tauri 打包（NSIS）
+        working-directory: desktop
+        run: npx @tauri-apps/cli@2 build
+      - name: 上传安装包到 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          gh release upload $tag "desktop/src-tauri/target/release/bundle/nsis/*.exe" --clobber

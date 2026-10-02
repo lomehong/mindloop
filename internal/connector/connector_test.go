@@ -75,7 +75,11 @@ func startOutbound(t *testing.T, ob *Outbound, ctx context.Context) {
 // waitForDelivery 轮询等待投递数达到 n。
 func waitForDelivery(t *testing.T, d *fakeDelivery, n int) {
 	t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
+	// 90s：CI（2 核 + -race 拖慢 3-5 倍 + 全量并行包）下出站泵会被
+	// 调度饥饿到完全无投递——93c1507 曾把 10s 提到 30s，-race 后仍
+	// 不够（2026-10-02 CI 实证），再加一档。断言的是投递语义，不是
+	// 调度时延。
+	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
 		if len(d.snapshot()) >= n {
 			return
