@@ -11,6 +11,7 @@ import (
 
 	"mindloop/internal/identity"
 	"mindloop/internal/mcp"
+	"mindloop/internal/obs"
 	"mindloop/internal/skills"
 	"mindloop/internal/traj"
 )
@@ -72,6 +73,7 @@ func (c *CLI) runDoctor(identityName string, noProbe bool) error {
 		c.doctorIdentities(identityName),
 		c.doctorSkills(identityName),
 		c.doctorMCP(identityName),
+		c.doctorBudget(identityName),
 		doctorPolicy(),
 	}
 
@@ -257,6 +259,46 @@ func (c *CLI) doctorMCP(identityName string) *doctorCheck {
 		return ck
 	}
 	ck.pass(detail)
+	return ck
+}
+
+// doctorBudget 预算与熔断现状。记账按身份走——--identity 深查该
+// 身份的消耗与剩余；未指定时报告环境上限的设置情况。
+func (c *CLI) doctorBudget(identityName string) *doctorCheck {
+	ck := &doctorCheck{name: "预算"}
+	if identityName == "" {
+		ck.pass("按身份记账——加 --identity <名字> 查看消耗与剩余")
+		return ck
+	}
+	id, err := identity.Load(identityName)
+	if err != nil {
+		ck.warn("身份加载失败，预算状态未知: " + err.Error())
+		return ck
+	}
+	ad := obs.LoadAdmission(id.Dir)
+	detail := "未设置每日上限（MINDLOOP_DAILY_TOKENS / MINDLOOP_SPONTANEOUS_TOKENS）"
+	if ad.DailyLimit > 0 || ad.SelfLimit > 0 {
+		detail = fmt.Sprintf("今日 %d", ad.UsedToday)
+		if ad.DailyLimit > 0 {
+			detail += fmt.Sprintf("/%d", ad.DailyLimit)
+		}
+		if ad.SelfLimit > 0 {
+			detail += fmt.Sprintf("（自发 %d/%d）", ad.SelfUsedToday, ad.SelfLimit)
+		}
+		detail += " tokens"
+	}
+	if ad.CoolingUntil != "" {
+		ck.warn(detail + "；⚠ 熔断冷却中")
+		return ck
+	}
+	switch {
+	case ad.DailyLimit > 0 && ad.UsedToday >= ad.DailyLimit:
+		ck.fail(detail + "；总预算已用完（UTC 日界重置，或调高上限）")
+	case ad.SelfLimit > 0 && ad.SelfUsedToday >= ad.SelfLimit:
+		ck.warn(detail + "；自发档预算已用完（watchdog/定时唤醒暂停）")
+	default:
+		ck.pass(detail)
+	}
 	return ck
 }
 

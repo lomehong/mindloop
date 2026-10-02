@@ -36,9 +36,10 @@ const (
 // Guard 是准入守卫。一个身份一份，装配时挂到该身份的各个客户端
 // （思考档/请求档/摘要档）上。
 type Guard struct {
-	dir   string
-	daily int // 每日 token 预算上限；<=0 未设置即不启用
-	logf  func(format string, args ...any)
+	dir       string
+	daily     int // 每日 token 预算上限（全员）；<=0 未设置即不启用
+	selfDaily int // 自发档每日预算（watchdog/定时唤醒）；<=0 未设置
+	logf      func(format string, args ...any)
 
 	mu      sync.Mutex // 冷却与探测状态
 	probing bool       // 冷却后的一次探测已放行、结果尚未落盘
@@ -47,23 +48,29 @@ type Guard struct {
 	dailyMu sync.Mutex // 当日用量增量聚合
 	day     string     // 已统计的 UTC 日期
 	counted int        // 已计入的当日 token 合计
+	self    int        // 其中自发档（watchdog/定时唤醒）的合计
 	offset  int64      // 台账已消费的字节偏移
 }
 
-// NewGuard 从环境读每日预算构造守卫：MINDLOOP_DAILY_TOKENS，未设
-// 或非法即不启用（0）。
+// NewGuard 从环境读每日预算构造守卫：MINDLOOP_DAILY_TOKENS 是全员
+// 总预算；MINDLOOP_SPONTANEOUS_TOKENS 是自发档预算——只约束
+// watchdog/定时唤醒的思考调用，超限后自发活动先停，对话与任务
+// 直到总预算才受限。两者未设或非法即不启用（0）。
 func NewGuard(dir string, logf func(format string, args ...any)) *Guard {
-	daily := 0
-	if v := strings.TrimSpace(os.Getenv("MINDLOOP_DAILY_TOKENS")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			daily = n
-		}
-	}
-	return newGuard(dir, daily, logf)
+	return newGuard(dir, envTokens("MINDLOOP_DAILY_TOKENS"), envTokens("MINDLOOP_SPONTANEOUS_TOKENS"), logf)
 }
 
-func newGuard(dir string, daily int, logf func(format string, args ...any)) *Guard {
-	return &Guard{dir: dir, daily: daily, logf: logf}
+func envTokens(name string) int {
+	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
+}
+
+func newGuard(dir string, daily, selfDaily int, logf func(format string, args ...any)) *Guard {
+	return &Guard{dir: dir, daily: daily, selfDaily: selfDaily, logf: logf}
 }
 
 // Attach 把守卫挂到客户端上；返回同一指针便于装配链式书写。
@@ -72,55 +79,59 @@ func (g *Guard) Attach(c *llm.Client) *llm.Client {
 	return c
 }
 
-// Allow 是请求准入检查：每日预算 → 熔断。拒绝时返回 llm 的哨兵
-// 错误（ErrDailyBudget / ErrCircuitOpen），调用方可 errors.Is 识别。
-func (g *Guard) Allow(_ context.Context) error {
-	if err := g.allowDaily(); err != nil {
-		return err
+// Allow 是请求准入检查：总预算 → 自发预算 → 熔断。拒绝时返回 llm
+// 的哨兵错误（ErrDailyBudget / ErrCircuitOpen），调用方可 errors.Is
+// 识别。调用方经 ctx 携带的溯源章（llm.Attrib）区分自发与响应——
+// 同一份台账，两种预算口径。
+func (g *Guard) Allow(ctx context.Context) error {
+	total, self, err := g.dailyUsage()
+	if err != nil && g.logf != nil {
+		g.logf("obs: 统计当日用量失败（按放行处理）: %v", err)
+	}
+	if err == nil {
+		// 总预算：全员受限（对话、任务、自发一律）。
+		if g.daily > 0 && total >= g.daily {
+			return fmt.Errorf("%w（今日 %d/%d tokens，UTC 日界重置）", llm.ErrDailyBudget, total, g.daily)
+		}
+		// 自发预算先于总预算见顶：watchdog/定时唤醒的思考调用被拒
+		// 后心智回落休眠，而对话（chat）、任务（task）与人工触发
+		// 照常——"停自发档、保响应档"是分级预算的全部意义。
+		if g.selfDaily > 0 && self >= g.selfDaily && isSpontaneous(llm.AttribFrom(ctx)) {
+			return fmt.Errorf("%w（自发档今日 %d/%d tokens——watchdog/定时唤醒暂停，对话与任务不受影响；UTC 日界重置）",
+				llm.ErrDailyBudget, self, g.selfDaily)
+		}
 	}
 	return g.allowCircuit()
 }
 
-// allowDaily 检查当日 token 累计是否达到预算上限。观测面故障
-// （台账读不动）按放行处理——守卫不能反过来变成新的故障面。
-func (g *Guard) allowDaily() error {
-	if g.daily <= 0 {
-		return nil
-	}
-	used, err := g.dailyTokens()
-	if err != nil {
-		if g.logf != nil {
-			g.logf("obs: 统计当日用量失败（按放行处理）: %v", err)
-		}
-		return nil
-	}
-	if used >= g.daily {
-		return fmt.Errorf("%w（今日 %d/%d tokens，UTC 日界重置）", llm.ErrDailyBudget, used, g.daily)
-	}
-	return nil
+// isSpontaneous 判定调用是否属于无人值守的自发活动：watchdog 合成
+// 唤醒与定时唤醒。来话触发的 step、人工 manual、对话与任务不算。
+func isSpontaneous(a llm.Attrib) bool {
+	return a.Wake == "watchdog" || a.Wake == "scheduled"
 }
 
-// dailyTokens 增量聚合当日 token：只消费以换行结尾的完整行，残行
+// dailyUsage 增量聚合当日 token：只消费以换行结尾的完整行，残行
 // 留给下次；文件被替换或截断（大小小于已消费偏移）时从头重扫；
 // UTC 日期变化重置为零起点。失败行（error 非空）不计入——与用量
-// 页的聚合同一口径。
-func (g *Guard) dailyTokens() (int, error) {
+// 页的聚合同一口径。第二个返回值是其中自发档（watchdog/定时唤醒）
+// 的合计。
+func (g *Guard) dailyUsage() (int, int, error) {
 	g.dailyMu.Lock()
 	defer g.dailyMu.Unlock()
 	today := time.Now().UTC().Format("2006-01-02")
 	if today != g.day {
-		g.day, g.counted, g.offset = today, 0, 0
+		g.day, g.counted, g.self, g.offset = today, 0, 0, 0
 	}
 	f, err := os.Open(filepath.Join(g.dir, "usage", "llm-usage.jsonl"))
 	if err != nil {
-		return g.counted, nil // 台账不存在 = 零用量
+		return g.counted, g.self, nil // 台账不存在 = 零用量
 	}
 	defer f.Close()
 	if fi, err := f.Stat(); err == nil && fi.Size() < g.offset {
-		g.counted, g.offset = 0, 0
+		g.counted, g.self, g.offset = 0, 0, 0
 	}
 	if _, err := f.Seek(g.offset, io.SeekStart); err != nil {
-		return g.counted, err
+		return g.counted, g.self, err
 	}
 	reader := bufio.NewReaderSize(f, 64*1024)
 	for {
@@ -137,6 +148,7 @@ func (g *Guard) dailyTokens() (int, error) {
 			TS               string `json:"ts"`
 			PromptTokens     int    `json:"prompt_tokens"`
 			CompletionTokens int    `json:"completion_tokens"`
+			Wake             string `json:"wake"`
 			Error            string `json:"error"`
 		}
 		if json.Unmarshal([]byte(line), &rec) != nil || len(rec.TS) < 10 {
@@ -146,8 +158,11 @@ func (g *Guard) dailyTokens() (int, error) {
 			continue
 		}
 		g.counted += rec.PromptTokens + rec.CompletionTokens
+		if rec.Wake == "watchdog" || rec.Wake == "scheduled" {
+			g.self += rec.PromptTokens + rec.CompletionTokens
+		}
 	}
-	return g.counted, nil
+	return g.counted, g.self, nil
 }
 
 // allowCircuit 检查熔断状态。探测是否结束以健康标记的 LastCheck
@@ -206,26 +221,32 @@ func ClearHealth(dir string) (Health, error) {
 }
 
 // AdmissionStatus 是准入状态的只读快照，供 CLI 与仪表盘展示：每日
-// 预算上限与当日消耗、熔断的连续失败计数与冷却截止。
+// 预算上限与当日消耗（总口径 + 自发口径）、熔断的连续失败计数与
+// 冷却截止。
 type AdmissionStatus struct {
-	DailyLimit        int    `json:"daily_limit"`             // 0 = 未设置
-	UsedToday         int    `json:"used_today"`              // 今日（UTC 日界）已消耗 token；失败行不计
-	ConsecutiveErrors int    `json:"consecutive_errors"`      // 连续失败计数（健康标记）
-	CircuitThreshold  int    `json:"circuit_threshold"`       // 触发熔断的阈值
-	CoolingUntil      string `json:"cooling_until,omitempty"` // 冷却截止；空 = 未在冷却
+	DailyLimit        int    `json:"daily_limit"`               // 0 = 未设置
+	UsedToday         int    `json:"used_today"`                // 今日（UTC 日界）已消耗 token；失败行不计
+	SelfLimit         int    `json:"self_limit,omitempty"`      // 自发档预算；0 = 未设置
+	SelfUsedToday     int    `json:"self_used_today,omitempty"` // 其中自发档（watchdog/定时唤醒）
+	ConsecutiveErrors int    `json:"consecutive_errors"`        // 连续失败计数（健康标记）
+	CircuitThreshold  int    `json:"circuit_threshold"`         // 触发熔断的阈值
+	CoolingUntil      string `json:"cooling_until,omitempty"`   // 冷却截止；空 = 未在冷却
 }
 
 // LoadAdmission 读一个身份的准入状态快照：预算上限来自环境
-// （MINDLOOP_DAILY_TOKENS），当日消耗来自台账聚合，熔断来自健康
-// 标记。只读、无副作用——不写文件，也不占用探测名额：冷却已过但
-// 计数未清零时快照不报冷却（下一次调用会被放行为探测）。
+// （MINDLOOP_DAILY_TOKENS / MINDLOOP_SPONTANEOUS_TOKENS），当日
+// 消耗来自台账聚合，熔断来自健康标记。只读、无副作用——不写文件，
+// 也不占用探测名额：冷却已过但计数未清零时快照不报冷却（下一次
+// 调用会被放行为探测）。
 func LoadAdmission(dir string) AdmissionStatus {
 	g := NewGuard(dir, nil)
-	used, _ := g.dailyTokens() // 读不动台账时退回已计到的数（守卫本身按放行处理）
+	total, self, _ := g.dailyUsage() // 读不动台账时退回已计到的数（守卫本身按放行处理）
 	h := LoadHealth(filepath.Join(dir, "llm-health.json"))
 	st := AdmissionStatus{
 		DailyLimit:        g.daily,
-		UsedToday:         used,
+		UsedToday:         total,
+		SelfLimit:         g.selfDaily,
+		SelfUsedToday:     self,
 		ConsecutiveErrors: h.ConsecutiveErrors,
 		CircuitThreshold:  CircuitThreshold,
 	}

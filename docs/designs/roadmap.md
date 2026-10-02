@@ -55,8 +55,12 @@ UX 可靠性——交叉收敛，经用户三项战略拍板；同日对照 CHAN
   "可信 = 出事可挽回，不是不出事"。
 - **undo/快照（✅ 2026-10-02 已落地）**：`internal/snapshot` 运行级
   差分快照 + `mindloop undo`（含 --identity）。已知边界如实声明：
-  只覆盖工作目录之内；剩余同族项：**预算控制台**（代理层支出上限，
-  stats 分账已备好原料）。
+  只覆盖工作目录之内。
+- **预算控制台（✅ 2026-10-02 已落地）**：分级预算——总预算
+  `MINDLOOP_DAILY_TOKENS` 全员受限（既有），新增自发档
+  `MINDLOOP_SPONTANEOUS_TOKENS`（watchdog/定时唤醒先停，对话/任务
+  保到最后）；判定用调用 ctx 的溯源章，执行在守卫（llm.Client.Gate）
+  ——请求发出前的准入拒绝，不靠 prompt 约束。stats/doctor 可见。
 - **静态门（✅ 2026-10-02 已落地）**：`internal/policy/tripwire.go`
   不可逆操作守卫——极窄灾难模式（管道给 shell、删根、dd 写盘、
   mkfs、读 SSH 私钥、覆写 .env），trusted 无人值守档命中即拒绝并

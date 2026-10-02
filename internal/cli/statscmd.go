@@ -80,7 +80,7 @@ func (c *CLI) runStats(identityName string, days int, idleWindow time.Duration) 
 		allRows = append(allRows, filtered...)
 
 		st := obs.Derive(filtered, idleWindow)
-		c.printIdentityStats(name, st, c.taskCompletion(id))
+		c.printIdentityStats(name, st, c.taskCompletion(id), obs.LoadAdmission(id.Dir))
 		shown++
 	}
 
@@ -109,7 +109,7 @@ func rowsInWindow(rows []obs.UsageRow, windowStart time.Time) []obs.UsageRow {
 	return out
 }
 
-func (c *CLI) printIdentityStats(name string, st obs.Stats, tc *taskCompletionStats) {
+func (c *CLI) printIdentityStats(name string, st obs.Stats, tc *taskCompletionStats, ad obs.AdmissionStatus) {
 	fmt.Fprintf(c.stdout, "== %s ==\n", name)
 	c.printTotals(st)
 	fmt.Fprintf(c.stdout, "  按唤醒  %s\n", bucketLine(st.ByWake))
@@ -126,7 +126,31 @@ func (c *CLI) printIdentityStats(name string, st obs.Stats, tc *taskCompletionSt
 	} else {
 		fmt.Fprintf(c.stdout, "  任务    %s\n", tc.summary())
 	}
+	c.printBudget(ad)
 	fmt.Fprintln(c.stdout)
+}
+
+// printBudget 预算与熔断现状：上限设置了才显示预算行；熔断冷却
+// 无论预算与否都要喊出来。
+func (c *CLI) printBudget(ad obs.AdmissionStatus) {
+	if ad.DailyLimit > 0 || ad.SelfLimit > 0 {
+		line := fmt.Sprintf("  预算    今日 %d", ad.UsedToday)
+		if ad.DailyLimit > 0 {
+			line += fmt.Sprintf("/%d", ad.DailyLimit)
+		}
+		if ad.SelfLimit > 0 {
+			line += fmt.Sprintf("（自发 %d/%d）", ad.SelfUsedToday, ad.SelfLimit)
+		}
+		line += " tokens"
+		if ad.CoolingUntil != "" {
+			line += "｜⚠ 熔断冷却中"
+		}
+		fmt.Fprintln(c.stdout, line)
+		return
+	}
+	if ad.CoolingUntil != "" {
+		fmt.Fprintf(c.stdout, "  准入    ⚠ 熔断冷却中（至 %s）\n", ad.CoolingUntil)
+	}
 }
 
 func (c *CLI) printTotals(st obs.Stats) {

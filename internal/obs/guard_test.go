@@ -56,7 +56,7 @@ func iso(t time.Time) string { return t.UTC().Format(traj.TimeFormat) }
 // 拒绝新请求（ErrCircuitOpen）。
 func TestGuardTripsAfterThreeFailures(t *testing.T) {
 	dir := t.TempDir()
-	g := newGuard(dir, 0, nil)
+	g := newGuard(dir, 0, 0, nil)
 	writeHealth(t, dir, Health{ConsecutiveErrors: 3, LastErrorAt: iso(time.Now())})
 	if err := g.Allow(context.Background()); !errors.Is(err, llm.ErrCircuitOpen) {
 		t.Fatalf("err = %v，应为 ErrCircuitOpen", err)
@@ -67,7 +67,7 @@ func TestGuardTripsAfterThreeFailures(t *testing.T) {
 // 失败（结果落盘）重新冷却，冷却过后再次放行探测。
 func TestGuardSingleProbeAfterCooldown(t *testing.T) {
 	dir := t.TempDir()
-	g := newGuard(dir, 0, nil)
+	g := newGuard(dir, 0, 0, nil)
 	past := iso(time.Now().Add(-6 * time.Minute))
 	future := iso(time.Now().Add(time.Second))
 	writeHealth(t, dir, Health{ConsecutiveErrors: 3, LastErrorAt: past})
@@ -94,7 +94,7 @@ func TestGuardSingleProbeAfterCooldown(t *testing.T) {
 // 恢复正常放行。
 func TestGuardRecoversAfterSuccessfulProbe(t *testing.T) {
 	dir := t.TempDir()
-	g := newGuard(dir, 0, nil)
+	g := newGuard(dir, 0, 0, nil)
 	future := iso(time.Now().Add(time.Second))
 	writeHealth(t, dir, Health{ConsecutiveErrors: 3, LastErrorAt: iso(time.Now().Add(-6 * time.Minute))})
 	if err := g.Allow(context.Background()); err != nil {
@@ -110,7 +110,7 @@ func TestGuardRecoversAfterSuccessfulProbe(t *testing.T) {
 // 行（error 非空）与旧日行不计入。
 func TestGuardDailyBudget(t *testing.T) {
 	dir := t.TempDir()
-	g := newGuard(dir, 100, nil)
+	g := newGuard(dir, 100, 0, nil)
 	appendLedger(t, dir, traj.NowString(), 60, 30, false)  // 90
 	appendLedger(t, dir, traj.NowString(), 999, 999, true) // 失败行不计
 	if err := g.Allow(context.Background()); err != nil {
@@ -125,7 +125,7 @@ func TestGuardDailyBudget(t *testing.T) {
 // TestGuardDailyBudgetIgnoresOldDays：旧日用量重置为新一天的零起点。
 func TestGuardDailyBudgetIgnoresOldDays(t *testing.T) {
 	dir := t.TempDir()
-	g := newGuard(dir, 100, nil)
+	g := newGuard(dir, 100, 0, nil)
 	appendLedger(t, dir, iso(time.Now().Add(-24*time.Hour)), 5000, 5000, false)
 	if err := g.Allow(context.Background()); err != nil {
 		t.Fatalf("旧日用量不应计入今天: %v", err)
@@ -135,7 +135,7 @@ func TestGuardDailyBudgetIgnoresOldDays(t *testing.T) {
 // TestGuardDailyDisabled：预算未设置（<=0）即不启用。
 func TestGuardDailyDisabled(t *testing.T) {
 	dir := t.TempDir()
-	g := newGuard(dir, 0, nil)
+	g := newGuard(dir, 0, 0, nil)
 	appendLedger(t, dir, traj.NowString(), 10_000_000, 10_000_000, false)
 	if err := g.Allow(context.Background()); err != nil {
 		t.Fatalf("未设置预算应放行: %v", err)
@@ -230,5 +230,89 @@ func TestLoadAdmissionNoSideEffects(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "llm-health.json.lock")); !os.IsNotExist(err) {
 		t.Fatalf("只读快照不应创建锁文件: %v", err)
+	}
+}
+
+// appendLedgerWake 追加一行带唤醒章的用量台账（自发档预算的原料）。
+func appendLedgerWake(t *testing.T, dir, ts string, prompt, completion int, wake string) {
+	t.Helper()
+	usageDir := filepath.Join(dir, "usage")
+	if err := os.MkdirAll(usageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rec := map[string]any{"ts": ts, "prompt_tokens": prompt, "completion_tokens": completion, "wake": wake}
+	line, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(filepath.Join(usageDir, "llm-usage.jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestGuardSpontaneousBudget：自发档预算只拦 watchdog/定时唤醒——
+// 超限后自发调用被拒（ErrDailyBudget），对话与人工触发照常放行；
+// 总预算未设时自发预算独立生效。
+func TestGuardSpontaneousBudget(t *testing.T) {
+	dir := t.TempDir()
+	g := newGuard(dir, 0, 100, nil)
+	appendLedgerWake(t, dir, iso(time.Now()), 60, 50, "watchdog") // 自发 110
+	appendLedgerWake(t, dir, iso(time.Now()), 10, 5, "")          // 非自发 15
+
+	spont := llm.WithAttrib(context.Background(), llm.Attrib{Wake: "watchdog", Phase: "wake"})
+	if err := g.Allow(spont); !errors.Is(err, llm.ErrDailyBudget) {
+		t.Fatalf("自发调用应被自发预算拦下: %v", err)
+	}
+	chat := llm.WithAttrib(context.Background(), llm.Attrib{Phase: "chat"})
+	if err := g.Allow(chat); err != nil {
+		t.Fatalf("对话不应受自发预算影响: %v", err)
+	}
+	manual := llm.WithAttrib(context.Background(), llm.Attrib{Wake: "manual", Phase: "wake"})
+	if err := g.Allow(manual); err != nil {
+		t.Fatalf("人工触发不应受自发预算影响: %v", err)
+	}
+	scheduled := llm.WithAttrib(context.Background(), llm.Attrib{Wake: "scheduled", Phase: "wake"})
+	if err := g.Allow(scheduled); !errors.Is(err, llm.ErrDailyBudget) {
+		t.Fatalf("定时唤醒应同受自发预算: %v", err)
+	}
+}
+
+// TestGuardSpontaneousWithinBudget：自发用量未超限时一切照常。
+func TestGuardSpontaneousWithinBudget(t *testing.T) {
+	dir := t.TempDir()
+	g := newGuard(dir, 0, 500, nil)
+	appendLedgerWake(t, dir, iso(time.Now()), 60, 50, "watchdog")
+	spont := llm.WithAttrib(context.Background(), llm.Attrib{Wake: "watchdog", Phase: "wake"})
+	if err := g.Allow(spont); err != nil {
+		t.Fatalf("未超限应放行: %v", err)
+	}
+}
+
+// TestNewGuardReadsSpontaneousEnv：自发档预算从环境读取，非法值按
+// 未设置处理。
+func TestNewGuardReadsSpontaneousEnv(t *testing.T) {
+	t.Setenv("MINDLOOP_SPONTANEOUS_TOKENS", "500")
+	if g := NewGuard(t.TempDir(), nil); g.selfDaily != 500 {
+		t.Fatalf("selfDaily = %d，应为 500", g.selfDaily)
+	}
+	t.Setenv("MINDLOOP_SPONTANEOUS_TOKENS", "junk")
+	if g := NewGuard(t.TempDir(), nil); g.selfDaily != 0 {
+		t.Fatalf("非法值应为 0，得到 %d", g.selfDaily)
+	}
+}
+
+// TestLoadAdmissionSpontaneous：快照带自发口径（上限与当日已用）。
+func TestLoadAdmissionSpontaneous(t *testing.T) {
+	t.Setenv("MINDLOOP_SPONTANEOUS_TOKENS", "100")
+	dir := t.TempDir()
+	appendLedgerWake(t, dir, traj.NowString(), 60, 50, "watchdog")
+	st := LoadAdmission(dir)
+	if st.SelfLimit != 100 || st.SelfUsedToday != 110 {
+		t.Fatalf("admission = %+v（应 self_limit=100 self_used=110）", st)
 	}
 }
