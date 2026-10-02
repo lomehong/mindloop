@@ -3,6 +3,30 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的条目
 组织方式；版本号采用语义化版本——0.x 阶段接口仍可能调整，1.0 起承诺兼容。
 
+## [Unreleased]
+
+### 修复
+
+- **Mimosa 存量清偿第一批**（台账 docs/security/mimosa-baseline.md）：
+  测试凭据 fixture 从 `"sk-"+strings.Repeat(...)` 运行时拼装改为低熵
+  假字面量（web 包三夹具与 llm 包 `testAPIKey`→`fakeProfileKey`，
+  脱敏按"键名含敏感子串"判定、与值形态无关，断言语义不变）；
+  `skills install` 的 `runGitStep` 参数位新增 `gitArgRe` 收口校验，
+  把"字面量选项 + MkdirTemp 产物"契约钉成可证断言。
+
+### 文档
+
+- **演进路线图定稿**（docs/designs/roadmap.md）：六角色头脑风暴交叉
+  收敛 + 三项战略拍板（连接器优先/RPA 后置、继续做框架定位、零依赖
+  戒律分层放宽），并对照 0.7.0 实际落地内容校准（连接器 Phase 1、
+  主动汇报 Phase 1–3、服务化 Phase 4、policy 审批门均为现状，路线只
+  规划缺口：信任补强、分发、eval 基线、幂等索引、控制面收口等）。
+- **依赖政策分层放宽**：认知域核心保持零/薄第三方依赖，协议适配层
+  可引成熟库——同步写进 README「依赖策略」与 CONTRIBUTING「约定」。
+- **Mimosa 存量 finding 清偿台账**（docs/security/mimosa-baseline.md）：
+  人工基线（插件无基线机制，已实证）+ 清偿规矩（每 PR ≥1 个、新增
+  零容忍）+ 已实证的合规写法速查；CONTRIBUTING 增「安全门禁」节。
+
 ## [0.7.0]
 
 ### 新增

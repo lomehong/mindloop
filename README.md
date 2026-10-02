@@ -9,10 +9,12 @@ Job Object 而非 Docker，锁与文件身份按 NTFS 语义设计；Linux/macOS
 
 当前进度：路线图 1–10 全部完成（日志、上下文渲染、运行循环、持久
 心智、responder 回复、记忆、recap 分层上下文、观测面、仪表盘、
-技能与工具扩展面）。依赖策略：
-**核心 internal 库零第三方依赖**（Windows 沙箱直接用 syscall 声明
-内核调用），仅 CLI 层引入
-[spf13/cobra](https://github.com/spf13/cobra)。
+技能与工具扩展面）。依赖策略（2026-10-02 起分层放宽）：认知域
+核心（traj/mind/prompt/recap/mem 等纯逻辑包）保持零或极薄第三方
+依赖，求长期稳定；协议适配层（connector、provider、MCP 传输、
+检索等 I/O 边界包）可自由引入成熟第三方库，不为戒律手写协议实现。
+Windows 沙箱仍直接用 syscall 声明内核调用（无 cgo）。后续演进
+方向见 [docs/designs/roadmap.md](docs/designs/roadmap.md)。
 
 ## 架构
 
@@ -118,8 +120,9 @@ mcp client 内部有进程等待/取消哨兵类的内部 goroutine）；
   `ErrMaxIterations`/`ErrNoBash`/`ErrNoProvider`…）+ `%w` +
   `errors.Is`；库返回错误、CLI 打印错误。
 - 端口接口在消费侧定义（`runner.Thinker`）；平台差异收敛到
-  `//go:build` 文件；`syscall` 的 LazyDLL 直接声明内核调用——核心库
-  零第三方依赖，cobra 只出现在 CLI 层。
+  `//go:build` 文件；`syscall` 的 LazyDLL 直接声明内核调用——
+  认知域核心保持薄依赖，第三方依赖收敛在协议适配层（见开头的
+  「依赖策略」）。
 - CLI 基于 cobra：帮助/示例自动生成、未知命令 did-you-mean 建议、
   shell 补全（`mindloop completion`）、旗标与位置参数自由混排；
   退出码语义统一（0 成功 / 1 运行失败 / 2 用法错误 / 3 run 失速或

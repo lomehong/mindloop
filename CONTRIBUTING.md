@@ -43,12 +43,31 @@ push 到 main 与所有 PR 会触发 [.github/workflows/ci.yml](.github/workflow
 
 PR 若 CI 不绿请勿请求合并。
 
+## 安全门禁（Mimosa）
+
+本仓库启用了 Mimosa 安全插件的写入钩子与 commit 门禁（graded 模式，
+high finding 强制拒绝）。存量 16 个高危 finding 的清偿台账与规矩见
+[docs/security/mimosa-baseline.md](docs/security/mimosa-baseline.md)：
+**每 PR 至少清偿 1 个，目标一个季度归零；新增 finding 零容忍**。
+
+- 改 exec/fetch/凭据形态的代码前，先按已实证的合规写法选形状
+  （结构体字面量 + 白名单校验函数、流式 sha1、`str.match` 等）；
+  抑制注释和 policy 白名单对门禁无效，不要尝试。
+- 台账归零前，提交若被存量 finding 拦截：请在自己的终端设置
+  `MIMOSA_GIT_GATE_MODE=warn` 后执行（用户已裁定）；不要为凑合
+  门禁做表面修复。
+
 ## 约定
 
 - 分支从 `main` 拉出，PR 保持小步、单一主题；提交信息用祈使句
   （如 `fix: 偷锁前重读 owner.json 防 TOCTOU`）。
 - 核心库（internal/ 下除 cli、web 外）不打印日志、不自行起业务
   goroutine、阻塞操作首参 `context.Context`。
+- 依赖政策分层（2026-10-02 放宽零依赖戒律）：认知域核心包（traj、
+  mind、prompt、recap、mem 等纯逻辑）保持零/薄第三方依赖；协议
+  适配层（connector、provider、MCP 传输、检索等 I/O 边界）可直接
+  引成熟第三方库，不必手写协议实现。引新依赖请在 PR 描述里给一句
+  理由。
 - 行为变更必须带测试——本仓库的测试即回归记录，修 bug 请先补一条
   能复现它的用例。
 - 用户可见的变更请在 [CHANGELOG.md](CHANGELOG.md) 的 Unreleased 段记一笔。
