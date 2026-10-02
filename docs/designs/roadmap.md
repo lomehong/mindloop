@@ -53,10 +53,11 @@ UX 可靠性——交叉收敛，经用户三项战略拍板；同日对照 CHAN
   删除归类。**分级让 ask 模式可持续，是信任体系里杠杆最大的一件事。**
 - **undo/快照**：写操作前快照目标文件 + `mind undo <run_id>`。
   "可信 = 出事可挽回，不是不出事"。
-- **静态门**：执行前 deny-list（`curl|bash`、`rm -rf`、写 `.env`、
-  读 `~/.ssh` 等），作为 trusted 模式下的最后防线；配合记忆
-  provenance/未核实标签（§2.4）堵"MCP 返回内容注入 → 写入记忆 →
-  自我加固"链。
+- **静态门（✅ 2026-10-02 已落地）**：`internal/policy/tripwire.go`
+  不可逆操作守卫——极窄灾难模式（管道给 shell、删根、dd 写盘、
+  mkfs、读 SSH 私钥、覆写 .env），trusted 无人值守档命中即拒绝并
+  记审计，ask 档并进待批风险提示；`MINDLOOP_EXEC_TRIPWIRE=0` 可关。
+  覆盖"注入内容 → 无人拦截的灾难命令"链的最后一环。
 - **预算控制台**：每日花费上限、超限自动降档/停自发档；在
   `$MINDLOOP_EXE` 代理层强制执行，不靠 prompt 约束。
 - 能力隔离（沙箱 TrustLevel 分级：低权本地用户 → AppContainer →

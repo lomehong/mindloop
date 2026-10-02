@@ -17,6 +17,15 @@
   find -exec 族、循环、解释器）一律照旧审批。开关
   `MINDLOOP_EXEC_POLICY_AUTO=0`（缺省开启，仅 ask 策略生效）。
   目的：防审批疲劳把缺省 ask 逼成 trusted——分级让 ask 可持续。
+- **不可逆操作守卫（tripwire）：trusted 策略的最后防线**（roadmap
+  §1.2 静态门）：`internal/policy/tripwire.go` 极窄灾难模式清单
+  （管道给 shell、删根/家/当前目录、dd 写裸设备、mkfs、fork 炸弹、
+  读 SSH 私钥、覆写 .env）——trusted 无人值守时命中即拒绝执行并记
+  `tripwire` 审计（防注入内容诱导无人拦截的灾难命令）；ask 档命中
+  只并进待批请求的风险提示（与 riskNotes 去重）。守卫刻意向
+  "误伤合法命令的代价是把用户逼向关闭守卫"的反方向收窄：
+  `rm -rf build/`、`cat .env` 等合法近似命令不在列。开关
+  `MINDLOOP_EXEC_TRIPWIRE=0`（缺省开启）。
 
 ### 修复
 

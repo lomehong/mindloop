@@ -57,6 +57,7 @@ func (c *CLI) newRunCmd() *cobra.Command {
 			// （runner.BeforeExecute 的唯一实现面）。
 			gate := policy.NewGate(policy.Dir(t.Dir), policy.ModeFromEnv())
 			gate.AutoReadOnly = policy.AutoReadOnlyFromEnv()
+			gate.Tripwire = policy.TripwireFromEnv()
 			gate.Logger = func(format string, args ...any) {
 				fmt.Fprintf(c.stderr, format+"\n", args...)
 			}

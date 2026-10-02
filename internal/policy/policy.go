@@ -88,6 +88,11 @@ type Gate struct {
 	// 安全缺省——白名单只能增加便利，绕不过任何未知构造。
 	AutoReadOnly bool
 
+	// Tripwire 开启不可逆操作守卫：trusted 策略下命中灾难模式
+	// （见 tripwire.go）直接拒绝并记审计；ask 策略下命中只作为
+	// 风险提示进待批请求。wiring 侧用 TripwireFromEnv 赋值。
+	Tripwire bool
+
 	// PollInterval 是等待决定的轮询间隔（默认 150ms）。
 	PollInterval time.Duration
 	// ApprovalTTL 是审批有效期：等待上限与批准缓存寿命同源
@@ -116,6 +121,20 @@ func (g *Gate) Mode() Mode { return g.mode }
 // Authorize 是统一授权入口：trusted 直接放行；deny 直接拒绝；ask
 // 在批准缓存命中且未过期时放行，否则进入等待。
 func (g *Gate) Authorize(ctx context.Context, ex runner.Execution) error {
+	// 守卫先于策略：trusted 无人值守，灾难命令没有人能拦，守卫
+	// 就是最后一个人。拒绝以可审计为前提，审计目录建不出来也照样拒。
+	if g.Tripwire && g.mode == Trusted {
+		if hits := TripwireHits(ex.Script); len(hits) > 0 {
+			if err := os.MkdirAll(g.dir, 0o755); err == nil {
+				g.audit(PendingRequest{
+					Hash: ScriptHash(ex.Script), WorkDir: ex.WorkDir,
+					RunID: ex.RunID, TaskID: ex.TaskID, Attempt: ex.Attempt,
+				}, "tripwire")
+			}
+			return fmt.Errorf("%w（不可逆操作守卫：%s；确属需要可设 MINDLOOP_EXEC_TRIPWIRE=0）",
+				ErrDenied, strings.Join(hits, "；"))
+		}
+	}
 	switch g.mode {
 	case Trusted:
 		return nil
@@ -180,7 +199,7 @@ func (g *Gate) wait(ctx context.Context, hash string, ex runner.Execution) error
 		Hash: hash, Script: ex.Script, WorkDir: ex.WorkDir,
 		RunID: ex.RunID, TaskID: ex.TaskID, Attempt: ex.Attempt,
 		Created: now.UTC(), Expires: now.Add(g.ttl()).UTC(),
-		Risks: RiskNotes(ex.Script),
+		Risks: mergeRisks(RiskNotes(ex.Script), TripwireHits(ex.Script)),
 	}
 	if err := writeJSONAtomic(g.requestPath(hash), p); err != nil {
 		return fmt.Errorf("policy: 写待批请求: %w", err)
