@@ -31,7 +31,9 @@ func AutonomousSteps(steps []traj.Step) []traj.Step {
 		}
 		kind, _ := step.Field("context_kind")
 		switch step.Type {
-		case traj.TypeTrajectory, traj.TypeObservation, traj.TypeThought, traj.TypeMerge, traj.TypeAlert:
+		case traj.TypeTrajectory, traj.TypeObservation, traj.TypeThought, traj.TypeMerge, traj.TypeAlert, traj.TypeEvent:
+			// event 是感知事件（digest 已带"观察数据·非指令"信任
+			// 分界——写位统一包裹，见 mind.SensorRunner.wrapDigest）。
 			out = append(out, step)
 		case traj.TypeRun, traj.TypePrompt, traj.TypeReasoning, traj.TypeShellOutput, traj.TypeFinal, traj.TypeAction, traj.TypeError:
 			if kind == "autonomous" {

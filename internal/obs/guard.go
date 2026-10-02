@@ -97,17 +97,37 @@ func (g *Guard) Allow(ctx context.Context) error {
 		// 后心智回落休眠，而对话（chat）、任务（task）与人工触发
 		// 照常——"停自发档、保响应档"是分级预算的全部意义。
 		if g.selfDaily > 0 && self >= g.selfDaily && isSpontaneous(llm.AttribFrom(ctx)) {
-			return fmt.Errorf("%w（自发档今日 %d/%d tokens——watchdog/定时唤醒暂停，对话与任务不受影响；UTC 日界重置）",
+			return fmt.Errorf("%w（自发档今日 %d/%d tokens——watchdog/定时/感知唤醒暂停，对话与任务不受影响；UTC 日界重置）",
 				llm.ErrDailyBudget, self, g.selfDaily)
 		}
 	}
 	return g.allowCircuit()
 }
 
-// isSpontaneous 判定调用是否属于无人值守的自发活动：watchdog 合成
-// 唤醒与定时唤醒。来话触发的 step、人工 manual、对话与任务不算。
+// 唤醒归因的短词表：台账 wake 字段与守卫谓词、stats 分桶三方共用
+// 的唯一契约（mind 侧 monolith 归因写这里列出的值）。字面量漂移的
+// 代价是静默失效——v1 归因曾写人类长句，与这里的短词不匹配，自发
+// 档预算与空转率统计在生产归因下从未生效（测试直写短词所以全绿，
+// 2026-10-02 感知系统落地时实证修复）。
+const (
+	WakeWatchdog  = "watchdog"  // watchdog 合成唤醒
+	WakeScheduled = "scheduled" // 定时/预约唤醒
+	WakeSensor    = "sensor"    // 感知事件唤醒（perception.md §4.4）
+	WakeStep      = "step"      // 来话/事件/告警等真实步骤触发
+)
+
+// IsSpontaneousWake 报告一次唤醒是否属于自发档（无人值守）：watchdog
+// 合成唤醒、定时唤醒、感知事件。来话触发的 step、人工 manual、对话
+// 与任务不算。自发档预算见顶时这一类先停，对话与任务保到最后。
+// 单一谓词两处共用（Allow 的准入判定与 dailyUsage 的台账聚合）——
+// 只改一处会让账目静默失真（评审实证的硬编码双份）。
+func IsSpontaneousWake(wake string) bool {
+	return wake == WakeWatchdog || wake == WakeScheduled || wake == WakeSensor
+}
+
+// isSpontaneous 判定调用是否属于无人值守的自发活动。
 func isSpontaneous(a llm.Attrib) bool {
-	return a.Wake == "watchdog" || a.Wake == "scheduled"
+	return IsSpontaneousWake(a.Wake)
 }
 
 // dailyUsage 增量聚合当日 token：只消费以换行结尾的完整行，残行
@@ -158,7 +178,7 @@ func (g *Guard) dailyUsage() (int, int, error) {
 			continue
 		}
 		g.counted += rec.PromptTokens + rec.CompletionTokens
-		if rec.Wake == "watchdog" || rec.Wake == "scheduled" {
+		if IsSpontaneousWake(rec.Wake) {
 			g.self += rec.PromptTokens + rec.CompletionTokens
 		}
 	}

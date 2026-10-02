@@ -98,17 +98,30 @@ type Stats struct {
 	WatchdogWakes int // watchdog 合成唤醒的思考轮
 	IdleNoRun     int // 其中窗口内未跟随新 run 的（空转代理）
 
+	SensorWakes   int // 感知事件唤醒的思考轮（感官信噪比的分母）
+	SensorIdleRun int // 其中窗口内未跟随新 run 的（信噪比分子）
+
 	FirstTS string
 	LastTS  string
 }
 
 // IdleRate 返回空转唤醒率（0~1）；没有 watchdog 唤醒时返回 false
-// ——"没醒过"和"醒过全在干活"是两种健康，不该共用一个 0。
+// ——“没醒过”和“醒过全在干活”是两种健康，不该共用一个 0。
 func (s Stats) IdleRate() (float64, bool) {
 	if s.WatchdogWakes == 0 {
 		return 0, false
 	}
 	return float64(s.IdleNoRun) / float64(s.WatchdogWakes), true
+}
+
+// SensorIdleRate 返回感知唤醒的空转率（0~1，感官信噪比的代理）：
+// 反射层阈值校准的依据之一（perception.md §6）。没有感知唤醒返回
+// false。
+func (s Stats) SensorIdleRate() (float64, bool) {
+	if s.SensorWakes == 0 {
+		return 0, false
+	}
+	return float64(s.SensorIdleRun) / float64(s.SensorWakes), true
 }
 
 // Derive 从台账行派生指标。idleWindow 是空转判定的跟随窗口：唤醒
@@ -156,26 +169,43 @@ func Derive(rows []UsageRow, idleWindow time.Duration) Stats {
 	}
 
 	for _, r := range rows {
-		if r.Phase != "wake" || r.Wake != "watchdog" {
+		if r.Phase != "wake" {
 			continue
 		}
-		st.WatchdogWakes++
-		idle := r.Run == ""
-		if idle {
-			if ts, ok := parseTS(r.TS); ok {
-				for _, t0 := range runFirst {
-					if !t0.Before(ts) && t0.Sub(ts) <= idleWindow {
-						idle = false
-						break
-					}
-				}
+		switch r.Wake {
+		case "watchdog":
+			st.WatchdogWakes++
+			if wakeFollowsRun(r, runFirst, idleWindow) {
+				continue
 			}
-		}
-		if idle {
 			st.IdleNoRun++
+		case "sensor":
+			st.SensorWakes++
+			if wakeFollowsRun(r, runFirst, idleWindow) {
+				continue
+			}
+			st.SensorIdleRun++
 		}
 	}
 	return st
+}
+
+// wakeFollowsRun 报告一次唤醒在 idleWindow 内是否跟随了新 run
+// （"干了活"的台账级锚点）。
+func wakeFollowsRun(r UsageRow, runFirst map[string]time.Time, idleWindow time.Duration) bool {
+	if r.Run != "" {
+		return false
+	}
+	ts, ok := parseTS(r.TS)
+	if !ok {
+		return false
+	}
+	for _, t0 := range runFirst {
+		if !t0.Before(ts) && t0.Sub(ts) <= idleWindow {
+			return true
+		}
+	}
+	return false
 }
 
 // bucketFor 取桶，没有就建——调用方只管加。

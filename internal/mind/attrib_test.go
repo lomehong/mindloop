@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/lomehong/mindloop/internal/llm"
+	"github.com/lomehong/mindloop/internal/obs"
 	"github.com/lomehong/mindloop/internal/task"
 	"github.com/lomehong/mindloop/internal/traj"
 )
@@ -60,11 +61,24 @@ func TestWakeAttribution(t *testing.T) {
 		t.Fatal("唤醒未发起模型调用")
 	}
 	a := attrs[0]
-	if a.Thinker != "monolith" || a.Phase != "wake" || a.Wake != "scheduled spontaneity" {
+	// 归因用短词表（obs.WakeScheduled）：台账 wake 字段与守卫谓词/
+	// stats 分桶共用此契约——v1 曾写人类长句导致自发档预算在生产
+	// 归因下从未生效（字面量漂移，测试直写短词所以全绿）。
+	if a.Thinker != "monolith" || a.Phase != "wake" || a.Wake != obs.WakeScheduled {
 		t.Fatalf("唤醒归因 = %+v", a)
 	}
 	if a.Task != "" || a.Attempt != 0 {
 		t.Fatalf("自主唤醒不应带任务归因: %+v", a)
+	}
+
+	// 感知事件唤醒归因 sensor（自发档——分级预算的感官档）。
+	attrs = nil
+	ev := traj.NewStep(traj.TypeEvent)
+	ev.Fields["source"] = "s1"
+	ev.Fields["salience"] = "s2"
+	m.Wake(context.Background(), Wake{Step: ev, Kind: WakeStep})
+	if len(attrs) == 0 || attrs[0].Wake != obs.WakeSensor {
+		t.Fatalf("感知事件唤醒应归因 sensor，得 %+v", attrs)
 	}
 }
 

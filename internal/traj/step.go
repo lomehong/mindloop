@@ -43,6 +43,11 @@ const (
 	// monolith 订阅它评估升级——coalesced
 	// 合并槽承接背压，不能伪装成 message
 	//（那会挤占人类消息的保序 FIFO）。
+	TypeEvent = "event" // 感知事件（感知系统写入，perception.md）：
+	// 反射层判级 salience s0-s3；订阅面只收
+	// s2+（s0/s1 是"只落轨迹不叫醒"的沉淀，
+	// dispatcher.route 按字段跳过），源字段
+	// source=sensor-id 参与 coalesced 分槽。
 )
 
 // reservedTypes 是结构性步骤类型，它们永远不会从环境继承 run id

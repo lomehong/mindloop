@@ -122,8 +122,19 @@ func (w *worker) enqueue(step traj.Step) {
 		return
 	}
 	// 自我唤醒类：last-wins 合并——自循环思考者永远不该在积压的
-	// 过期自我唤醒里打转。
-	w.coalesced[step.Type] = wake
+	// 过期自我唤醒里打转。合并键 = 类型 + source：多生产者类型
+	// （感知事件 source=sensor-id、多来源告警）分槽——不同感官的
+	// S3 告警在同一个 last-wins 槽会互相吞掉关键详情（评审实证的
+	// 错配）；单生产者类型（monolith-wake 等）行为不变。
+	w.coalesced[coalesceKey(step)] = wake
+}
+
+// coalesceKey 是合并槽的键：类型，带 source 字段时类型+source。
+func coalesceKey(step traj.Step) string {
+	if src, ok := step.Field("source"); ok && src != "" {
+		return step.Type + "\x00" + src
+	}
+	return step.Type
 }
 
 // next 在锁内取出一批可投递的唤醒：FIFO 优先（人的消息先得到
@@ -173,6 +184,11 @@ type Dispatcher struct {
 	// 心跳检查到点。SetSchedule 必须在 Run 之前调用。
 	schedule Schedule
 
+	// sensors 是感知系统的感官宿主（可选）：Run 启动时 Start、
+	// 返回时 Stop——生命周期归调度器，chat/mind run/service 三条
+	// 命令自动同寿。配置 fail-closed 时降级为日志告警，不杀心智。
+	sensors *SensorRunner
+
 	mu       sync.Mutex
 	workers  []*worker
 	inflight atomic.Int64 // 在途思考计数：WaitIdle 轮询它，不孵化监视 goroutine
@@ -212,6 +228,13 @@ func (d *Dispatcher) SetLogger(f func(format string, args ...any)) {
 // SetSchedule 注入身份日程（Run 之前调用一次）。
 func (d *Dispatcher) SetSchedule(s Schedule) {
 	d.schedule = s
+}
+
+// SetSensors 注入感知系统的感官宿主（Run 之前调用一次）。Run 启动
+// 时 Start、返回时 Stop；配置 fail-closed 只降级为告警——sensors.json
+// 的一个 typo 不该杀死心智（doctor 是诊断面，不是运行时绊线）。
+func (d *Dispatcher) SetSensors(r *SensorRunner) {
+	d.sensors = r
 }
 
 func (d *Dispatcher) logf(format string, args ...any) {
@@ -268,6 +291,15 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 	// ClearStopFlag 的启动清理同模式）。
 	gcTransients(d.tl.Dir)
 	d.logf("调度器启动，跟踪 %s", d.tl.Path)
+	// 感官宿主随调度器同寿：启动失败（配置 fail-closed）降级为
+	// 告警——感知缺席是"世界变瞎"，不是"心智死亡"。
+	if d.sensors != nil {
+		if err := d.sensors.Start(ctx); err != nil {
+			d.logf("!! 感知系统未启动: %v", err)
+		} else {
+			defer d.sensors.Stop()
+		}
+	}
 	tick := time.NewTicker(d.poll)
 	defer tick.Stop()
 	// 心跳连败容忍（roadmap §6 伴生发现的修复）：step 的错误源是
@@ -471,6 +503,20 @@ func (d *Dispatcher) route(step traj.Step) {
 	}
 	for _, w := range targets {
 		name := w.t.Name()
+		// 感知事件的分级行：s0/s1 是"只落轨迹不叫醒"的沉淀——订阅
+		// 面只收 s2+（看见 ≠ 打扰，perception.md §4.3）。跳过留痕
+		// evlog，"为什么没醒"有据可查。
+		if step.Type == traj.TypeEvent {
+			if sal, _ := step.Field("salience"); sal == "s0" || sal == "s1" {
+				if d.evlog != nil {
+					d.evlog.Append(DispatchEvent{
+						Kind: "other", Type: step.Type, Thinker: name,
+						Reason: "salience-below-wake", TS: traj.NowString(),
+					})
+				}
+				continue
+			}
+		}
 		if isDisabled(name) {
 			if d.evlog != nil {
 				d.evlog.Append(DispatchEvent{

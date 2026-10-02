@@ -143,7 +143,28 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 	}))
 	// 身份日程挂上调度器心跳：Run 启动装载、每拍检查到点。
 	dispatcher.SetSchedule(assembleSchedule(id, extraEnv, o.logger))
+	// 感官宿主挂上调度器生命周期（感知系统宿主在 mind 主进程，
+	// perception.md §4.2）：sensors.json 缺席 = 静默；配置坏 =
+	// 调度器降级告警，不杀心智。
+	dispatcher.SetSensors(mind.NewSensorRunner(mind.SensorRunnerOptions{
+		Timeline:    id.Timeline,
+		IdentityDir: id.Dir,
+		SelfName:    id.Name,
+		Factory:     sensorFactory(id),
+		LearnDays:   sensorLearnDays(),
+		Logger:      o.logger,
+	}))
 	return &mindStack{dispatcher: dispatcher, client: client, request: requestClient, summary: summaryClient}, nil
+}
+
+// sensorLearnDays 折算全局学习期天数（MINDLOOP_SENSOR_LEARN_DAYS，
+// 0 = sensor 包缺省 3 天）。
+func sensorLearnDays() int {
+	v := strings.TrimSpace(os.Getenv("MINDLOOP_SENSOR_LEARN_DAYS"))
+	if n, err := strconv.Atoi(v); err == nil && n > 0 {
+		return n
+	}
+	return 0
 }
 
 // contextBudgets 读取上下文预算环境变量：MINDLOOP_CONTEXT_BYTES

@@ -11,6 +11,7 @@ import (
 	"github.com/lomehong/mindloop/internal/ids"
 	"github.com/lomehong/mindloop/internal/llm"
 	"github.com/lomehong/mindloop/internal/mem"
+	"github.com/lomehong/mindloop/internal/obs"
 	"github.com/lomehong/mindloop/internal/prompt"
 	"github.com/lomehong/mindloop/internal/recap"
 	"github.com/lomehong/mindloop/internal/runner"
@@ -131,21 +132,23 @@ func NewMonolith(opts MonolithOptions) Thinker {
 func (m *monolith) Name() string { return monolithName }
 
 func (m *monolith) Subscriptions() Subscription {
-	// 订阅外部产物、系统告警与合成唤醒。alert 是代码写入的告警
-	//（schedule exec 失败等）：无 launched_by 章，TriggerSelf=false
-	// 照常触发；monolith 自产步骤带作者章，被守卫自动拦截——告警
-	// 唤醒走 coalesced 合并槽，思考档评估。人类 message 归 responder
-	//（分工：monolith 行动，responder 说话）；不订阅自己产出的任何
-	// 类型——包括 classify 写下的 action（测试钉死这条不变量）。
-	// launched_by 守卫是第二道防线；Watchdog 是活性兜底：哪怕
-	// 预约机制整个失灵，也会被周期性唤醒——活性由调度器保证，
+	// 订阅外部产物、系统告警、感知事件与合成唤醒。alert 是代码写入
+	// 的告警（schedule exec 失败、感官 S3 等）：无 launched_by 章，
+	// TriggerSelf=false 照常触发；monolith 自产步骤带作者章，被守卫
+	// 自动拦截——告警唤醒走 coalesced 合并槽（键含 source，多来源
+	// 分槽），思考档评估。event 是感知事件（salience s2 才会到这：
+	// s0/s1 在 route 层已跳过），同一合并槽语义。人类 message 归
+	// responder（分工：monolith 行动，responder 说话）；不订阅自己
+	// 产出的任何类型——包括 classify 写下的 action（测试钉死这条
+	// 不变量）。launched_by 守卫是第二道防线；Watchdog 是活性兜底：
+	// 哪怕预约机制整个失灵，也会被周期性唤醒——活性由调度器保证，
 	// 不靠 thinker 自身代码路径。
 	watchdog := m.opts.Watchdog
 	if watchdog <= 0 {
 		watchdog = 5 * time.Minute
 	}
 	return Subscription{
-		Types:       []string{traj.TypeObservation, traj.TypeMerge, traj.TypeAlert, monolithWakeType},
+		Types:       []string{traj.TypeObservation, traj.TypeMerge, traj.TypeAlert, traj.TypeEvent, monolithWakeType},
 		TriggerSelf: false,
 		Watchdog:    watchdog,
 	}
@@ -163,16 +166,30 @@ func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
 		return Outcome{} // 排队任务已被取消，不能将通知转为自主执行授权。
 	}
 	reactive := w.Kind == WakeStep && w.Step.Type == traj.TypeMessage
+	// 归因用短词表（obs 的守卫谓词与 stats 分桶共用同一契约）：
+	// watchdog/scheduled/sensor 是自发档（分级预算的自发账），step
+	// 是来话/事件/告警触发的响应档。v1 归因曾写人类长句（"watchdog
+	// keep-alive check"），与谓词匹配的短词漂移——自发档预算与空转
+	// 率统计在生产归因下从未生效（测试直写短词所以全绿）。reason
+	// 保留为任务文本里的可读短语。
+	wakeKind := obs.WakeScheduled
 	reason := "scheduled spontaneity"
 	switch w.Kind {
 	case WakeWatchdog:
+		wakeKind = obs.WakeWatchdog
 		reason = "watchdog keep-alive check"
 	case WakeStep:
-		reason = fmt.Sprintf("step %s (%s)", w.Step.Type, ids.Short(w.Step.StepID, 8))
+		if w.Step.Type == traj.TypeEvent {
+			wakeKind = obs.WakeSensor
+			reason = fmt.Sprintf("sensor event (%s)", ids.Short(w.Step.StepID, 8))
+		} else {
+			wakeKind = obs.WakeStep
+			reason = fmt.Sprintf("step %s (%s)", w.Step.Type, ids.Short(w.Step.StepID, 8))
+		}
 	}
 	// 归因随 ctx 走到模型调用收尾：台账能把这次唤醒的每一笔记到
 	// 思考者、唤醒原因与阶段上（recap 摘要调用会再覆盖成自己的）。
-	ctx = llm.WithAttrib(ctx, llm.Attrib{Thinker: m.Name(), Wake: reason, Phase: "wake"})
+	ctx = llm.WithAttrib(ctx, llm.Attrib{Thinker: m.Name(), Wake: wakeKind, Phase: "wake"})
 
 	start := time.Now()
 	// 分层上下文的补全：唤醒前先把积压的情节摘要补掉（每次至多
@@ -227,6 +244,12 @@ func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
 	if err != nil && errors.Is(err, runner.ErrMaxIterations) {
 		m.reportUnfinishedWork(ctx, res)
 	}
+	// 预算拒绝的感知事件显式降级留痕（gate-denied）：自发档见顶时
+	// S2 事件被守卫拒绝，当日"值得现在看"的事降为次日报告素材——
+	// 蒸发就是漏报，留痕才能补看（perception.md §6）。
+	if err != nil && errors.Is(err, llm.ErrDailyBudget) && w.Step.Type == traj.TypeEvent {
+		m.recordGateDenied(w.Step)
+	}
 
 	class, summary := m.classify(ctx, res, err)
 	policy := backoffOrDefault(m.opts.Backoff)
@@ -247,6 +270,32 @@ func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
 // 到 500 rune；from 用身份名（对话流里与 responder 的回复同一署
 // 名），to=operator 使 responder 的定向守卫天然忽略它——进度报告
 // 不是对话回合，不进 responder 的历史组装。
+// recordGateDenied 把被预算拒绝的感知事件降级留痕：新写一条
+// kind=gate-denied、salience=s1 的 event 步骤（subject/dedup 沿用
+// 原事件，次日经巡检/报告补看）。追加式轨迹不回写原事件——降级
+// 本身是事实，留自己的痕。
+func (m *monolith) recordGateDenied(orig traj.Step) {
+	s := traj.NewStep(traj.TypeEvent)
+	copyOr := func(key string) {
+		if v, ok := orig.Field(key); ok {
+			s.Fields[key] = v
+		}
+	}
+	s.Fields["source"], _ = orig.Field("source")
+	s.Fields["kind"] = "gate-denied"
+	copyOr("subject")
+	copyOr("dedup")
+	s.Fields["salience"] = "s1"
+	oreason, _ := orig.Field("reason")
+	s.Fields["reason"] = "budget-denied:" + oreason
+	s.Fields["digest"] = "[预算拒绝降级·次日补看] " + orig.StepID
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := m.opts.Timeline.Append(ctx, s); err != nil && m.opts.SetLogger != nil {
+		m.opts.SetLogger("gate-denied 留痕失败: %v", err)
+	}
+}
+
 func (m *monolith) reportUnfinishedWork(ctx context.Context, res runner.Result) {
 	steps, err := m.opts.Timeline.Steps()
 	if err != nil {
