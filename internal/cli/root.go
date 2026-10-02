@@ -98,13 +98,16 @@ func (c *CLI) newRootCmd() *cobra.Command {
 经 mind say 与它对话，记忆经 mem 累积，经历经 recap 分层。
 
 快速开始:
-  1) 编辑 ~\.mindloop\.env 填入模型（完整参考 .env.example）:
-       MINDLOOP_MODEL=glm-5
-       MINDLOOP_API_KEY=你的key
-  2) mindloop identity create ada
-  3) mindloop chat ada        # 启动心智并开始对话
+  1) mindloop init            # 向导：配模型（或 --demo 零 key 演示）+ 建身份
+  2) mindloop chat ada        # 启动心智并开始对话
      你> 介绍一下你自己
-     ada> 我是 ada ……`,
+     ada> 我是 ada ……
+  3) mindloop web             # 仪表盘
+
+手动配置也可：编辑 ~\.mindloop\.env（完整参考 .env.example）:
+  MINDLOOP_MODEL=glm-5
+  MINDLOOP_API_KEY=你的key
+  mindloop identity create ada`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       Version,
@@ -114,6 +117,7 @@ func (c *CLI) newRootCmd() *cobra.Command {
 	}
 	root.SetVersionTemplate("mindloop v{{.Version}}\n")
 	root.AddCommand(
+		c.newInitCmd(),
 		c.newRootChatCmd(),
 		c.newTrajCmd(),
 		c.newPromptCmd(),

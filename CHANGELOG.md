@@ -7,6 +7,13 @@
 
 ### 新增
 
+- **`mindloop init` 初始化向导**（roadmap §1.3，TTFHW 压到两分钟）：
+  交互式配模型（echo 零 key 演示 / 真实模型三元组，检测到已有配置
+  时缺省保留）→ .env 原位合并写入（保留行序注释、0600）→ 连通性
+  实测（显式 Spec 探针，与 /api/llm-health/probe 同款问法；不出网
+  可用 --base-url 指本地）→ 创建/复用身份 → 打印下一步。非交互
+  `--demo --yes` 两条命令完成从零到 ada。key 展示只留首尾；
+  交互确认可拒绝（拒绝则零修改）。根命令快速开始改为 init 优先。
 - **前端产物 go:embed 双构建模式**（roadmap §1.3 分发线地基）：
   `go build -tags release` 经 `web/static/viewer_release.go` 把
   build/client 全量嵌入二进制（产物缺失则编译失败——release 的

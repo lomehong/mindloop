@@ -136,6 +136,11 @@ mcp client 内部有进程等待/取消哨兵类的内部 goroutine）；
 ```bash
 go build -o mindloop.exe ./cmd/mindloop
 
+# 快速开始（推荐）：交互式配模型 + 建身份；--demo 用 echo 演示
+# 模型零 key 离线可跑。之后 mindloop chat ada 即可对话。
+mindloop init
+mindloop init --demo
+
 # 日志层
 mindloop traj new --slug demo
 mindloop traj append <id> message --from operator --content "hello"

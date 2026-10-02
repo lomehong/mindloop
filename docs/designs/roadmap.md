@@ -68,8 +68,11 @@ UX 可靠性——交叉收敛，经用户三项战略拍板；同日对照 CHAN
 - **go:embed 双模式（✅ 2026-10-02 已落地）**：release 构建用
   build tag 走 embed.FS（`web/static/viewer_release.go`，产物缺失
   则编译失败），开发态维持磁盘读热刷新；来源优先级 显式
-  flag/env > 嵌入 > 自动探测。剩余：发布渠道（GoReleaser/Tauri
-  安装包/winget/scoop）、`mindloop init`、`mindloop doctor`。
+  flag/env > 嵌入 > 自动探测。
+- **`mindloop init`（✅ 2026-10-02 已落地）**：交互向导 +
+  `--demo`（echo 零 key）+ 非交互 flags + .env 原位合并 + 连通
+  探测 + 建/复用身份。剩余：发布渠道（GoReleaser/Tauri 安装包/
+  winget/scoop）、`mindloop doctor`。
 - **发布渠道**：GoReleaser 管 Go 产物；Tauri bundler 出安装包；
   winget manifest（Windows 一等公民先占 winget）+ scoop bucket；
   自动更新用 Tauri updater 不自研。
