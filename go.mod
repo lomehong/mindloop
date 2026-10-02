@@ -1,4 +1,4 @@
-module mindloop
+module github.com/lomehong/mindloop
 
 go 1.24
 
