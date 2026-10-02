@@ -83,6 +83,33 @@ func stacksAll() string {
 	return string(buf[:n])
 }
 
+// TestWorkingMarkRemoveRetriesWhenHandleHeld：并发读者握着句柄时
+// Remove 短暂失败（Windows sharing violation）——重试窗口内句柄
+// 松手，文件终被回收。这是"释放后文件永不回收"间歇失败的钉子。
+func TestWorkingMarkRemoveRetriesWhenHandleHeld(t *testing.T) {
+	d, tl := newTestDispatcher(t)
+	d.workingMark("monolith", true, WakeStep)
+
+	f, err := os.Open(workingPath(tl.Dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(50 * time.Millisecond) // 模拟扫描器读一段时间
+		f.Close()
+	}()
+
+	d.workingMark("monolith", false, "")
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(workingPath(tl.Dir)); os.IsNotExist(err) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("句柄释放后 working 文件应被重试删除")
+}
+
 // 未退出的超时执行仍在忙集，并对外暴露隔离诊断。
 func TestDispatcherWorkingQuarantineRetainsEntry(t *testing.T) {
 	d, tl := newTestDispatcher(t)

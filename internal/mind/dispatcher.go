@@ -620,10 +620,27 @@ func (d *Dispatcher) workingMark(name string, on bool, wake WakeKind) {
 		}
 	}
 	if len(d.workingBusy) == 0 {
-		_ = os.Remove(workingPath(d.tl.Dir))
+		d.removeWorkingWithRetry()
 		return
 	}
 	writeWorkingFile(d.tl.Dir, d.workingBusy)
+}
+
+// removeWorkingWithRetry 删除 working 投影并短重试。Windows 语义：
+// 并发读者（杀软实时扫描、残留句柄）会让 Remove 短暂失败
+// （sharing violation / delete-pending）——错误若吞掉，投影文件
+// 永久残留为"幻影工作态"（2026-10-02 全量测试间歇失败实证）。
+// 与 traj 锁释放的短重试同一病理同一药方。
+func (d *Dispatcher) removeWorkingWithRetry() {
+	path := workingPath(d.tl.Dir)
+	var err error
+	for i := 0; i < 10; i++ {
+		if err = os.Remove(path); err == nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	d.logf("!! working 投影删除失败（幻影工作态，下轮唤醒会覆盖）: %v", err)
 }
 
 func (d *Dispatcher) workingQuarantine(name string) {

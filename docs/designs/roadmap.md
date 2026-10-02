@@ -191,11 +191,17 @@ internal/connector/ws 保留为认知锚点）。
 
 ## 6. 已知问题（2026-10-02 记录）
 
-- **working 投影测试间歇挂起**：全量并行测试负载下，
-  `TestDispatcherWorkingProjectionLifecycle` / `...QuarantineRetainsEntry`
-  偶发"思考者释放后 working 文件永不回收"（120s 不恢复；单跑与
-  受影响包合跑必绿，间歇复现，16 核本机实证）。测试内已埋自诊断：
-  失败时自动导出 working 文件内容与全场 goroutine 栈
-  （working_test.go 的 Cleanup 埋点）——下次失败即有现场。怀疑
-  方向：dispatcher 的迟归思考者释放后回收路径丢失唤醒，或 Windows
-  文件删除挂起（delete-pending）。待现场驱动排查，不要盲改。
+- **working 投影测试间歇挂起（✅ 同日根因确认并修复）**：全量并行
+  测试负载下偶发"思考者释放后 working 文件永不回收"。根因：
+  `workingMark` 的投影删除 `_ = os.Remove(...)` 静默吞错——Windows
+  高负载下新写文件被并发读者（杀软实时扫描等）短暂锁住，Remove
+  报 sharing violation 即永久残留"幻影工作态"；内存忙集是对的，
+  文件投影错了。修复：删除短重试（10×50ms，traj 锁释放同款药方）
+  + 确定性钉子测试（持句柄模拟并发读者）。诊断过程沉淀：间歇失败
+  靠"失败现场自诊断"（Cleanup 导出全场栈）锁定——失败时仅剩测试
+  与主 goroutine，证明唤醒路径已正常完成、只剩投影删除失败。
+- **d.step 瞬时错误即调度器永久退出**（排查中的伴生发现）：
+  `Dispatcher.Run` 的 tick 分支对 `step()` 的任何错误直接 `return`
+  ——Windows 文件争用的一次瞬时读失败就让调度器死掉不再自愈
+  （测试场景：全量负载下 d.Run 消失）。是否该对可重试类错误做
+  退避容忍，值得独立评审；未动。
