@@ -118,6 +118,28 @@ func connectorStateDir(id *identity.Identity) string {
 	return filepath.Join(id.Dir, "connectors")
 }
 
+// wecomS0Downgrade 折算感知降档谓词（perception.md §5 Phase 2）：
+// WECOM_S0_KEYWORDS（逗号分隔）——内容命中任一关键词的入站只沉淀
+// 不叫醒（群通知、广播类）。未配置返回 nil = 全部照旧走 message。
+func wecomS0Downgrade() func(from, content string) bool {
+	kws := childenv.List(os.Getenv("WECOM_S0_KEYWORDS"))
+	if len(kws) == 0 {
+		return nil
+	}
+	for i := range kws {
+		kws[i] = strings.ToLower(strings.TrimSpace(kws[i]))
+	}
+	return func(from, content string) bool {
+		lc := strings.ToLower(content)
+		for _, k := range kws {
+			if k != "" && strings.Contains(lc, k) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
 // runWecom 运行企微 bridge，外层是配置热加载监督：每 5s 重读身份
 // .env 的渠道键，白名单/凭据变更即取消当前桥并用新配置重建（旧
 // 连接被单连接互踢语义自然让位）——改白名单不再需要手工重启。
@@ -133,12 +155,13 @@ func (c *CLI) runWecom(id *identity.Identity) error {
 	}
 	start := func(env connectorEnv) (*wecom.Bridge, error) {
 		return wecom.New(wecom.Options{
-			Timeline: id.Timeline,
-			Self:     id.Name,
-			BotID:    env.botID,
-			Secret:   env.secret,
-			Allow:    env.allow,
-			StateDir: connectorStateDir(id),
+			Timeline:  id.Timeline,
+			Self:      id.Name,
+			BotID:     env.botID,
+			Secret:    env.secret,
+			Allow:     env.allow,
+			StateDir:  connectorStateDir(id),
+			Downgrade: wecomS0Downgrade(),
 			Logger: func(format string, args ...any) {
 				fmt.Fprintf(c.stderr, "wecom: "+format+"\n", args...)
 			},

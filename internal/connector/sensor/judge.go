@@ -205,6 +205,13 @@ func Judge(cfg *SensorConfig, st *State, view ReflexView, e PEvent, now time.Tim
 		reason = "agenda-match"
 	}
 
+	// 4. 感官自带档位建议（内感受的严重性是信号的一部分，不归
+	// 词面规则管）：判定低于建议时取建议。
+	if e.Hint != "" && sal < e.Hint {
+		sal = e.Hint
+		reason = "hint:" + string(e.Hint)
+	}
+
 	return Decision{Salience: sal, Reason: reason}
 }
 

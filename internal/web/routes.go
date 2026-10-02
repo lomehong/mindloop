@@ -43,6 +43,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/push/subscriptions", s.withAuth(s.handleEmpty404))
 	s.mux.HandleFunc("POST /api/push/unsubscribe", s.withAuth(s.handleEmpty404))
 
+	// /hook/ —— webhook 感官 intake（耳）：独立 HMAC 凭据鉴权，
+	// 不走 withAuth/sameOrigin（对外系统的服务器间调用）。sameOrigin
+	// 的豁免在 ServeHTTP 里显式只此一条路径前缀。
+	s.registerHookRoute()
+
 	// 静态 viewer 资源与 SPA catch-all——来自磁盘目录或嵌入产物
 	//（release 构建），staticRoot 二选一；root 为 nil 时不注册任何
 	// 静态端点（API-only 模式）。

@@ -121,8 +121,11 @@ func (s *Server) Serve(ctx context.Context) error {
 }
 
 // ServeHTTP 实现 http.Handler；/api/* 先过同源守卫再进 mux。
+// 唯一豁免是 /hook/（webhook 感官 intake）：对外系统的服务器间
+// 调用没有 Origin 头、回环部署下 Host 校验也会误伤——它的鉴权是
+// 独立 per-sensor HMAC（评审钉死：不复用控制面 token）。
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !s.sameOrigin(r) {
+	if !strings.HasPrefix(r.URL.Path, "/hook/") && !s.sameOrigin(r) {
 		writeError(w, http.StatusForbidden, "跨源请求被拒绝（Origin/Host 校验失败）")
 		return
 	}

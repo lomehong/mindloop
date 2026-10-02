@@ -165,6 +165,13 @@ func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
 	if w.Kind == WakeTask {
 		return Outcome{} // 排队任务已被取消，不能将通知转为自主执行授权。
 	}
+	// 零模型告警（eval=0，内感受的直达人通道）：留痕即通知，不需要
+	// 也不应该消耗一次模型调用——预算告警烧预算是自指死锁。
+	if w.Kind == WakeStep && w.Step.Type == traj.TypeAlert {
+		if ev, _ := w.Step.Field("eval"); ev == "0" {
+			return Outcome{}
+		}
+	}
 	reactive := w.Kind == WakeStep && w.Step.Type == traj.TypeMessage
 	// 归因用短词表（obs 的守卫谓词与 stats 分桶共用同一契约）：
 	// watchdog/scheduled/sensor 是自发档（分级预算的自发账），step

@@ -96,6 +96,13 @@ type Options struct {
 	// ReconnectBackoff 是重连退避起点（默认 1s，指数翻倍封顶 30s；
 	// 测试注入小值加速）。
 	ReconnectBackoff time.Duration
+	// Downgrade 是感知降档谓词（perception.md §5 Phase 2 +
+	// connectors.md §4.5）：命中即该条入站写 event 步骤（s0 只
+	// 沉淀不叫醒）而非 message 步骤——dispatcher 对 TypeMessage
+	// 必然进 FIFO 叫醒，"落了轨迹但不叫醒"在 message 路径上机制
+	// 不成立。白名单/文本提取语义不变；降档路径没有会话跟踪
+	//（不回复沉淀的通知）。
+	Downgrade func(from, content string) bool
 	// Logger 注入诊断。
 	Logger func(format string, args ...any)
 }
@@ -464,6 +471,26 @@ func (b *Bridge) handleCallback(ctx context.Context, reqID string, body callback
 	content := strings.TrimSpace(body.Text.Content)
 	if content == "" || body.Msgid == "" {
 		b.logf("跳过非文本或无 msgid 的回调")
+		return
+	}
+	// 感知降档：命中的入站写 event 步骤（s0 只沉淀不叫醒）——
+	// 幂等键仍绑 msgid，重推由判定层去重窗吸收。
+	if b.opts.Downgrade != nil && b.opts.Downgrade("wecom:"+userid, content) {
+		s := traj.NewStep(traj.TypeEvent)
+		s.Fields["source"] = "wecom-s0"
+		s.Fields["kind"] = "changed"
+		s.Fields["subject"] = "wecom:" + userid
+		s.Fields["dedup"] = "wecom:" + body.Msgid
+		s.Fields["salience"] = "s0"
+		s.Fields["reason"] = "bridge-downgrade"
+		s.Fields["digest"] = mind.WrapSensorDigest("wecom", content)
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := b.opts.Timeline.Append(ctx, s); err != nil {
+			b.logf("降档事件落盘失败（msgid %s）: %v", body.Msgid, err)
+			return
+		}
+		b.logf("入站按降档规则沉淀（msgid %s）", body.Msgid)
 		return
 	}
 	// 幂等键 = wecom:<msgid>：服务端重推同一 msgid 时同键同内容

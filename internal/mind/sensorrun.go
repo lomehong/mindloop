@@ -370,6 +370,8 @@ func (r *SensorRunner) writeEvent(rs *runningSensor, e sensor.PEvent, sal sensor
 // 通道——代码写入、无 launched_by 章、responder 不订阅；coalesced
 // 合并键含 source（per-sensor 分槽，多感官互不吞告警）。alert 触发
 // 的唤醒归因是 step（非自发档）——S3 天然不被自发预算拦截。
+// Silent 事件（内感受）带 eval=0：订阅面零模型消化——"用最后的
+// 力气谈论没力气"不发生。
 func (r *SensorRunner) writeAlert(rs *runningSensor, e sensor.PEvent, reason string) {
 	s := traj.NewStep(traj.TypeAlert)
 	s.Fields["from"] = r.opts.SelfName
@@ -380,6 +382,9 @@ func (r *SensorRunner) writeAlert(rs *runningSensor, e sensor.PEvent, reason str
 	s.Fields["salience"] = string(sensor.S3)
 	s.Fields["reason"] = reason
 	s.Fields["content"] = wrapDigest(rs.cfg.ID, e.Digest)
+	if e.Silent {
+		s.Fields["eval"] = "0"
+	}
 	r.append(s)
 }
 
@@ -390,6 +395,13 @@ func (r *SensorRunner) append(s traj.Step) {
 		r.logf("步骤落盘失败（%s/%s）: %v", s.Type, s.Fields["source"], err)
 	}
 }
+
+// WrapSensorDigest 是"数据非指令"信任分界的统一写点（导出给 bridge
+// 降档等非运行器写位共用）：外部内容进 prompt 前在此显式标界（来源
+// + 非指令声明），剥控制字符、按 rune 截断到 200。S2 唤醒的 digest
+// 不经 mem 检索直达 prompt，这个分界就是 P0 整改的落点——无框架
+// 不上 S2。
+func WrapSensorDigest(source, digest string) string { return wrapDigest(source, digest) }
 
 // wrapDigest 是"数据非指令"信任分界的统一写点：外部内容进 prompt
 // 前在此显式标界（来源 + 非指令声明），剥控制字符、按 rune 截断

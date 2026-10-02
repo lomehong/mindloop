@@ -22,8 +22,15 @@ func sensorFactory(id *identity.Identity) mind.SensorFactory {
 			return sensor.NewGitSensor(cfg)
 		case "web":
 			return sensor.NewWebSensor(cfg)
+		case "webhook":
+			// webhook 的观察者是 service/web 进程的 /hook 端点（HMAC
+			// 鉴权后按 event 契约落轨迹，心智经 feeder 看见）——心智
+			// 进程里没有 Watch 循环可跑，ErrDisabled = 通道静默。
+			return nil, sensor.ErrDisabled
+		case "self":
+			return mind.NewSelfSensor(cfg, id.Dir)
 		default:
-			return nil, fmt.Errorf("sensor: 类型 %q 尚未接入（当前支持：file git web）", cfg.Type)
+			return nil, fmt.Errorf("sensor: 类型 %q 尚未接入（当前支持：file git web webhook self）", cfg.Type)
 		}
 	}
 }

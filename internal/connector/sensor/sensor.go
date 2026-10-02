@@ -49,6 +49,15 @@ type PEvent struct {
 	Dedup   string // 内容指纹；空 = 用 Subject
 	Digest  string // 结构化摘要 ≤200 字：变了什么/在哪/何时。检索指引
 	// 不是决策依据——思考者被唤醒后必经回读 subject 才处置。
+
+	// Hint 是感官自带的最低档位建议（内感受等自带严重性语义的
+	// 信号）：判定结果低于 Hint 时取 Hint（reason=hint:<档>）。
+	// 空值 = 无建议，走常规判定。
+	Hint Salience
+	// Silent 表示事件只需留痕通知、不需要模型评估（内感受的预算
+	// 类告警直达人——"用最后的力气谈论没力气"是自指死锁）。装配
+	// 层在 alert 步骤上标 eval=0，订阅面零模型消化。
+	Silent bool
 }
 
 // Sensor 是一个感知通道。契约（perception.md §4.2，装配层保证）：
