@@ -10,6 +10,7 @@ import (
 	"github.com/lomehong/mindloop/internal/llm"
 	"github.com/lomehong/mindloop/internal/mem"
 	"github.com/lomehong/mindloop/internal/prompt"
+	"github.com/lomehong/mindloop/internal/runner"
 	"github.com/lomehong/mindloop/internal/traj"
 )
 
@@ -19,6 +20,8 @@ import (
 const ResponderSystemTemplate = `%s
 
 You are also the voice of the agent: when a human message arrives, you compose the reply. Reply in the human's language, in a tone that fits your persona, briefly and directly. 普通聊天不是执行授权。如果需要运行命令或检查文件，请说明尚未创建任务，并引导用户使用“交给 Agent 执行”或 task submit；不得承诺已接单、正在执行或稍后自动回报。
+
+A recent look screenshot may appear as a [屏幕回读] image — describe only what is actually visible.
 
 History entries are prefixed with [timestamps] — that is metadata, not content. Never start your reply with a timestamp or copy any history formatting into your reply. Reply with plain spoken text only.`
 
@@ -294,6 +297,31 @@ func (r *Responder) relatedMemories(inbound string) string {
 	return b.String()
 }
 
+// screenRecencyWindow 是 responder 附图的近因窗口：操作员 look 后
+// 的自然提问都发生在几分钟内；更旧的屏不属于"你看到什么"的语境。
+const screenRecencyWindow = 10 * time.Minute
+
+// recentScreenImage 找最近窗口内的最新 screen 章并装配图片消息
+// （读回/整形/预算与 runner 视觉回路共用一个出口，口径不漂移）。
+func (r *Responder) recentScreenImage() (llm.Message, bool) {
+	if r.opts.Timeline == nil {
+		return llm.Message{}, false
+	}
+	steps, err := r.opts.Timeline.Tail(200, []string{traj.TypeScreen})
+	if err != nil || len(steps) == 0 {
+		return llm.Message{}, false
+	}
+	cutoff := time.Now().Add(-screenRecencyWindow)
+	for i := len(steps) - 1; i >= 0; i-- {
+		ts, perr := time.Parse(traj.TimeFormat, steps[i].TS)
+		if perr != nil || ts.Before(cutoff) {
+			break // 尾部起倒序：越过窗口即无更近的截屏
+		}
+		return runner.ScreenImageMessage(r.opts.Timeline.Dir, steps[i])
+	}
+	return llm.Message{}, false
+}
+
 // compose 组装对话并做模型调用。stream 非 nil 时走流式：增量经
 // onDelta 落进旁路文件，返回值仍是拼接后的完整全文——旁路只是
 // 投影，全文的处理（去元数据前缀、落轨迹）与一次性补全完全一致。
@@ -318,6 +346,13 @@ func (r *Responder) compose(ctx context.Context, person, inbound string, stream 
 		system += "\n\n相关记忆（BM25 检索，线索而非已验证事实；ID 与来源步骤供追溯）：" + seg
 	}
 	msgs := fitMessages(r.history(person, r.opts.MaxHistory), budget.Remaining())
+	// 字面模态：最近 10 分钟内的最新截屏作为图片上下文——操作员
+	// 先 look 再问"你看到什么"是对话的自然形态（2026-10-03 真实测
+	// 试实证：视觉回路只接在 monolith 路径，responder 收不到图）。
+	// 找不到/超预算静默跳过——增强绝不挡住回复。
+	if msg, ok := r.recentScreenImage(); ok {
+		msgs = append(msgs, msg)
+	}
 	msgs = append(msgs, llm.Message{Role: "user", Content: inbound})
 	if stream != nil {
 		text, err := r.opts.StreamFn(ctx, system, msgs, stream.appendDelta)

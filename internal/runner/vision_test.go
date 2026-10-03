@@ -109,14 +109,16 @@ func TestScreenVisionAttachesWithinRun(t *testing.T) {
 func TestScreenVisionBudgetGate(t *testing.T) {
 	tl := newTestTimeline(t)
 	appendScreen(t, tl, "2026-06-02T00:00:00.000Z", "pic")
-	// 预算极小：装不下图片 → 不附加，不炸。
+	// 图片走独立车道：文本预算再小也不挤掉视觉（体积由
+	// visionImageCap 硬帽约束）——旧规则（按 Remaining 闸图）在
+	// 默认 128KB 文本预算下会整体杀死视觉功能，已废。
 	r := newVisionRun(tl, 8, "2026-06-01T00:00:00.000Z")
 	msgs, err := r.renderMessages()
 	if err != nil {
-		t.Fatalf("预算不足不应报错: %v", err)
+		t.Fatalf("极小文本预算不应报错: %v", err)
 	}
-	if hasImages(msgs) {
-		t.Fatal("超预算闸不应附加图片")
+	if !hasImages(msgs) {
+		t.Fatal("图片独立车道：极小文本预算下也应附加截图")
 	}
 }
 

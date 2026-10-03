@@ -48,7 +48,7 @@ func TestLookCapturesScreenAndWritesStep(t *testing.T) {
 	if path == "" || strings.HasPrefix(path, "/") || strings.Contains(path, `\`) {
 		t.Fatalf("path 应是相对斜杠路径: %q", path)
 	}
-	data, err := os.ReadFile(filepath.Join(id.Dir, filepath.FromSlash(path)))
+	data, err := os.ReadFile(filepath.Join(id.Timeline.Dir, filepath.FromSlash(path)))
 	if err != nil {
 		t.Fatalf("截图文件读不回: %v", err)
 	}

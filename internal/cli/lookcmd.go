@@ -20,8 +20,8 @@ func (c *CLI) newLookCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "look",
 		Short: "看一眼屏幕：截屏落盘 + 写 screen 步骤（下一轮思考即所见）",
-		Long: `字面模态（屏幕视觉）的入口。截取全桌面 PNG 存到
-<身份>/screens/，并往轨迹追加 screen 步骤（含窗口标题与几何）。
+		Long: `字面模态（屏幕视觉）的入口。截取全桌面 PNG 存到轨迹目录的
+screens/ 下，并往轨迹追加 screen 步骤（含窗口标题与几何）。
 运行中的心智下一轮调用模型时，最新截图会作为图片消息进入上下文。
 
 安全：前台窗口命中敏感词（密码/凭据画面）时拒绝截取——密码内容
@@ -45,7 +45,11 @@ func (c *CLI) newLookCmd() *cobra.Command {
 			if err != nil {
 				return c.fail(err)
 			}
-			dir := filepath.Join(id.Dir, "screens")
+			// 落盘基准 = 轨迹目录（不是身份目录）：消费端（runner/
+			// responder 视觉回路）按 Timeline.Dir 解析 screen 步骤的
+			// path——写入与读取必须同一基准（2026-10-03 真实测试实锤：
+			// 写身份目录、读轨迹目录，路径永远错位，图片静默丢失）。
+			dir := filepath.Join(id.Timeline.Dir, "screens")
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return c.fail(fmt.Errorf("look: 建目录: %w", err))
 			}
@@ -54,7 +58,7 @@ func (c *CLI) newLookCmd() *cobra.Command {
 			if err := os.WriteFile(abs, png, 0o644); err != nil {
 				return c.fail(fmt.Errorf("look: 写截图: %w", err))
 			}
-			rel, err := filepath.Rel(id.Dir, abs)
+			rel, err := filepath.Rel(id.Timeline.Dir, abs)
 			if err != nil {
 				rel = abs // 兜底：跨盘等病态布局下退化为绝对路径
 			}
