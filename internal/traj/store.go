@@ -150,8 +150,100 @@ func (t *Timeline) Header() (Step, error) {
 	return s, nil
 }
 
-// Load 通过完整 UUID 或唯一前缀解析轨迹（默认根目录）。
-func Load(prefix string) (*Timeline, error) { return LoadAt(TrajRoot(), prefix) }
+// Load 通过完整 UUID 或唯一前缀解析轨迹——搜索全部轨迹根（全局根
+// + 每个身份的 trajectories/，见 Roots）：心智/身份的轨迹住在身份
+// 目录下，人排查时只记得 id 前缀，不该被要求先知道轨迹归谁。
+func Load(prefix string) (*Timeline, error) {
+	var matches []*Timeline
+	var searched []string
+	for _, root := range Roots() {
+		searched = append(searched, root)
+		t, err := LoadAt(root, prefix)
+		if err == nil {
+			matches = append(matches, t)
+			continue
+		}
+		if !errors.Is(err, ErrNotFound) && !errors.Is(err, ErrAmbiguous) {
+			return nil, err // 读不了根目录是环境问题，如实上抛
+		}
+		if errors.Is(err, ErrAmbiguous) {
+			return nil, err // 同根前缀歧义，错误里已带候选
+		}
+	}
+	// 同一 id 在多个根出现（历史迁移副本常见）：身份根优先于全局
+	// 根（身份那份是操作员的命名数据，全局副本是迁移残留），同层
+	// 取最近修改——活轨迹的心智在持续写它。
+	byID := map[string]*Timeline{}
+	rootRank := map[string]int{}
+	for i, root := range Roots() {
+		rootRank[root] = i // 0=全局根，越大越"身份"
+	}
+	rankBetter := func(a, b *Timeline) bool {
+		ra, rb := rootRank[filepath.Dir(a.Dir)], rootRank[filepath.Dir(b.Dir)]
+		if ra != rb {
+			return ra > rb
+		}
+		return dirMod(a.Dir).After(dirMod(b.Dir))
+	}
+	for _, m := range matches {
+		if prev, ok := byID[m.ID]; !ok || rankBetter(m, prev) {
+			byID[m.ID] = m
+		}
+	}
+	switch len(byID) {
+	case 1:
+		for _, m := range byID {
+			return m, nil
+		}
+	case 0:
+		return nil, fmt.Errorf("%w: %q（搜过 %s）", ErrNotFound, prefix, strings.Join(searched, "、"))
+	default:
+		shorts := make([]string, 0, len(byID))
+		for _, m := range byID {
+			shorts = append(shorts, fmt.Sprintf("%s@%s", ids.Short(m.ID, 8), m.Dir))
+		}
+		return nil, fmt.Errorf("%w: %q 匹配到 %s", ErrAmbiguous, prefix, strings.Join(shorts, ", "))
+	}
+	return nil, fmt.Errorf("%w: %q", ErrNotFound, prefix)
+}
+
+// Roots 返回全部轨迹根：全局根 + 每个身份目录下的 trajectories/。
+// identities/ 是本包与 identity 包共享的磁盘布局（身份数据=身份名
+// 目录），布局知识放这里避免反向依赖。
+func Roots() []string {
+	roots := []string{TrajRoot()}
+	idents, err := os.ReadDir(filepath.Join(Home(), "identities"))
+	if err != nil {
+		return roots // 没有任何身份：只有全局根
+	}
+	for _, e := range idents {
+		if e.IsDir() {
+			roots = append(roots, filepath.Join(Home(), "identities", e.Name(), "trajectories"))
+		}
+	}
+	return roots
+}
+
+// dirMod 读轨迹目录的修改时间（同层去重时选活的那份——活轨迹的
+// 心智在持续写它）。读不到时间的目录视为最旧。
+func dirMod(dir string) time.Time {
+	if fi, err := os.Stat(dir); err == nil {
+		return fi.ModTime()
+	}
+	return time.Time{}
+}
+
+// inIdentitiesLayout 报告轨迹目录是否在 identities 布局下
+// （~/.mindloop/identities/<名>/trajectories/...）。
+func inIdentitiesLayout(dir string) bool {
+	home := Home()
+	idents := filepath.Join(home, identitiesDirName)
+	return strings.HasPrefix(dir, idents+string(filepath.Separator))
+}
+
+// identitiesDirName 是身份根目录名——本包与 identity 包共享的磁盘
+// 布局（身份数据=身份名目录），布局知识放这里避免反向依赖。
+const identitiesDirName = "identities"
 
 // LoadAt 在指定根目录下用完整 UUID 或唯一前缀解析轨迹。id 永远
 // 只是经根目录解析的名字——绝不是文件系统路径——这与 Headlong 的
@@ -200,7 +292,41 @@ func LoadAt(root, prefix string) (*Timeline, error) {
 }
 
 // List 返回默认根目录下每条可读的轨迹，最新的在前。
-func List() ([]Info, error) { return ListAt(TrajRoot()) }
+func List() ([]Info, error) {
+	var out []Info
+	for _, root := range Roots() {
+		infos, err := ListAt(root)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, infos...)
+	}
+	// 同 id 多根去重（规则同 Load：身份根优先，同层取最近修改）。
+	byID := map[string]Info{}
+	for _, in := range out {
+		if prev, ok := byID[in.ID]; ok && !infoBetter(in, prev) {
+			continue
+		}
+		byID[in.ID] = in
+	}
+	out = out[:0]
+	for _, in := range byID {
+		out = append(out, in)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Mod.After(out[j].Mod) })
+	return out, nil
+}
+
+// infoBetter 与 Load 的去重规则同源：身份根（路径在 identities
+// 布局下）优先于全局根，同层取最近修改。
+func infoBetter(a, b Info) bool {
+	ra := inIdentitiesLayout(a.Dir)
+	rb := inIdentitiesLayout(b.Dir)
+	if ra != rb {
+		return ra
+	}
+	return a.Mod.After(b.Mod)
+}
 
 // ListAt 返回指定根目录下每条可读的轨迹，最新的在前。
 func ListAt(root string) ([]Info, error) {

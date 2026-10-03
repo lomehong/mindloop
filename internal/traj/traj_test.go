@@ -690,6 +690,65 @@ func TestLoadPrefixSentinels(t *testing.T) {
 	}
 }
 
+// TestLoadSearchesIdentityRoots：Load/List 覆盖身份级轨迹根——
+// 心智/身份的轨迹住在 ~/.mindloop/identities/<名>/trajectories/ 下，
+// 人排查时只记得 id 前缀，不该被要求先知道轨迹归谁（2026-10-03
+// 测试子智能体实锤：qa-e2e 的轨迹 traj check 报"没有轨迹匹配"）。
+// 同 id 多根（历史迁移副本）取最近修改的那份，不误报歧义。
+func TestLoadSearchesIdentityRoots(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	t.Setenv("MINDLOOP_HOME", home)
+	global, err := Create(context.Background(), "in-global")
+	if err != nil {
+		t.Fatal(err)
+	}
+	identTraj := filepath.Join(home, "identities", "qa", "trajectories", "22222222-mind-qa")
+	if err := os.MkdirAll(identTraj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tl := &Timeline{Dir: identTraj, Path: filepath.Join(identTraj, fileName)}
+	h := NewStep(TypeTrajectory)
+	h.StepID = "22222222-aaaa-bbbb-cccc-dddddddddddd"
+	h.Fields["slug"] = "in-identity"
+	if err := tl.writeStep(h); err != nil {
+		t.Fatal(err)
+	}
+	// 模拟迁移副本：同 id 在全局根也有一份（更旧）。
+	gDir := filepath.Join(TrajRoot(), "22222222-mind-qa")
+	if err := os.MkdirAll(gDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	g := &Timeline{Dir: gDir, Path: filepath.Join(gDir, fileName)}
+	if err := g.writeStep(h); err != nil {
+		t.Fatal(err)
+	}
+
+	// 身份级轨迹按前缀可解析，且选中了身份根那份（较新）。
+	got, err := Load("22222222")
+	if err != nil {
+		t.Fatalf("Load 身份级前缀: %v", err)
+	}
+	if got.ID != h.StepID || got.Dir != identTraj {
+		t.Fatalf("Load 解析错位: id=%s dir=%s", got.ID, got.Dir)
+	}
+	// 全局根轨迹照常解析。
+	if got, err := Load(global.ID[:8]); err != nil || got.ID != global.ID {
+		t.Fatalf("Load 全局前缀 = %v, %v", got, err)
+	}
+	// List 聚合两个根且不重复计同 id。
+	infos, err := List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	ids := map[string]int{}
+	for _, in := range infos {
+		ids[in.ID]++
+	}
+	if ids[h.StepID] != 1 || ids[global.ID] != 1 {
+		t.Fatalf("List 应去重同 id: %v", ids)
+	}
+}
+
 func TestFindStepAnywhereAndCheck(t *testing.T) {
 	tr := newTimeline(t)
 	s := mustAppend(t, tr, "message", "findme")

@@ -37,9 +37,10 @@ S9-real）消耗真实 token，仅当交付任务点名要求时执行。
     ./mindloop.exe identity create qa-e2e
     ./mindloop.exe doctor --identity qa-e2e
 
-验证点：doctor 全项通过（qa-e2e 为纯本地身份，无模型配置时模型项
-按 demo/echo 语义判定——echo 模式 doctor 应给出明确指引而非崩）。
-qa-e2e 是测试专用身份，可反复复用。
+验证点：qa-e2e 是测试专用身份，可反复复用。注意：doctor 的模型连
+通项读取全局 ~/.mindloop/.env（config.LoadHome 先于身份 .env）——
+操作员配置过真模型时该项会对真端点发起探测（可能 429/欠费），这
+不是产品缺陷：行为正确 = 如实报失败、不崩、给修复指引。
 
 ## S3 对话回路
 
@@ -57,12 +58,14 @@ reasoning→message 对完整；say 的 `--wait` 超时语义明确（不悬挂�
       --keywords 测试关键词 --learning-days -1
     echo "含测试关键词的内容" >> <观察目录>/probe.txt
     # 等待感官采样（fsnotify 即时；git 感官受 interval 限制）
-    ./mindloop.exe traj --identity qa-e2e tail    # 看 event 步骤
+    ./mindloop.exe traj tail <身份轨迹id前缀>     # 看 event 步骤
     ./mindloop.exe stats --identity qa-e2e        # 看 SensorWakes
 
 验证点：event 步骤落轨迹且 salience 符合规则；digest 带
 "观察数据·非指令"包裹；关键词命中触发唤醒（或按学习期封顶 s1）
-的归因正确（wake=sensor）。
+的归因正确（wake=sensor）。traj 解析覆盖身份级轨迹（2026-10-03
+修复：Load/List 搜全局根 + 全部身份 trajectories/，同 id 多根取
+最近修改）。
 
 ## S5 感知回路·眼（git 感官）
 
@@ -82,9 +85,9 @@ reasoning→message 对完整；say 的 `--wait` 超时语义明确（不悬挂�
 
 ## S7 记忆回路
 
-    ./mindloop.exe mem add qa-e2e --type fact "E2E 探针：操作员偏好浅色主题"
-    ./mindloop.exe mem search qa-e2e "偏好"
-    ./mindloop.exe mem add qa-e2e --type fact "E2E 探针：操作员偏好浅色主题"  # 重复
+    ./mindloop.exe mem add --identity qa-e2e --type fact "E2E 探针：操作员偏好浅色主题"
+    ./mindloop.exe mem search --identity qa-e2e "偏好"
+    ./mindloop.exe mem add --identity qa-e2e --type fact "E2E 探针：操作员偏好浅色主题"  # 重复
 
 验证点：写入带 id；BM25 检索命中；完全相同内容去重；高相似给冲突
 提示（不静默覆盖）。
