@@ -19,6 +19,10 @@ web/static/node_modules/
 web/static/build/server/
 web/static/.react-router/
 
+# UI 场景测试（uitest/：依赖不入库；playwright-core 走系统 Edge）
+uitest/node_modules/
+uitest/package-lock.json
+
 # 桌面壳（desktop/）
 desktop/src-tauri/target/
 desktop/src-tauri/binaries/
