@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"time"
+
 	"github.com/spf13/cobra"
 
 	"github.com/lomehong/mindloop/internal/robotd"
@@ -12,6 +14,7 @@ import (
 // 都以独立进程运行）。
 func (c *CLI) newRobotdCmd() *cobra.Command {
 	allow := &robotd.WindowAllow{}
+	var minIdle time.Duration
 	cmd := &cobra.Command{
 		Use:   "robotd",
 		Short: "屏幕的看与触：\"身\"的 stdio MCP 服务器（观察模式缺省，动作需 --window-allow）",
@@ -20,6 +23,7 @@ func (c *CLI) newRobotdCmd() *cobra.Command {
 
 安全链：
   - 不给 --window-allow = 观察模式，动作一律拒绝；
+  - 操作员空闲守卫：键鼠输入后 %v 内动作拒绝（不与操作员抢键盘）；
   - 动作的前台窗口必须命中白名单（窗口级 tripwire 谓词）；
   - 密码/凭据画面的前台窗口在任何模式下都拒绝（截屏也不给）；
   - 每个动作强制回读：动作后自动截屏作为证据返回，验证失败即报错。
@@ -35,9 +39,11 @@ func (c *CLI) newRobotdCmd() *cobra.Command {
 				ServerName:  "robotd",
 				Version:     Version,
 				WindowAllow: allow.Values(),
+				MinIdle:     minIdle,
 			})
 		},
 	}
 	cmd.Flags().Var(allow, "window-allow", "窗口标题白名单子串（可重复；不给则观察模式）")
+	cmd.Flags().DurationVar(&minIdle, "min-idle", robotd.DefaultMinIdle, "操作员空闲阈值（键鼠输入后 N 秒内动作拒绝；0 关闭守卫）")
 	return cmd
 }

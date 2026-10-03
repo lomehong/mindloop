@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/lomehong/mindloop/internal/mcp"
 )
@@ -17,7 +18,8 @@ type Options struct {
 	ServerName   string
 	Version      string
 	WindowAllow  []string
-	IdentityHint string // 审计行里标注服务的身份（可空）
+	MinIdle      time.Duration // 操作员空闲阈值；负值取缺省
+	IdentityHint string        // 审计行里标注服务的身份（可空）
 }
 
 // Run 解析选项并阻塞运行 stdio MCP 服务器；Ctrl-C / SIGTERM 优雅退出。
@@ -27,10 +29,18 @@ func Run(ctx context.Context, opt Options) error {
 	} else {
 		fmt.Fprintf(os.Stderr, "[robotd] 动作已授权，窗口白名单: %v\n", opt.WindowAllow)
 	}
+	srv := NewServer(opt.WindowAllow, nil)
+	if opt.MinIdle >= 0 {
+		srv.minIdle = opt.MinIdle
+	}
+	if srv.minIdle > 0 {
+		fmt.Fprintf(os.Stderr, "[robotd] 操作员空闲守卫：%v 内有键鼠输入则动作拒绝（--min-idle 0 关闭）\n", srv.minIdle)
+	} else {
+		fmt.Fprintln(os.Stderr, "[robotd] ⚠ 操作员空闲守卫已关闭（--min-idle 0）——动作可能与操作员抢键盘")
+	}
 	if opt.IdentityHint != "" {
 		fmt.Fprintf(os.Stderr, "[robotd] 身份标注: %s\n", opt.IdentityHint)
 	}
-	srv := NewServer(opt.WindowAllow, nil)
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	return mcp.ServeStdio(ctx, opt.ServerName, opt.Version, srv.Tools())

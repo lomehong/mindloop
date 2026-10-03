@@ -10,6 +10,7 @@ package robot
 import (
 	"errors"
 	"strings"
+	"time"
 )
 
 // ErrUnsupported 是非 Windows 平台的统一降级：编译进跨平台二进制，
@@ -44,4 +45,13 @@ type ScreenInfo struct {
 	Y      int `json:"y"`
 	Width  int `json:"width"`
 	Height int `json:"height"`
+}
+
+// OperatorIdle 返回距操作员最后一次键盘/鼠标输入的时长。"身"在
+// 操作员手不离键盘/鼠标时拒绝注入动作——不与操作员抢键盘是安全
+// 链的第一道（2026-10-03 实机事故：键入中途焦点被操作员抢走，
+// 半截文本漏进操作员当时的前台窗口）。非 Windows 返回 ErrUnsupported，
+// 由调用方决定降档策略。
+func OperatorIdle() (time.Duration, error) {
+	return lastInputAge()
 }

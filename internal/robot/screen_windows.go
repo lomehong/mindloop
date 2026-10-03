@@ -16,14 +16,17 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
 var (
-	modUser32 = windows.NewLazySystemDLL("user32.dll")
-	modGdi32  = windows.NewLazySystemDLL("gdi32.dll")
+	modUser32   = windows.NewLazySystemDLL("user32.dll")
+	modGdi32    = windows.NewLazySystemDLL("gdi32.dll")
+	modDwmapi   = windows.NewLazySystemDLL("dwmapi.dll")
+	modKernel32 = windows.NewLazySystemDLL("kernel32.dll")
 
 	procGetDC               = modUser32.NewProc("GetDC")
 	procReleaseDC           = modUser32.NewProc("ReleaseDC")
@@ -37,7 +40,13 @@ var (
 	procIsWindowVisible     = modUser32.NewProc("IsWindowVisible")
 	procSendInput           = modUser32.NewProc("SendInput")
 	procSetCursorPos        = modUser32.NewProc("SetCursorPos")
-	procGetCursorPos        = modUser32.NewProc("GetCursorPos")
+	procGetCursorPos = modUser32.NewProc("GetCursorPos")
+	procGetTickCount = modKernel32.NewProc("GetTickCount")
+	procIsIconic            = modUser32.NewProc("IsIconic")
+	procShowWindow          = modUser32.NewProc("ShowWindow")
+	procGetLastInputInfo    = modUser32.NewProc("GetLastInputInfo")
+
+	procDwmGetWindowAttribute = modDwmapi.NewProc("DwmGetWindowAttribute")
 
 	procCreateCompatibleDC     = modGdi32.NewProc("CreateCompatibleDC")
 	procCreateCompatibleBitmap = modGdi32.NewProc("CreateCompatibleBitmap")
@@ -194,6 +203,13 @@ func WindowTitles() []string {
 
 // FocusWindow 把标题含 substr 的第一个可见窗口带到前台，返回实际
 // 聚焦的窗口标题——调用方拿它做回读验证（act → feel）。
+//
+// 验证是三重的：前台确认（GetForegroundWindow==目标）之外还必须
+// **可见**——最小化的窗口先还原；在另一个虚拟桌面上的窗口可以被
+// SetForegroundWindow"聚焦"（键盘注入会进它的队列）却根本不在屏
+// 幕上——DWM cloaked 检测抓这个形态（2026-10-03 实机复现：证据
+// 截图与前台报告矛盾）。聚焦"成功"但不可见 = 触觉异常，不给动
+// 作开门。
 func FocusWindow(substr string) (string, error) {
 	if strings.TrimSpace(substr) == "" {
 		return "", fmt.Errorf("robot: 窗口匹配串为空")
@@ -202,18 +218,55 @@ func FocusWindow(substr string) (string, error) {
 	if !found {
 		return "", fmt.Errorf("robot: 找不到标题含 %q 的可见窗口", substr)
 	}
+	if iconic, _, _ := procIsIconic.Call(target); iconic != 0 {
+		procShowWindow.Call(target, 9 /* SW_RESTORE */)
+	}
 	focusAttempt(target)
-	h, ok := getForeground()
-	if !ok || h != target {
+	if h, ok := getForeground(); !ok || h != target {
 		// Windows 限制后台进程抢焦点：模拟一次 ALT 释放焦点锁再试。
 		pressAltRelease()
 		focusAttempt(target)
-		h, ok = getForeground()
-		if !ok || h != target {
+		if h, ok = getForeground(); !ok || h != target {
 			return "", fmt.Errorf("robot: 窗口 %q 拒绝聚焦（前台仍在 %q）", windowTitle(target), titleOfForeground())
 		}
 	}
+	if cloaked, err := windowCloaked(target); err == nil && cloaked {
+		return "", fmt.Errorf("robot: 窗口 %q 拿到前台但在另一虚拟桌面/被遮挡（不可见）——聚焦未生效于可见屏幕，触觉异常", windowTitle(target))
+	}
 	return windowTitle(target), nil
+}
+
+// windowCloaked 经 DWM 查询窗口的 cloaked 状态：虚拟桌面切换后，
+// 非活动桌面的窗口对 DWM 是 cloaked 的——前台报告与可见性在此
+// 分叉。查询失败（dwmapi 缺失/老系统）按未遮挡处理，不阻塞动作。
+func windowCloaked(hwnd uintptr) (bool, error) {
+	var cloaked uint32
+	r, _, err := procDwmGetWindowAttribute.Call(hwnd, 14 /* DWMWA_CLOAKED */,
+		uintptr(unsafe.Pointer(&cloaked)), unsafe.Sizeof(cloaked))
+	if r != 0 {
+		return false, err
+	}
+	return cloaked != 0, nil
+}
+
+// lastInputAge 读系统级最后一次输入的年龄（LASTINPUTINFO.dwTime
+// 是 GetTickCount 毫秒位；与当前 tick 差值取模处理 49.7 天回绕）。
+func lastInputAge() (time.Duration, error) {
+	var info struct {
+		cbSize uint32
+		dwTime uint32
+	}
+	info.cbSize = uint32(unsafe.Sizeof(info))
+	r, _, err := procGetLastInputInfo.Call(uintptr(unsafe.Pointer(&info)))
+	if r == 0 {
+		return 0, fmt.Errorf("robot: GetLastInputInfo 失败: %v", err)
+	}
+	now, _, _ := procGetTickCount.Call()
+	age := int32(uint32(now) - info.dwTime)
+	if age < 0 {
+		age = 0
+	}
+	return time.Duration(age) * time.Millisecond, nil
 }
 
 func findWindow(substr string) (uintptr, bool) {

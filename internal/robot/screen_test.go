@@ -72,15 +72,15 @@ func TestFocusWindowEmptyReject(t *testing.T) {
 }
 
 func TestTypeTextRejectsControlChars(t *testing.T) {
-	// 拒绝发生在任何键击合成之前——即使真的注入也不会发出。
+	// 只测拒绝路径——拒绝发生在任何键击合成之前，绝不触桌。
+	// 快乐路径的合成验证走 robotd 的注入层（fake typeText）；在这
+	// 里调 TypeText 会把测试文本真打进当时的前台窗口（2026-10-03
+	// 实锤：测试文本出现在操作员的记事本里）。
 	if err := TypeText("ok\x00断"); err == nil || !strings.Contains(err.Error(), "控制字符") {
 		t.Fatalf("控制字符应被拒: %v", err)
 	}
 	if err := TypeText(""); err == nil {
 		t.Fatal("空文本应被拒")
-	}
-	if err := TypeText("正常文本\n第二行\t缩进"); err != nil {
-		t.Fatalf("常规文本（含换行/制表）不应被拒: %v", err)
 	}
 }
 

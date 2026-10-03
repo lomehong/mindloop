@@ -32,11 +32,12 @@ func (w *WindowAllow) Set(s string) error {
 func (w *WindowAllow) Values() []string { return w.values }
 
 // AddFlags 把 robotd 的旗标注册到 stdlib flag set（独立二进制用；
-// cobra 子命令直接用 WindowAccept 的 Var 形态）。
+// cobra 子命令直接用 WindowAllow 的 Var 形态）。
 func AddFlags(fs *flag.FlagSet) func() Options {
 	var allow WindowAllow
+	minIdle := fs.Duration("min-idle", DefaultMinIdle, "操作员空闲阈值（键鼠输入后 N 秒内动作拒绝；0 关闭守卫——不与操作员抢键盘）")
 	fs.Var(&allow, "window-allow", "窗口标题白名单子串（可重复；不给则观察模式——只许看不许动）")
-	return func() Options { return Options{WindowAllow: allow.Values()} }
+	return func() Options { return Options{WindowAllow: allow.Values(), MinIdle: *minIdle} }
 }
 
 // RunStandalone 是独立二进制（cmd/robotd）的入口：解析命令行、

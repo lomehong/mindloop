@@ -39,6 +39,10 @@ var stderrWriter io.Writer = os.Stderr
 type Server struct {
 	// allow 是窗口标题子串白名单；空 = 观察模式（动作全拒）。
 	allow []string
+	// minIdle 是操作员空闲阈值：距最后一次真实键盘/鼠标输入不足
+	// 此值时动作拒绝——身不与操作员抢键盘。0 = 守卫关闭（显式
+	// 覆盖，操作员自担风险）。
+	minIdle time.Duration
 	// audit 收审计行（stderr；测试注入）。
 	audit func(string)
 	now   func() time.Time
@@ -48,7 +52,11 @@ type Server struct {
 	click      func(x, y int, right bool) error
 	typeText   func(text string) error
 	focus      func(substr string) (string, error)
+	lastInput  func() (time.Duration, error)
 }
+
+// DefaultMinIdle 是操作员空闲守卫的缺省阈值。
+const DefaultMinIdle = 5 * time.Second
 
 // NewServer 构造；audit 为 nil 时写 stderr。
 func NewServer(windowAllow []string, audit func(string)) *Server {
@@ -57,10 +65,12 @@ func NewServer(windowAllow []string, audit func(string)) *Server {
 	}
 	return &Server{
 		allow:      windowAllow,
+		minIdle:    DefaultMinIdle,
 		audit:      audit,
 		now:        time.Now,
 		foreground: robot.ForegroundTitle,
 		capture:    robot.ScreenshotPNG,
+		lastInput:  robot.OperatorIdle,
 		click: func(x, y int, right bool) error {
 			if right {
 				return robot.RightClick(x, y)
@@ -182,51 +192,86 @@ func (s *Server) Tools() []mcp.ServerTool {
 		},
 		{
 			Name:        "screen_click",
-			Description: "在 (x,y) 点击（动作；前台窗口必须在白名单内；返回动作后回读截屏）",
+			Description: "在 (x,y) 点击（动作；返回动作后回读截屏）。带 window 参数时先原子聚焦该窗口再动作，消除两次调用间焦点被抢的竞态",
 			InputSchema: json.RawMessage(`{
   "type": "object",
   "required": ["x", "y"],
   "properties": {
     "x": { "type": "integer" },
     "y": { "type": "integer" },
-    "right": { "type": "boolean", "description": "true=右键（默认左键）" }
+    "right": { "type": "boolean", "description": "true=右键（默认左键）" },
+    "window": { "type": "string", "description": "动作前先聚焦标题含此子串的窗口（推荐——单调用原子完成聚焦+动作）" }
   }
 }`),
 			Handler: func(ctx context.Context, args json.RawMessage) (mcp.ToolResult, error) {
 				var a struct {
-					X     int  `json:"x"`
-					Y     int  `json:"y"`
-					Right bool `json:"right"`
+					X      int    `json:"x"`
+					Y      int    `json:"y"`
+					Right  bool   `json:"right"`
+					Window string `json:"window"`
 				}
 				if err := json.Unmarshal(args, &a); err != nil {
 					return mcp.ToolResult{}, fmt.Errorf("screen_click 参数: %w", mcp.ErrInvalidArguments)
 				}
-				return s.actWithReadback("click",
+				return s.actWithReadback("click", a.Window,
 					func() error { return s.click(a.X, a.Y, a.Right) },
 					fmt.Sprintf("(%d,%d) 右键=%v", a.X, a.Y, a.Right))
 			},
 		},
 		{
 			Name:        "screen_type",
-			Description: "向前台窗口键入文本（动作；前台窗口必须在白名单内；返回动作后回读截屏）",
+			Description: "向前台窗口键入文本（动作；返回动作后回读截屏）。带 window 参数时先原子聚焦该窗口再键入，消除两次调用间焦点被抢的竞态",
 			InputSchema: json.RawMessage(`{
   "type": "object",
   "required": ["text"],
-  "properties": { "text": { "type": "string", "description": "要键入的文本（换行=回车键）" } }
+  "properties": {
+    "text": { "type": "string", "description": "要键入的文本（换行=回车键）" },
+    "window": { "type": "string", "description": "键入前先聚焦标题含此子串的窗口（推荐——单调用原子完成聚焦+键入）" }
+  }
 }`),
 			Handler: func(ctx context.Context, args json.RawMessage) (mcp.ToolResult, error) {
 				var a struct {
-					Text string `json:"text"`
+					Text   string `json:"text"`
+					Window string `json:"window"`
 				}
 				if err := json.Unmarshal(args, &a); err != nil || a.Text == "" {
 					return mcp.ToolResult{}, fmt.Errorf("screen_type: text 必填: %w", mcp.ErrInvalidArguments)
 				}
-				return s.actWithReadback("type",
+				return s.actWithReadback("type", a.Window,
 					func() error { return s.typeText(a.Text) },
 					fmt.Sprintf("%d 字符", len([]rune(a.Text))))
 			},
 		},
 	}
+}
+
+// ensureWindow 在动作前把目标窗口带到前台（window 参数为空时是
+// no-op）。聚焦本身抢前台——同样受操作员在场守卫约束；聚焦目标
+// 走敏感检测 + 聚焦后的前台白名单回读验证（真实落点必须命中白
+// 名单——目标子串可能比白名单宽）。
+func (s *Server) ensureWindow(window string) error {
+	if strings.TrimSpace(window) == "" {
+		return nil
+	}
+	if s.minIdle > 0 && s.lastInput != nil {
+		if age, err := s.lastInput(); err == nil && age < s.minIdle {
+			return fmt.Errorf("robotd: 操作员 %.1f 秒前刚有键鼠输入（空闲阈值 %v）——window 聚焦拒绝，不与操作员抢键盘", age.Seconds(), s.minIdle)
+		}
+	}
+	if s.ObserveOnly() {
+		return fmt.Errorf("robotd: 观察模式——window 聚焦拒绝")
+	}
+	if robot.IsSensitiveTitle(window) {
+		return fmt.Errorf("robotd: 目标窗口 %q 命中敏感词——拒绝", window)
+	}
+	if _, err := s.focus(window); err != nil {
+		return err
+	}
+	fg, ok := s.foreground()
+	if !ok || s.allowMatches(fg) == "" {
+		return fmt.Errorf("robotd: 聚焦落在白名单外窗口 %q——触觉异常路径", fg)
+	}
+	return nil
 }
 
 // modeText 是授权模式的透明陈述。
@@ -257,9 +302,18 @@ func (s *Server) allowMatches(title string) string {
 	return ""
 }
 
-// checkAction 是动作级 tripwire：敏感检测 → 白名单谓词。返回前台
-// 标题供审计。
+// checkAction 是动作级 tripwire：操作员在场检测 → 敏感检测 →
+// 白名单谓词。返回前台标题供审计。
 func (s *Server) checkAction(action string) (string, error) {
+	if s.minIdle > 0 && s.lastInput != nil {
+		age, err := s.lastInput()
+		if err != nil {
+			return "", fmt.Errorf("robotd: 操作员在场检测失败——%s 拒绝（守卫宁可错杀）: %w", action, err)
+		}
+		if age < s.minIdle {
+			return "", fmt.Errorf("robotd: 操作员 %.1f 秒前刚有键鼠输入（空闲阈值 %v）——%s 拒绝，不与操作员抢键盘/鼠标", age.Seconds(), s.minIdle, action)
+		}
+	}
 	title, ok := s.foreground()
 	if !ok {
 		return "", fmt.Errorf("robotd: 无前台窗口（锁屏/安全桌面？）——%s 拒绝", action)
@@ -279,7 +333,14 @@ func (s *Server) checkAction(action string) (string, error) {
 // actWithReadback 是触觉回路的骨架：gate → act → feel。动作后的
 // 回读截屏作为图片内容块随结果返回——验证感知与动作同帧交付，
 // 不给"盲操作"留形态。
-func (s *Server) actWithReadback(action string, do func() error, detail string) (mcp.ToolResult, error) {
+func (s *Server) actWithReadback(action, window string, do func() error, detail string) (mcp.ToolResult, error) {
+	// window 参数先聚焦目标再验证前台——动作与目标原子化（TOCTOU
+	// 竞态：focus 与 act 分两次调用，操作员的一点击就能把焦点抢走，
+	// 键入落进错误窗口——2026-10-03 实机复现）。
+	if err := s.ensureWindow(window); err != nil {
+		s.auditAction(action+"-denied", detail+" 理由="+err.Error())
+		return mcp.ToolResult{}, err
+	}
 	title, err := s.checkAction(action)
 	if err != nil {
 		s.auditAction(action+"-denied", detail+" 前台="+title+" 理由="+err.Error())

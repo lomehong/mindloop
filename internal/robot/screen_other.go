@@ -4,6 +4,8 @@
 // 运行到非 Windows 上如实报错（绝不伪装成功）。
 package robot
 
+import "time"
+
 func ScreenshotPNG() ([]byte, ScreenInfo, error) { return nil, ScreenInfo{}, ErrUnsupported }
 
 func ForegroundTitle() (string, bool) { return "", false }
@@ -19,3 +21,5 @@ func Click(int, int) error { return ErrUnsupported }
 func RightClick(int, int) error { return ErrUnsupported }
 
 func TypeText(string) error { return ErrUnsupported }
+
+func OperatorIdle() (time.Duration, error) { return 0, ErrUnsupported }
