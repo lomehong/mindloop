@@ -12,9 +12,10 @@ mindloop.exe
 # 运行时配置（含 API key，绝不入库）
 .env
 
-# viewer 前端
+# viewer 前端（构建产物 build/client 入库——使用者 go build 即得
+# 完整仪表盘，不需要 npm；只忽略依赖与服务端构建）
 web/static/node_modules/
-web/static/build/
+web/static/build/server/
 web/static/.react-router/
 
 # 桌面壳（desktop/）

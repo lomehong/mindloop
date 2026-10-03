@@ -64,10 +64,11 @@ export default function SensorsPage() {
   const [sensorToRemove, setSensorToRemove] = useState<SensorView | null>(
     null
   );
-  // 新增表单：类型 / 路径或 URL / 议程关键词（逗号分隔）。
+  // 新增表单：类型 / 路径或 URL / 议程关键词（沉淀级）/ 叫醒关键词（s2 规则）。
   const [newType, setNewType] = useState("file");
   const [newTarget, setNewTarget] = useState("");
   const [newKeywords, setNewKeywords] = useState("");
+  const [newWakeWords, setNewWakeWords] = useState("");
 
   const { data: status } = useQuery({
     queryKey: ["status", identityId],
@@ -116,6 +117,16 @@ export default function SensorsPage() {
         .map((k) => k.trim())
         .filter(Boolean);
       if (keywords.length) body.keywords = keywords;
+      // 叫醒关键词 → s2 规则：命中的变化叫醒心智（其余安静沉淀）。
+      const wakeWords = newWakeWords
+        .split(",")
+        .map((k) => k.trim())
+        .filter(Boolean);
+      if (wakeWords.length) {
+        body.salience = {
+          rules: [{ name: "wake", keywords: wakeWords, salience: "s2" }],
+        };
+      }
       return addSensor(identityId, body);
     },
     onSuccess: (result) => {
@@ -124,6 +135,7 @@ export default function SensorsPage() {
       );
       setNewTarget("");
       setNewKeywords("");
+      setNewWakeWords("");
       invalidate();
     },
     onError: (error: Error) => toast.error(error.message),
@@ -195,6 +207,12 @@ export default function SensorsPage() {
               value={newKeywords}
               onChange={(e) => setNewKeywords(e.target.value)}
             />
+            <Input
+              className="w-56"
+              placeholder="叫醒关键词（命中即叫醒，可空）"
+              value={newWakeWords}
+              onChange={(e) => setNewWakeWords(e.target.value)}
+            />
             <Button
               size="sm"
               disabled={!newTarget.trim() || add.isPending}
@@ -205,9 +223,8 @@ export default function SensorsPage() {
             </Button>
           </div>
           <div className="mt-2 text-[11px] text-muted-foreground">
-            新感官有 3 天观察期（只沉淀不叫醒，防打扰）；要它叫醒你，
-            在配置文件里给该感官加 salience 规则（或用
-            mindloop sensors add --rule）。
+            新感官有 3 天观察期（只沉淀不叫醒，防打扰），到期后：命中
+            "叫醒关键词"的变化会叫醒心智，其余安静沉淀进记忆。
           </div>
         </div>
 
