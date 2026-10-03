@@ -75,3 +75,22 @@ func TestDeriveTaste(t *testing.T) {
 		t.Fatalf("漏报应只命中 operator 提及的那条，得 %d %+v", sum.MissedReports, sum.MissedSubjects)
 	}
 }
+
+// TestCalibrationSuggestions：校准引擎——味觉证据达到最小样本量才
+// 生成建议；漏报证据允许提门槛（静默棘轮对冲）。
+func TestCalibrationSuggestions(t *testing.T) {
+	// 未达阈值：无建议。
+	quiet := TasteSummary{UndoThresholdTight: 2, MissedReports: 2, Denies: 2}
+	if s := quiet.WithSuggestions(); len(s.Suggestions) != 0 {
+		t.Fatalf("未达阈值不应有建议: %+v", s.Suggestions)
+	}
+	// 达阈值：三类建议齐发。
+	loud := TasteSummary{
+		UndoThresholdTight: 3, MissedReports: 3, MissedSubjects: []string{"a.txt"},
+		Denies: 3,
+	}
+	s := loud.WithSuggestions()
+	if len(s.Suggestions) != 3 {
+		t.Fatalf("应生成 3 条建议，得 %d: %+v", len(s.Suggestions), s.Suggestions)
+	}
+}

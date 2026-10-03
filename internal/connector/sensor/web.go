@@ -13,6 +13,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net"
@@ -31,8 +32,10 @@ const webIntervalMin = 5 * time.Minute
 
 // WebSensor 轮询一个 http(s) URL 的内容变化。
 type WebSensor struct {
-	cfg    SensorConfig
-	client *http.Client
+	cfg       SensorConfig
+	client    *http.Client
+	seen      map[string]bool // feed 条目指纹（RSS/Atom 语义模式的已见集）
+	baselined bool            // 首扫已建基线（基线不发历史积压）
 }
 
 // NewWebSensor 构造网页感官（含 SSRF 防线的拨号层）。
@@ -66,7 +69,7 @@ func NewWebSensor(cfg SensorConfig) (Sensor, error) {
 	return &WebSensor{cfg: cfg, client: &http.Client{
 		Transport: transport,
 		Timeout:   30 * time.Second,
-	}}, nil
+	}, seen: map[string]bool{}}, nil
 }
 
 func (s *WebSensor) ID() string { return s.cfg.ID }
@@ -135,6 +138,12 @@ func (s *WebSensor) Watch(ctx context.Context, onEvent func(PEvent)) error {
 			return true
 		}
 		lastFP = fp
+		// feed 语义（RSS/Atom）：逐条目事件（新条目 = appeared，
+		// dedup = 条目 GUID）——比整页指纹精确一级，旧条目不重报。
+		if items, ok := parseFeed(body); ok && len(items) > 0 {
+			s.feedDiff(items, onEvent)
+			return true
+		}
 		onEvent(PEvent{
 			Kind: KindChanged, Subject: s.cfg.URL, Dedup: fp,
 			Digest: "内容更新: " + strings.TrimSpace(extractText(body)),
@@ -151,6 +160,107 @@ func (s *WebSensor) Watch(ctx context.Context, onEvent func(PEvent)) error {
 				return ctx.Err()
 			}
 		}
+	}
+}
+
+// feedItem 是 RSS/Atom 条目的归一形态。
+type feedItem struct {
+	ID    string // guid/id/link——条目身份
+	Title string
+}
+
+// parseFeed 识别并解析 RSS 2.0 / Atom。不是 feed 返回 ok=false
+// （调用方回退整页指纹路径）。两套 envelope 字段名不同，分开定义
+//（同结构体挂同名 XML 元素会冲突）。
+func parseFeed(body []byte) ([]feedItem, bool) {
+	head := body
+	if len(head) > 512 {
+		head = head[:512]
+	}
+	probe := strings.ToLower(string(head))
+	if !strings.Contains(probe, "<rss") && !strings.Contains(probe, "<feed") {
+		return nil, false
+	}
+	var items []feedItem
+	var rss struct {
+		Channel struct {
+			Items []struct {
+				GUID  string `xml:"guid"`
+				Title string `xml:"title"`
+				Link  string `xml:"link"`
+			} `xml:"item"`
+		} `xml:"channel"`
+	}
+	if err := xml.Unmarshal(body, &rss); err == nil && len(rss.Channel.Items) > 0 {
+		for _, e := range rss.Channel.Items {
+			id := e.GUID
+			if id == "" {
+				id = e.Link
+			}
+			if id == "" {
+				id = e.Title
+			}
+			if id == "" {
+				continue
+			}
+			items = append(items, feedItem{ID: id, Title: e.Title})
+		}
+		return items, true
+	}
+	var atom struct {
+		Entries []struct {
+			ID    string `xml:"id"`
+			Title string `xml:"title"`
+			Links []struct {
+				Href string `xml:"href,attr"`
+			} `xml:"link"`
+		} `xml:"entry"`
+	}
+	if err := xml.Unmarshal(body, &atom); err == nil && len(atom.Entries) > 0 {
+		for _, e := range atom.Entries {
+			id := e.ID
+			if id == "" && len(e.Links) > 0 {
+				id = e.Links[0].Href
+			}
+			if id == "" {
+				id = e.Title
+			}
+			if id == "" {
+				continue
+			}
+			items = append(items, feedItem{ID: id, Title: e.Title})
+		}
+		return items, true
+	}
+	return nil, false
+}
+
+// feedDiff 把 feed 条目与已见集 diff：新条目逐条 appeared（摘要=
+// 标题），消失不报（feed 常截断历史）。基线期只建集不发声。
+func (s *WebSensor) feedDiff(items []feedItem, onEvent func(PEvent)) {
+	if s.seen == nil {
+		s.seen = map[string]bool{}
+	}
+	var fresh []feedItem
+	for _, it := range items {
+		if !s.seen[it.ID] {
+			s.seen[it.ID] = true
+			fresh = append(fresh, it)
+		}
+	}
+	if !s.baselined {
+		s.baselined = true
+		return // 基线：首扫只登记，不发历史积压
+	}
+	for _, it := range fresh {
+		title := it.Title
+		if runes := []rune(title); len(runes) > 120 {
+			title = string(runes[:120])
+		}
+		onEvent(PEvent{
+			Kind: KindAppeared, Subject: s.cfg.URL, Dedup: it.ID,
+			Digest: "新条目: " + title,
+		})
 	}
 }
 

@@ -147,6 +147,34 @@ func TestWebSensorTextExtraction(t *testing.T) {
 	}
 }
 
+// TestParseFeed：RSS/Atom 条目解析（逐条目事件的数据源）；非 feed
+// 返回 false 走整页指纹路径。
+func TestParseFeed(t *testing.T) {
+	rss := []byte(`<?xml version="1.0"?><rss version="2.0"><channel>` +
+		`<item><guid>g1</guid><title>第一条</title><link>https://x/1</link></item>` +
+		`<item><guid>g2</guid><title>第二条</title><link>https://x/2</link></item>` +
+		`</channel></rss>`)
+	items, ok := parseFeed(rss)
+	if !ok || len(items) != 2 || items[0].ID != "g1" || items[1].Title != "第二条" {
+		t.Fatalf("RSS 解析不符: ok=%v %+v", ok, items)
+	}
+	atom := []byte(`<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">` +
+		`<entry><id>a1</id><title>Atom 条目</title><link href="https://x/a1"/></entry></feed>`)
+	items, ok = parseFeed(atom)
+	if !ok || len(items) != 1 || items[0].ID != "a1" || items[0].Title != "Atom 条目" {
+		t.Fatalf("Atom 解析不符: ok=%v %+v", ok, items)
+	}
+	if _, ok := parseFeed([]byte("<html><body>不是 feed</body></html>")); ok {
+		t.Fatalf("非 feed 应返回 false")
+	}
+	// 无标识条目：标题兜底作为身份（去重仍有效）。
+	empty := []byte(`<rss><channel><item><title>无标识</title></item></channel></rss>`)
+	items, ok = parseFeed(empty)
+	if !ok || len(items) != 1 || items[0].ID != "无标识" {
+		t.Fatalf("标题兜底身份不符: ok=%v %+v", ok, items)
+	}
+}
+
 // TestFileDigestContentExcerpt：file 感官的 digest 含内容前段——
 // 规则词面因此能命中内容而不只是文件名（黑盒验收实证的缺口）。
 func TestFileDigestContentExcerpt(t *testing.T) {

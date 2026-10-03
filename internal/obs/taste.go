@@ -15,6 +15,7 @@
 package obs
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -33,6 +34,37 @@ type TasteSummary struct {
 	Denies             int      // deny 数（提案被拒——提案面的负证据）
 	MissedReports      int      // operator 的话提及 S0 沉淀 subject 的次数（漏报证据）
 	MissedSubjects     []string // 命中的 subject（去重后，诊断面）
+
+	// Suggestions 是校准建议（校准引擎：味觉证据 → 人话建议，
+	// 人工确认后生效——味觉提供证据不提供自动权）。
+	Suggestions []string
+}
+
+// 校准门槛：同一类负证据达到该数量才生成建议（个人用户一天个位数
+// 信号，三次烦躁日的连环 undo 不能杀掉一条好规则——最小样本量）。
+const calibrateThreshold = 3
+
+// WithSuggestions 在聚合上生成校准建议（纯函数，供 stats 与
+// taste API 消费）。规则：
+//   - "提案多余"撤销 ≥ 阈值 → 建议降低叫醒规则覆盖（阈值过紧的
+//     唯一合法证据，因果混淆防线）；
+//   - 漏报 ≥ 阈值 → 建议为命中主体加观察/关键词（静默棘轮对冲：
+//     该报没报的证据允许提门槛）；
+//   - deny ≥ 阈值 → 建议收紧提案面（与感知无关，归属提案质量）。
+func (s TasteSummary) WithSuggestions() TasteSummary {
+	if s.UndoThresholdTight >= calibrateThreshold {
+		s.Suggestions = append(s.Suggestions,
+			fmt.Sprintf("近窗有 %d 次「提案多余」撤销——建议降低触发叫醒的规则覆盖（宁 S0 勿 S2）", s.UndoThresholdTight))
+	}
+	if s.MissedReports >= calibrateThreshold {
+		s.Suggestions = append(s.Suggestions,
+			fmt.Sprintf("有 %d 次漏报匹配（%s）——建议为这些主体加观察关键词或升档", s.MissedReports, strings.Join(s.MissedSubjects, "、")))
+	}
+	if s.Denies >= calibrateThreshold {
+		s.Suggestions = append(s.Suggestions,
+			fmt.Sprintf("提案被拒 %d 次——建议收紧提案面（先提案更小的第一步）", s.Denies))
+	}
+	return s
 }
 
 // DeriveTaste 从轨迹派生味觉聚合。selfName 用于区分 operator 的

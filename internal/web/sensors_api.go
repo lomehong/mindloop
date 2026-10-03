@@ -72,6 +72,7 @@ func (s *Server) routeIdentityOrSensors(w http.ResponseWriter, r *http.Request) 
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		sum = sum.WithSuggestions()
 		writeJSON(w, 200, sum)
 		return
 	}

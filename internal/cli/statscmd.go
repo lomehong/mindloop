@@ -85,6 +85,7 @@ func (c *CLI) runStats(identityName string, days int, idleWindow time.Duration) 
 		// 审批/漏报匹配——窗口与台账同窗。读不动轨迹时静默跳过
 		//（stats 是评估面不是门禁）。
 		if taste, err := obs.DeriveTaste(id.Timeline, id.Name, windowStart); err == nil {
+			taste = taste.WithSuggestions()
 			c.printTaste(taste)
 		}
 		shown++
