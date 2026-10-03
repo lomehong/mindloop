@@ -18,13 +18,13 @@ import (
 var ErrInvalidArguments = errors.New("mcp: 参数不合法")
 
 // ServerTool 是本服务器暴露的一个工具：标准 inputSchema + 处理器。
-// 处理器返回 text 内容；返回错误时以 isError 内容块回给客户端
-// （错误文本原样保留——调用方仍能展示诊断）。
+// 处理器返回富结果（文本，可选图片内容块）；返回错误时以 isError
+// 内容块回给客户端（错误文本原样保留——调用方仍能展示诊断）。
 type ServerTool struct {
 	Name        string
 	Description string
 	InputSchema json.RawMessage
-	Handler     func(ctx context.Context, args json.RawMessage) (string, error)
+	Handler     func(ctx context.Context, args json.RawMessage) (ToolResult, error)
 }
 
 // ServeStdio 在 stdin/stdout 上运行 MCP 服务器（stdio 传输）——
@@ -113,13 +113,13 @@ func serve(ctx context.Context, r io.Reader, w io.Writer, serverName, version st
 				rpcErr(msg.ID, -32602, "未知工具: "+raw.Params.Name)
 				continue
 			}
-			text, err := tool.Handler(ctx, raw.Params.Arguments)
+			res, err := tool.Handler(ctx, raw.Params.Arguments)
 			if errors.Is(err, ErrInvalidArguments) {
 				// 参数不合法是调用方协议错误——按 JSON-RPC 语义回
 				// -32602，而不是把它伪装成工具执行失败。
 				message := err.Error()
-				if text != "" {
-					message = text + "\n" + message
+				if res.Text != "" {
+					message = res.Text + "\n" + message
 				}
 				rpcErr(msg.ID, -32602, message)
 				continue
@@ -127,15 +127,13 @@ func serve(ctx context.Context, r io.Reader, w io.Writer, serverName, version st
 			isErr := false
 			if err != nil {
 				isErr = true
-				if text == "" {
-					text = err.Error()
+				if res.Text == "" {
+					res.Text = err.Error()
 				} else {
-					text = text + "\n" + err.Error()
+					res.Text = res.Text + "\n" + err.Error()
 				}
 			}
-			respond(msg.ID, map[string]any{"content": []map[string]any{
-				{"type": "text", "text": text},
-			}, "isError": isErr})
+			respond(msg.ID, map[string]any{"content": res.contentBlocks(), "isError": isErr})
 		case "":
 			// 无 method 且带 id：对本请求的响应，服务器不消费。
 		default:

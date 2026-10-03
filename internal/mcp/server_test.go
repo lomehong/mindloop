@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -60,15 +61,33 @@ var testTools = []ServerTool{
 		Name:        "greet",
 		Description: "打招呼",
 		InputSchema: json.RawMessage(`{"type":"object"}`),
-		Handler: func(ctx context.Context, args json.RawMessage) (string, error) {
+		Handler: func(ctx context.Context, args json.RawMessage) (ToolResult, error) {
 			var a struct {
 				Who string `json:"who"`
 			}
 			json.Unmarshal(args, &a)
 			if a.Who == "" {
-				return "", errGreetEmpty
+				return ToolResult{}, errGreetEmpty
 			}
-			return "hello " + a.Who, nil
+			return NewTextResult("hello " + a.Who), nil
+		},
+	},
+	{
+		Name:        "badge",
+		Description: "返回文本+图片富结果",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(ctx context.Context, args json.RawMessage) (ToolResult, error) {
+			return ToolResult{Text: "看图", Images: []ImageContent{
+				{MIMEType: "image/png", Data: base64.StdEncoding.EncodeToString([]byte("png-bytes"))},
+			}}, nil
+		},
+	},
+	{
+		Name:        "badimage",
+		Description: "返回坏图片块（应降级为文本占位）",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(ctx context.Context, args json.RawMessage) (ToolResult, error) {
+			return ToolResult{Text: "带坏图", Images: []ImageContent{{MIMEType: "image/png", Data: "@@@"}}}, nil
 		},
 	},
 }
@@ -109,7 +128,7 @@ func TestServeInitializeToolsListCall(t *testing.T) {
 		} `json:"tools"`
 	}
 	json.Unmarshal(res[keyFor(2)], &list)
-	if len(list.Tools) != 1 || list.Tools[0].Name != "greet" {
+	if len(list.Tools) != 3 || list.Tools[0].Name != "greet" {
 		t.Fatalf("tools/list 错位: %+v", list.Tools)
 	}
 
@@ -163,5 +182,39 @@ func TestServeStdioFromFile(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"tools"`) {
 		t.Fatalf("输出缺少 tools: %q", out.String())
+	}
+}
+
+// TestServeImageContent：富结果的图片块按 MCP 标准形状出现在响应
+// 里；坏图片块降级为文本占位而不是发出坏块。
+func TestServeImageContent(t *testing.T) {
+	res := runServe(t, testTools, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"badge","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"badimage","arguments":{}}}`,
+	}...)
+	var call struct {
+		Content []struct {
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			MIMEType string `json:"mimeType"`
+			Data     string `json:"data"`
+		} `json:"content"`
+	}
+	json.Unmarshal(res[keyFor(1)], &call)
+	if len(call.Content) != 2 || call.Content[0].Text != "看图" {
+		t.Fatalf("badge 富结果错位: %+v", call.Content)
+	}
+	if call.Content[1].Type != "image" || call.Content[1].MIMEType != "image/png" {
+		t.Fatalf("图片块形状不符: %+v", call.Content[1])
+	}
+	want := base64.StdEncoding.EncodeToString([]byte("png-bytes"))
+	if call.Content[1].Data != want {
+		t.Fatalf("图片数据不符: %q", call.Content[1].Data)
+	}
+
+	call.Content = nil
+	json.Unmarshal(res[keyFor(2)], &call)
+	if len(call.Content) != 2 || call.Content[1].Type != "text" || !strings.Contains(call.Content[1].Text, "被丢弃") {
+		t.Fatalf("坏图片块应降级为文本占位: %+v", call.Content)
 	}
 }

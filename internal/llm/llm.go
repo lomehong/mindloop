@@ -22,10 +22,12 @@ import (
 )
 
 // Message 与 prompt.Message 同构但独立定义：llm 不反向依赖渲染层，
-// 转换成本只有三行，依赖图保持单向。
+// 转换成本只有三行，依赖图保持单向。Images 非空时 content 在 wire
+// 上变成内容块数组（见 image.go），为空时序列化与纯文本时代一致。
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string  `json:"role"`
+	Content string  `json:"content"`
+	Images  []Image `json:"images,omitempty"`
 }
 
 // 供应商名。
@@ -354,9 +356,13 @@ func snippet(b []byte) string {
 }
 
 func (c *Client) completeOpenAI(ctx context.Context, system string, msgs []Message) (string, Usage, error) {
+	bodyMsgs, err := wireMessages(c.Provider, msgs)
+	if err != nil {
+		return "", Usage{}, err
+	}
 	payload := map[string]any{
 		"model":      c.Model,
-		"messages":   append([]Message{{Role: "system", Content: system}}, msgs...),
+		"messages":   append([]map[string]any{{"role": "system", "content": system}}, bodyMsgs...),
 		"max_tokens": c.MaxTokens,
 	}
 	headers := map[string]string{"Authorization": "Bearer " + c.APIKey}
@@ -404,11 +410,15 @@ func (c *Client) completeOpenAI(ctx context.Context, system string, msgs []Messa
 }
 
 func (c *Client) completeAnthropic(ctx context.Context, system string, msgs []Message) (string, Usage, error) {
+	bodyMsgs, err := wireMessages(c.Provider, msgs)
+	if err != nil {
+		return "", Usage{}, err
+	}
 	payload := map[string]any{
 		"model":      c.Model,
 		"max_tokens": c.MaxTokens,
 		"system":     system,
-		"messages":   msgs,
+		"messages":   bodyMsgs,
 	}
 	headers := map[string]string{
 		"x-api-key":         c.APIKey,

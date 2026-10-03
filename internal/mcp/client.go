@@ -29,10 +29,12 @@ type Tool struct {
 	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
 }
 
-// CallResult 是 tools/call 的结果文本——content 数组里的 text 片段
-// 按序拼接（MCP 内容块标准形态；非文本块以占位符标注）。
+// CallResult 是 tools/call 的结果：Text 是 content 数组里的 text
+// 片段按序拼接（其余非图片块以占位符标注），Images 收集图片内容
+// 块（robotd 的触觉回读截屏）。
 type CallResult struct {
-	Text string
+	Text   string
+	Images []ImageContent
 }
 
 // rpcMessage 是 JSON-RPC 2.0 消息的解码形态（请求/响应/通知通吃）。
@@ -155,8 +157,10 @@ func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
 func (c *Client) CallTool(ctx context.Context, tool string, args json.RawMessage) (CallResult, error) {
 	var out struct {
 		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			MIMEType string `json:"mimeType"`
+			Data     string `json:"data"`
 		} `json:"content"`
 		IsError bool `json:"isError"`
 	}
@@ -170,17 +174,21 @@ func (c *Client) CallTool(ctx context.Context, tool string, args json.RawMessage
 		return CallResult{}, fmt.Errorf("mcp: tools/call %s: %w", tool, err)
 	}
 	var b strings.Builder
+	var images []ImageContent
 	for _, part := range out.Content {
-		if part.Type == "text" {
+		switch part.Type {
+		case "text":
 			if b.Len() > 0 {
 				b.WriteString("\n")
 			}
 			b.WriteString(part.Text)
-		} else {
+		case "image":
+			images = append(images, ImageContent{MIMEType: part.MIMEType, Data: part.Data})
+		default:
 			fmt.Fprintf(&b, "\n[%s 内容块]", part.Type)
 		}
 	}
-	res := CallResult{Text: b.String()}
+	res := CallResult{Text: b.String(), Images: images}
 	if out.IsError {
 		return res, fmt.Errorf("mcp: 工具 %s 报错: %s", tool, res.Text)
 	}

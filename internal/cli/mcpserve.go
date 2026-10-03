@@ -39,28 +39,28 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
   "type": "object",
   "properties": { "identity": { "type": "string", "description": "身份名（默认取 serve 的 --identity）" } }
 }`),
-			Handler: func(ctx context.Context, args json.RawMessage) (string, error) {
+			Handler: func(ctx context.Context, args json.RawMessage) (mcp.ToolResult, error) {
 				var a struct {
 					Identity string `json:"identity"`
 				}
 				if err := json.Unmarshal(args, &a); err != nil {
-					return "", mcpInvalidArgs(err)
+					return mcp.ToolResult{}, mcpInvalidArgs(err)
 				}
 				id, err := load(a.Identity)
 				if err != nil {
-					return "", err
+					return mcp.ToolResult{}, err
 				}
 				// 只读探测：看一眼状态不该创建/偷取运行锁。
 				live := mindRunning(id.Timeline.Dir)
 				steps, err := id.Timeline.Steps()
 				if err != nil {
-					return "", err
+					return mcp.ToolResult{}, err
 				}
 				out, _ := json.Marshal(map[string]any{
 					"name": id.Name, "live": live, "step_count": len(steps),
 					"last_step_ts": lastStepTS(steps),
 				})
-				return string(out), nil
+				return mcp.NewTextResult(string(out)), nil
 			},
 		},
 		{
@@ -75,34 +75,34 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
     "identity": { "type": "string" }
   }
 }`),
-			Handler: func(ctx context.Context, args json.RawMessage) (string, error) {
+			Handler: func(ctx context.Context, args json.RawMessage) (mcp.ToolResult, error) {
 				var a struct {
 					Content  string `json:"content"`
 					FromName string `json:"from_name"`
 					Identity string `json:"identity"`
 				}
 				if err := json.Unmarshal(args, &a); err != nil {
-					return "", mcpInvalidArgs(err)
+					return mcp.ToolResult{}, mcpInvalidArgs(err)
 				}
 				if strings.TrimSpace(a.Content) == "" {
-					return "", mcpInvalidArgs(fmt.Errorf("content 不能为空"))
+					return mcp.ToolResult{}, mcpInvalidArgs(fmt.Errorf("content 不能为空"))
 				}
 				id, err := load(a.Identity)
 				if err != nil {
-					return "", err
+					return mcp.ToolResult{}, err
 				}
 				from := a.FromName
 				if from == "" {
 					from = "mcp"
 				}
 				if err := mind.PostMessage(id.Timeline, from, id.Name, "mcp", a.Content); err != nil {
-					return "", err
+					return mcp.ToolResult{}, err
 				}
 				last, err := id.Timeline.LastStep()
 				if err != nil {
-					return "", err
+					return mcp.ToolResult{}, err
 				}
-				return fmt.Sprintf("已投递（step %s）。运行中的心智下个心跳拾取；未运行时消息等待其醒来。", last.StepID), nil
+				return mcp.NewTextResult(fmt.Sprintf("已投递（step %s）。运行中的心智下个心跳拾取；未运行时消息等待其醒来。", last.StepID)), nil
 			},
 		},
 		{
@@ -115,24 +115,24 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
     "identity": { "type": "string" }
   }
 }`),
-			Handler: func(ctx context.Context, args json.RawMessage) (string, error) {
+			Handler: func(ctx context.Context, args json.RawMessage) (mcp.ToolResult, error) {
 				var a struct {
 					N        int    `json:"n"`
 					Identity string `json:"identity"`
 				}
 				if err := json.Unmarshal(args, &a); err != nil {
-					return "", mcpInvalidArgs(err)
+					return mcp.ToolResult{}, mcpInvalidArgs(err)
 				}
 				if a.N <= 0 {
 					a.N = 20
 				}
 				id, err := load(a.Identity)
 				if err != nil {
-					return "", err
+					return mcp.ToolResult{}, err
 				}
 				steps, err := id.Timeline.Steps()
 				if err != nil {
-					return "", err
+					return mcp.ToolResult{}, err
 				}
 				out := []map[string]string{}
 				for _, s := range steps {
@@ -148,7 +148,7 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
 					out = out[len(out)-a.N:]
 				}
 				data, _ := json.Marshal(out)
-				return string(data), nil
+				return mcp.NewTextResult(string(data)), nil
 			},
 		},
 		{
@@ -161,24 +161,24 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
     "identity": { "type": "string" }
   }
 }`),
-			Handler: func(ctx context.Context, args json.RawMessage) (string, error) {
+			Handler: func(ctx context.Context, args json.RawMessage) (mcp.ToolResult, error) {
 				var a struct {
 					N        int    `json:"n"`
 					Identity string `json:"identity"`
 				}
 				if err := json.Unmarshal(args, &a); err != nil {
-					return "", mcpInvalidArgs(err)
+					return mcp.ToolResult{}, mcpInvalidArgs(err)
 				}
 				if a.N <= 0 {
 					a.N = 20
 				}
 				id, err := load(a.Identity)
 				if err != nil {
-					return "", err
+					return mcp.ToolResult{}, err
 				}
 				steps, err := id.Timeline.Steps()
 				if err != nil {
-					return "", err
+					return mcp.ToolResult{}, err
 				}
 				if len(steps) > a.N {
 					steps = steps[len(steps)-a.N:]
@@ -189,7 +189,7 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
 					out = append(out, map[string]string{"ts": s.TS, "type": s.Type, "content": traj.OneLine(content, 200)})
 				}
 				data, _ := json.Marshal(out)
-				return string(data), nil
+				return mcp.NewTextResult(string(data)), nil
 			},
 		},
 		{
@@ -205,7 +205,7 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
     "identity": { "type": "string" }
   }
 }`),
-			Handler: func(ctx context.Context, args json.RawMessage) (string, error) {
+			Handler: func(ctx context.Context, args json.RawMessage) (mcp.ToolResult, error) {
 				var a struct {
 					Content  string `json:"content"`
 					Type     string `json:"type"`
@@ -213,14 +213,14 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
 					Identity string `json:"identity"`
 				}
 				if err := json.Unmarshal(args, &a); err != nil {
-					return "", mcpInvalidArgs(err)
+					return mcp.ToolResult{}, mcpInvalidArgs(err)
 				}
 				if strings.TrimSpace(a.Content) == "" {
-					return "", mcpInvalidArgs(fmt.Errorf("content 不能为空"))
+					return mcp.ToolResult{}, mcpInvalidArgs(fmt.Errorf("content 不能为空"))
 				}
 				id, err := load(a.Identity)
 				if err != nil {
-					return "", err
+					return mcp.ToolResult{}, err
 				}
 				if a.Type == "" {
 					a.Type = "fact"
@@ -228,10 +228,10 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
 				store := mem.Store{Dir: filepath.Join(id.Dir, "memories")}
 				added, err := store.AddWith(ctx, a.Type, a.Content, mem.AddOpts{Source: a.Source})
 				if err != nil {
-					return "", err
+					return mcp.ToolResult{}, err
 				}
 				if added.Duplicate {
-					return fmt.Sprintf("已存在相同内容 %s，未重复写入", added.Memory.ID), nil
+					return mcp.NewTextResult(fmt.Sprintf("已存在相同内容 %s，未重复写入", added.Memory.ID)), nil
 				}
 				msg := fmt.Sprintf("已写入记忆 %s", added.Memory.ID)
 				if len(added.Conflicts) > 0 {
@@ -240,7 +240,7 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
 						msg += fmt.Sprintf("\n- %.2f  %s  %s", cf.Similarity, cf.Memory.ID, cf.Memory.Summary)
 					}
 				}
-				return msg, nil
+				return mcp.NewTextResult(msg), nil
 			},
 		},
 		{
@@ -255,25 +255,25 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
     "identity": { "type": "string" }
   }
 }`),
-			Handler: func(ctx context.Context, args json.RawMessage) (string, error) {
+			Handler: func(ctx context.Context, args json.RawMessage) (mcp.ToolResult, error) {
 				var a struct {
 					Query    string `json:"query"`
 					K        int    `json:"k"`
 					Identity string `json:"identity"`
 				}
 				if err := json.Unmarshal(args, &a); err != nil {
-					return "", mcpInvalidArgs(err)
+					return mcp.ToolResult{}, mcpInvalidArgs(err)
 				}
 				if a.K <= 0 {
 					a.K = 5
 				}
 				id, err := load(a.Identity)
 				if err != nil {
-					return "", err
+					return mcp.ToolResult{}, err
 				}
 				hits, err := (mem.Store{Dir: filepath.Join(id.Dir, "memories")}).Search(a.Query, a.K)
 				if err != nil {
-					return "", err
+					return mcp.ToolResult{}, err
 				}
 				out := []map[string]any{}
 				for _, h := range hits {
@@ -284,7 +284,7 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
 					out = append(out, row)
 				}
 				data, _ := json.Marshal(out)
-				return string(data), nil
+				return mcp.NewTextResult(string(data)), nil
 			},
 		},
 		{
@@ -294,16 +294,16 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
   "type": "object",
   "properties": { "identity": { "type": "string" } }
 }`),
-			Handler: func(ctx context.Context, args json.RawMessage) (string, error) {
+			Handler: func(ctx context.Context, args json.RawMessage) (mcp.ToolResult, error) {
 				var a struct {
 					Identity string `json:"identity"`
 				}
 				if err := json.Unmarshal(args, &a); err != nil {
-					return "", mcpInvalidArgs(err)
+					return mcp.ToolResult{}, mcpInvalidArgs(err)
 				}
 				id, err := load(a.Identity)
 				if err != nil {
-					return "", err
+					return mcp.ToolResult{}, err
 				}
 				// 全局层 = MINDLOOP_HOME/skills，与 cli.skillsStore 同一
 				// 布局；不借道 identity.Home() 拼 ".."。
@@ -314,7 +314,7 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
 					out = append(out, map[string]string{"name": it.Name, "description": it.Description, "dir": it.Dir})
 				}
 				data, _ := json.Marshal(out)
-				return string(data), nil
+				return mcp.NewTextResult(string(data)), nil
 			},
 		},
 	}

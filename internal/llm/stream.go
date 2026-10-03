@@ -74,11 +74,19 @@ func (c *Client) CompleteStream(ctx context.Context, req Request, onDelta func(s
 	case ProviderEcho:
 		res = streamEcho(onDelta)
 	case ProviderAnthropic:
+		body, werr := c.anthropicStreamBody(req)
+		if werr != nil {
+			return Result{}, werr
+		}
 		res, err = c.doStream(ctx, c.streamHeaders("anthropic"),
-			c.anthropicStreamBody(req), c.parseAnthropicStream, onDelta)
+			body, c.parseAnthropicStream, onDelta)
 	case ProviderOpenAICompat:
+		body, werr := c.openaiStreamBody(req)
+		if werr != nil {
+			return Result{}, werr
+		}
 		res, err = c.doStream(ctx, c.streamHeaders("openai"),
-			c.openaiStreamBody(req), c.parseOpenAIStream, onDelta)
+			body, c.parseOpenAIStream, onDelta)
 	default:
 		return Result{}, fmt.Errorf("llm: 未知供应商 %q", c.Provider)
 	}
@@ -108,28 +116,36 @@ func (c *Client) streamHeaders(kind string) map[string]string {
 	}
 }
 
-func (c *Client) openaiStreamBody(req Request) map[string]any {
-	msgs := make([]Message, 0, len(req.Messages)+1)
-	if req.System != "" {
-		msgs = append(msgs, Message{Role: "system", Content: req.System})
+func (c *Client) openaiStreamBody(req Request) (map[string]any, error) {
+	bodyMsgs, err := wireMessages(c.Provider, req.Messages)
+	if err != nil {
+		return nil, err
 	}
-	msgs = append(msgs, req.Messages...)
+	msgs := make([]map[string]any, 0, len(bodyMsgs)+1)
+	if req.System != "" {
+		msgs = append(msgs, map[string]any{"role": "system", "content": req.System})
+	}
+	msgs = append(msgs, bodyMsgs...)
 	return map[string]any{
 		"model":      c.Model,
 		"messages":   msgs,
 		"max_tokens": c.MaxTokens,
 		"stream":     true,
-	}
+	}, nil
 }
 
-func (c *Client) anthropicStreamBody(req Request) map[string]any {
+func (c *Client) anthropicStreamBody(req Request) (map[string]any, error) {
+	bodyMsgs, err := wireMessages(c.Provider, req.Messages)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]any{
 		"model":      c.Model,
 		"max_tokens": c.MaxTokens,
 		"system":     req.System,
-		"messages":   req.Messages,
+		"messages":   bodyMsgs,
 		"stream":     true,
-	}
+	}, nil
 }
 
 // doStream 是流式路径的重试循环，与非流式的 do 同一套退避纪律

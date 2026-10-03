@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -144,7 +145,8 @@ func (c *CLI) newMCPToolsCmd() *cobra.Command {
 }
 
 func (c *CLI) newMCPCallCmd() *cobra.Command {
-	return &cobra.Command{
+	var saveImg string
+	cmd := &cobra.Command{
 		Use:   `call <服务器名> <工具名> ['{"参数": "值"}']`,
 		Short: "调用工具（tools/call），JSON 参数省略时为 {}",
 		Args:  cobra.RangeArgs(2, 3),
@@ -180,10 +182,32 @@ func (c *CLI) newMCPCallCmd() *cobra.Command {
 			if err != nil {
 				return c.fail(err)
 			}
+			// 图片内容块（robotd 触觉回读截屏）文本化：--save 落盘，
+			// 否则以占位符计数标注。
+			if len(res.Images) > 0 {
+				if saveImg != "" {
+					img := res.Images[0]
+					data, err := base64.StdEncoding.DecodeString(img.Data)
+					if err != nil {
+						return c.fail(fmt.Errorf("mcp: 解码图片: %w", err))
+					}
+					if err := os.WriteFile(saveImg, data, 0o644); err != nil {
+						return c.fail(fmt.Errorf("mcp: 写入 %s: %w", saveImg, err))
+					}
+					fmt.Fprintf(c.stdout, "[图片 %s 已保存到 %s（%d 字节）]\n", img.MIMEType, saveImg, len(data))
+					if len(res.Images) > 1 {
+						fmt.Fprintf(c.stdout, "（另有 %d 张图片未保存）\n", len(res.Images)-1)
+					}
+				} else {
+					fmt.Fprintf(c.stdout, "[返回 %d 张图片——用 --save <文件> 落盘]\n", len(res.Images))
+				}
+			}
 			fmt.Fprintln(c.stdout, res.Text)
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&saveImg, "save", "", "把返回的第一张图片内容块写入该文件")
+	return cmd
 }
 
 func (c *CLI) newMCPAddCmd() *cobra.Command {

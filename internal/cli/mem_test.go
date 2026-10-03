@@ -135,22 +135,22 @@ func TestMCPServeMemTools(t *testing.T) {
 	}
 
 	out, err := add.Handler(ctx, json.RawMessage(`{"content":"操作员张伟住在杭州","type":"fact","source":"msg00000001"}`))
-	if err != nil || !strings.Contains(out, "已写入") {
+	if err != nil || !strings.Contains(out.Text, "已写入") {
 		t.Fatalf("mem_add 失败: %q, %v", out, err)
 	}
 
 	out, err = add.Handler(ctx, json.RawMessage(`{"content":"操作员张伟住在上海"}`))
-	if err != nil || !strings.Contains(out, "相似") {
+	if err != nil || !strings.Contains(out.Text, "相似") {
 		t.Fatalf("冲突应提示: %q, %v", out, err)
 	}
 
 	out, err = add.Handler(ctx, json.RawMessage(`{"content":"操作员张伟住在杭州"}`))
-	if err != nil || !strings.Contains(out, "已存在") {
+	if err != nil || !strings.Contains(out.Text, "已存在") {
 		t.Fatalf("重复应提示: %q, %v", out, err)
 	}
 
 	out, err = search.Handler(ctx, json.RawMessage(`{"query":"杭州","k":3}`))
-	if err != nil || !strings.Contains(out, "msg00000001") {
+	if err != nil || !strings.Contains(out.Text, "msg00000001") {
 		t.Fatalf("mem_search 应携带来源: %q, %v", out, err)
 	}
 }
