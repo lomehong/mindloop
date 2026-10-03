@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Ear, Eye, Hand, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useParams } from "react-router";
 import { toast } from "sonner";
@@ -29,6 +29,7 @@ import {
   addSensor,
   fetchIdentityStatus,
   fetchSensors,
+  fetchTaste,
   removeSensor,
   toggleSensor,
 } from "~/lib/api";
@@ -56,15 +57,99 @@ function typeVariant(
   }
 }
 
-/** 感知页：sensors.json 的管理面——列表/启停/新增/移除，写盘即生效
- * （心智在跑则数秒内热加载）。学习期条目带"观察期"徽标。 */
+/** 感官卡片的公共渲染（列表 + 启停 + 移除）。 */
+function SensorCard({
+  sensor,
+  onToggle,
+  onRemove,
+  pending,
+}: {
+  sensor: SensorView;
+  onToggle: (id: string, enabled: boolean) => void;
+  onRemove: (s: SensorView) => void;
+  pending: boolean;
+}) {
+  const enabled = sensor.enabled !== false;
+  const target = sensor.path || sensor.url || "";
+  const rules = sensor.salience?.rules ?? [];
+  const learningOff = (sensor.learning_days ?? 0) < 0;
+  return (
+    <div
+      className={cn("rounded-lg border p-3", !enabled && "opacity-60")}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <Checkbox
+          checked={enabled}
+          disabled={pending}
+          aria-label={`${enabled ? "停用" : "启用"} ${sensor.id}`}
+          onCheckedChange={(checked) =>
+            onToggle(sensor.id, checked === true)
+          }
+        />
+        <span className="font-mono text-sm font-medium">{sensor.id}</span>
+        <Badge variant={typeVariant(sensor.type)}>{sensor.type}</Badge>
+        {!enabled && <Badge variant="outline">已停用</Badge>}
+        {!learningOff && <Badge variant="outline">观察期</Badge>}
+        <span className="ml-auto" />
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={pending}
+          onClick={() => onRemove(sensor)}
+        >
+          <Trash2 className="size-3" />
+          移除
+        </Button>
+      </div>
+      <div className="mt-1 break-all font-mono text-xs text-muted-foreground">
+        {target}
+      </div>
+      {(sensor.keywords?.length ?? 0) > 0 && (
+        <div className="mt-1 text-xs text-muted-foreground">
+          议程关键词：{sensor.keywords?.join("、")}
+        </div>
+      )}
+      {rules.length > 0 && (
+        <div className="mt-1 text-xs text-muted-foreground">
+          规则：
+          {rules
+            .map(
+              (r) => `${r.name}→${r.salience}${r.min ? `(≥${r.min})` : ""}`
+            )
+            .join("；")}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SectionHead({
+  icon,
+  title,
+  hint,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  hint: string;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="flex items-center gap-1.5 font-medium">{icon}{title}</span>
+      <span className="text-[11px] text-muted-foreground">{hint}</span>
+    </div>
+  );
+}
+
+/** 感知页：五感的统一管理面（docs/designs/perception.md）。
+ * 眼=状态观察（file/git/web），耳=消息流（webhook/渠道降档），
+ * 鼻=异常反射（自动机制+内感受），舌=味觉证据（归因反馈），
+ * 身=触达（robotd，按设计节奏后置）。 */
 export default function SensorsPage() {
   const { identityId = "" } = useParams();
   const queryClient = useQueryClient();
   const [sensorToRemove, setSensorToRemove] = useState<SensorView | null>(
     null
   );
-  // 新增表单：类型 / 路径或 URL / 议程关键词（沉淀级）/ 叫醒关键词（s2 规则）。
   const [newType, setNewType] = useState("file");
   const [newTarget, setNewTarget] = useState("");
   const [newKeywords, setNewKeywords] = useState("");
@@ -82,8 +167,16 @@ export default function SensorsPage() {
     refetchInterval: STATUS_BACKGROUND_POLL_MS,
   });
 
-  const invalidate = () =>
+  const { data: taste } = useQuery({
+    queryKey: ["taste", identityId],
+    queryFn: () => fetchTaste(identityId),
+    refetchInterval: STATUS_BACKGROUND_POLL_MS,
+  });
+
+  const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["sensors", identityId] });
+    queryClient.invalidateQueries({ queryKey: ["taste", identityId] });
+  };
 
   const toggle = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
@@ -110,14 +203,13 @@ export default function SensorsPage() {
       const body: Partial<SensorView> & { type: string } = {
         type: newType,
       };
-      if (newType === "web") body.url = newTarget;
+      if (newType === "web" || newType === "webhook") body.url = newTarget;
       else body.path = newTarget;
       const keywords = newKeywords
         .split(",")
         .map((k) => k.trim())
         .filter(Boolean);
       if (keywords.length) body.keywords = keywords;
-      // 叫醒关键词 → s2 规则：命中的变化叫醒心智（其余安静沉淀）。
       const wakeWords = newWakeWords
         .split(",")
         .map((k) => k.trim())
@@ -129,10 +221,13 @@ export default function SensorsPage() {
       }
       return addSensor(identityId, body);
     },
-    onSuccess: (result) => {
+    onSuccess: (result: { added: string; secret?: string }) => {
       toast.success(
         `已接入 ${result.added}——学习期 3 天内只沉淀不叫醒`
       );
+      if (result.secret) {
+        toast.info(`webhook 密钥（只显示这一次）：${result.secret}`);
+      }
       setNewTarget("");
       setNewKeywords("");
       setNewWakeWords("");
@@ -149,6 +244,16 @@ export default function SensorsPage() {
     );
   }
 
+  const sensors = view.sensors ?? [];
+  const eyes = sensors.filter(
+    (s) => s.type === "file" || s.type === "git" || s.type === "web"
+  );
+  const ears = sensors.filter((s) => s.type === "webhook");
+  const selfs = sensors.filter((s) => s.type === "self");
+  const commonToggle = (id: string, enabled: boolean) =>
+    toggle.mutate({ id, enabled });
+  const commonRemove = (s: SensorView) => setSensorToRemove(s);
+
   return (
     <div className="mx-auto w-full max-w-4xl">
       <IdentityTabs
@@ -159,11 +264,11 @@ export default function SensorsPage() {
       <div className="mx-auto w-full max-w-4xl space-y-6 pb-10">
         <div className="flex items-center gap-3">
           <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            感知（sensors.json）
+            感知（五感 · sensors.json）
           </h2>
           <span className="text-[11px] text-muted-foreground">
-            让心智"眼里有事"：观察到的变化按显著性分级——多数安静沉淀，
-            命中规则的才会叫醒。改这里即刻生效，不需要重启。
+            眼睛里有事：观察到的变化按显著性分级——多数安静沉淀，命中
+            规则的才叫醒。改这里即刻生效。
           </span>
           <Button
             variant="outline"
@@ -176,144 +281,188 @@ export default function SensorsPage() {
           </Button>
         </div>
 
-        {/* 新增表单 */}
-        <div className="rounded-lg border p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Eye className="size-4 text-muted-foreground" />
-            <Select
-              value={newType}
-              onValueChange={(v) => setNewType(v)}
-            >
-              <SelectTrigger className="w-[92px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="file">文件目录</SelectItem>
-                <SelectItem value="git">git 仓库</SelectItem>
-                <SelectItem value="web">网页/RSS</SelectItem>
-              </SelectContent>
-            </Select>
-            <Input
-              className="w-72"
-              placeholder={
-                newType === "web" ? "https://example.com" : "要观察的目录"
-              }
-              value={newTarget}
-              onChange={(e) => setNewTarget(e.target.value)}
-            />
-            <Input
-              className="w-52"
-              placeholder="关键词（逗号分隔，可空）"
-              value={newKeywords}
-              onChange={(e) => setNewKeywords(e.target.value)}
-            />
-            <Input
-              className="w-56"
-              placeholder="叫醒关键词（命中即叫醒，可空）"
-              value={newWakeWords}
-              onChange={(e) => setNewWakeWords(e.target.value)}
-            />
-            <Button
-              size="sm"
-              disabled={!newTarget.trim() || add.isPending}
-              onClick={() => add.mutate()}
-            >
-              <Plus className="size-3" />
-              接入
-            </Button>
+        {/* ── 眼 · 状态观察 ── */}
+        <div className="space-y-3">
+          <SectionHead
+            icon={<Eye className="size-4" />}
+            title="眼 · 观察"
+            hint="盯住目录、仓库、网页——变化按显著性分级沉淀或叫醒"
+          />
+          <div className="rounded-lg border p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={newType} onValueChange={(v) => setNewType(v)}>
+                <SelectTrigger className="w-[92px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="file">文件目录</SelectItem>
+                  <SelectItem value="git">git 仓库</SelectItem>
+                  <SelectItem value="web">网页/RSS</SelectItem>
+                  <SelectItem value="webhook">webhook（耳）</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                className="w-64"
+                placeholder={
+                  newType === "web" || newType === "webhook"
+                    ? "https://example.com"
+                    : "要观察的目录"
+                }
+                value={newTarget}
+                onChange={(e) => setNewTarget(e.target.value)}
+              />
+              <Input
+                className="w-44"
+                placeholder="关键词（逗号分隔，可空）"
+                value={newKeywords}
+                onChange={(e) => setNewKeywords(e.target.value)}
+              />
+              <Input
+                className="w-52"
+                placeholder="叫醒关键词（可空）"
+                value={newWakeWords}
+                onChange={(e) => setNewWakeWords(e.target.value)}
+              />
+              <Button
+                size="sm"
+                disabled={!newTarget.trim() || add.isPending}
+                onClick={() => add.mutate()}
+              >
+                <Plus className="size-3" />
+                接入
+              </Button>
+            </div>
+            <div className="mt-2 text-[11px] text-muted-foreground">
+              新感官有 3 天观察期（只沉淀不叫醒）；"叫醒关键词"命中的
+              变化会叫醒心智。
+            </div>
           </div>
-          <div className="mt-2 text-[11px] text-muted-foreground">
-            新感官有 3 天观察期（只沉淀不叫醒，防打扰），到期后：命中
-            "叫醒关键词"的变化会叫醒心智，其余安静沉淀进记忆。
+          {eyes.length === 0 ? (
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <Eye className="size-5" />
+                </EmptyMedia>
+                <EmptyTitle className="text-base">
+                  眼睛还是闭着的
+                </EmptyTitle>
+                <EmptyDescription>
+                  用上面的表单接入第一个观察目标——比如这个项目的文档
+                  目录，或一个你每天看的页面。
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : (
+            eyes.map((sensor) => (
+              <SensorCard
+                key={sensor.id}
+                sensor={sensor}
+                onToggle={commonToggle}
+                onRemove={commonRemove}
+                pending={toggle.isPending || remove.isPending}
+              />
+            ))
+          )}
+        </div>
+
+        {/* ── 耳 · 消息流 ── */}
+        <div className="space-y-3">
+          <SectionHead
+            icon={<Ear className="size-4" />}
+            title="耳 · 听闻"
+            hint="外部系统说话，它在线听——webhook 推送即事件"
+          />
+          {ears.length === 0 ? (
+            <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+              未配置。用上方表单选 "webhook（耳）" 接入——生成 HMAC
+              密钥后，外部系统 POST 到
+              <code className="mx-1 rounded bg-muted px-1">
+                /hook/{identityId}/&lt;感官id&gt;
+              </code>
+              即成为它的耳朵。
+            </div>
+          ) : (
+            ears.map((sensor) => (
+              <SensorCard
+                key={sensor.id}
+                sensor={sensor}
+                onToggle={commonToggle}
+                onRemove={commonRemove}
+                pending={toggle.isPending || remove.isPending}
+              />
+            ))
+          )}
+        </div>
+
+        {/* ── 鼻 · 嗅探 ── */}
+        <div className="space-y-3">
+          <SectionHead
+            icon={<span className="text-sm">👃</span>}
+            title="鼻 · 嗅探"
+            hint="自动机制：速率突增 / 首次出现 / 阈值越界 / 缺席 / 内感受"
+          />
+          <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+            常驻自动运行，无需配置：事件流的模式偏移会以
+            <code className="mx-1 rounded bg-muted px-1">anomaly</code>
+            事件留痕并按显著性叫醒；配置了
+            <code className="mx-1 rounded bg-muted px-1">expect_every</code>
+            的感官"该来的没来"会被报告；内感受（预算水位 / 模型熔断）
+            直达通知。
+            {selfs.length > 0 && (
+              <span className="ml-1 text-foreground">
+                内感受已开启：{selfs.map((s) => s.id).join("、")}。
+              </span>
+            )}
           </div>
         </div>
 
-        {(view.sensors ?? []).length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <Eye className="size-5" />
-              </EmptyMedia>
-              <EmptyTitle className="text-base">还没有感官</EmptyTitle>
-              <EmptyDescription>
-                用上面的表单接入第一个观察目标——比如这个项目的文档目录，
-                或一个你每天看的页面。
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : (
-          <div className="space-y-3">
-            {(view.sensors ?? []).map((sensor) => {
-              const enabled = sensor.enabled !== false;
-              const target = sensor.path || sensor.url || "";
-              const rules = sensor.salience?.rules ?? [];
-              return (
-                <div
-                  key={sensor.id}
-                  className={cn(
-                    "rounded-lg border p-3",
-                    !enabled && "opacity-60"
-                  )}
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Checkbox
-                      checked={enabled}
-                      disabled={toggle.isPending}
-                      aria-label={`${enabled ? "停用" : "启用"} ${sensor.id}`}
-                      onCheckedChange={(checked) =>
-                        toggle.mutate({
-                          id: sensor.id,
-                          enabled: checked === true,
-                        })
-                      }
-                    />
-                    <span className="font-mono text-sm font-medium">
-                      {sensor.id}
+        {/* ── 舌 · 味觉 ── */}
+        <div className="space-y-3">
+          <SectionHead
+            icon={<span className="text-sm">👅</span>}
+            title="舌 · 品评"
+            hint="你的归因反馈是它校准的证据面（近 7 天）"
+          />
+          <div className="rounded-lg border p-3 text-xs">
+            {taste ? (
+              (taste.Undoes ?? 0) + (taste.Approves ?? 0) + (taste.Denies ?? 0) + (taste.MissedReports ?? 0) === 0 ? (
+                <span className="text-muted-foreground">
+                  窗口内还没有味觉信号——撤销时用
+                  <code className="mx-1 rounded bg-muted px-1">undo --because 提案多余</code>
+                  类归因、审批决议都会成为它的校准证据。
+                </span>
+              ) : (
+                <span>
+                  撤销 {taste.Undoes ?? 0}（提案多余{" "}
+                  {taste.UndoThresholdTight ?? 0}）｜批准{" "}
+                  {taste.Approves ?? 0}｜拒绝 {taste.Denies ?? 0}
+                  {(taste.MissedReports ?? 0) > 0 && (
+                    <span className="text-amber-600 dark:text-amber-400">
+                      {" "}
+                      ｜⚠ 漏报匹配 {taste.MissedReports} 次
+                      （{taste.MissedSubjects?.join("、")}）
                     </span>
-                    <Badge variant={typeVariant(sensor.type)}>
-                      {sensor.type}
-                    </Badge>
-                    {!enabled && <Badge variant="outline">已停用</Badge>}
-                    {(sensor.learning_days ?? 0) < 0 ? null : (
-                      <Badge variant="outline">观察期</Badge>
-                    )}
-                    <span className="ml-auto" />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={remove.isPending}
-                      onClick={() => setSensorToRemove(sensor)}
-                    >
-                      <Trash2 className="size-3" />
-                      移除
-                    </Button>
-                  </div>
-                  <div className="mt-1 break-all font-mono text-xs text-muted-foreground">
-                    {target}
-                  </div>
-                  {(sensor.keywords?.length ?? 0) > 0 && (
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      议程关键词：{sensor.keywords?.join("、")}
-                    </div>
                   )}
-                  {rules.length > 0 && (
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      规则：
-                      {rules
-                        .map(
-                          (r) =>
-                            `${r.name}→${r.salience}${
-                              r.min ? `(≥${r.min})` : ""
-                            }`
-                        )
-                        .join("；")}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                </span>
+              )
+            ) : (
+              <LoadingDots />
+            )}
           </div>
-        )}
+        </div>
+
+        {/* ── 身 · 触达 ── */}
+        <div className="space-y-3">
+          <SectionHead
+            icon={<Hand className="size-4" />}
+            title="身 · 触达"
+            hint="动作闭环（robotd）——按设计节奏后置：先看得见，再谈出手"
+          />
+          <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+            未启用。设计已存档（独立 robotd 服务 + 审批门全链），待
+            眼/耳/鼻的信噪比数据成熟后启动。
+          </div>
+        </div>
       </div>
 
       <ConfirmDialog

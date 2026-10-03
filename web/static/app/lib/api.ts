@@ -34,6 +34,7 @@ import type {
   ScheduleView,
   SensorView,
   SensorsView,
+  TasteSummary,
   Usage,
   SelfUpdateResult,
   SkillContent,
@@ -389,6 +390,13 @@ export function removeSensor(
     "DELETE",
     `/api/identities/${encodeURIComponent(identityId)}/sensors/${encodeURIComponent(sensorId)}`,
     undefined
+  );
+}
+
+/** 舌：味觉聚合（你的撤销归因/审批/漏报——校准证据面，近 7 天）。 */
+export function fetchTaste(identityId: string): Promise<TasteSummary> {
+  return getJson(
+    `/api/identities/${encodeURIComponent(identityId)}/taste`
   );
 }
 

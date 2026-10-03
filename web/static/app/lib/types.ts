@@ -704,6 +704,17 @@ export interface SensorsView {
   sensors: SensorView[];
 }
 
+/** 味觉聚合（GET /api/identities/{id}/taste，近 7 天）。字段名与
+ * Go obs.TasteSummary 的 JSON 序列化一致。 */
+export interface TasteSummary {
+  Undoes?: number;
+  UndoThresholdTight?: number;
+  Approves?: number;
+  Denies?: number;
+  MissedReports?: number;
+  MissedSubjects?: string[];
+}
+
 export interface ScheduleView {
   identity: { id: string; name: string };
   /** schedule.json 路径（修复指引用）。 */
