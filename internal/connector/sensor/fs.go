@@ -11,6 +11,7 @@
 package sensor
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -140,6 +141,50 @@ func skipDirName(name string) bool {
 	return strings.HasPrefix(name, ".") || skipDirNames[name]
 }
 
+// fileDigest 是文件事件的摘要：动作 + 文件名 + 内容前段（小文本
+// 文件）——显著性规则的词面因此能命中内容而不只是文件名（黑盒
+// 验收实证的缺口）。二进制/大文件只给名字。
+func fileDigest(action, path string) string {
+	d := fmt.Sprintf("%s: %s", action, pathpkg.Base(path))
+	if excerpt := contentExcerpt(path); excerpt != "" {
+		d += "｜内容: " + excerpt
+	}
+	return d
+}
+
+// excerptMaxBytes 是内容摘要的读取上限——观察者不是全文索引器。
+const excerptMaxBytes = 64 << 10
+
+// contentExcerpt 读文本文件的前 120 rune；超限/二进制/读不了返回
+// 空（best-effort，绝不因摘要失败丢事件）。
+func contentExcerpt(path string) string {
+	fi, err := os.Stat(path)
+	if err != nil || fi.IsDir() || fi.Size() == 0 || fi.Size() > excerptMaxBytes {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	probe := data
+	if len(probe) > 512 {
+		probe = probe[:512]
+	}
+	if bytes.IndexByte(probe, 0) >= 0 {
+		return "" // 二进制（NUL 探测）
+	}
+	runes := []rune(strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\t' {
+			return ' '
+		}
+		return r
+	}, string(data)))
+	if len(runes) > 120 {
+		runes = runes[:120]
+	}
+	return string(runes)
+}
+
 // addDir 挂一个目录的 watch（计一下上限）。返回 false = 没挂上。
 func (s *FileSensor) addDir(dir string) bool {
 	s.mu.Lock()
@@ -186,7 +231,7 @@ func (s *FileSensor) handleEvent(ev fsnotify.Event, onEvent func(PEvent)) {
 		s.mu.Unlock()
 		onEvent(PEvent{
 			Kind: KindAppeared, Subject: path, Dedup: fp,
-			Digest: fmt.Sprintf("新文件出现: %s", pathpkg.Base(path)),
+			Digest: fileDigest("新文件出现", path),
 		})
 	case ev.Op&fsnotify.Write != 0:
 		if isDir {
@@ -203,7 +248,7 @@ func (s *FileSensor) handleEvent(ev fsnotify.Event, onEvent func(PEvent)) {
 		s.mu.Unlock()
 		onEvent(PEvent{
 			Kind: KindChanged, Subject: path, Dedup: fp,
-			Digest: fmt.Sprintf("文件修改: %s", pathpkg.Base(path)),
+			Digest: fileDigest("文件修改", path),
 		})
 	case ev.Op&fsnotify.Remove != 0 || ev.Op&fsnotify.Rename != 0:
 		s.mu.Lock()

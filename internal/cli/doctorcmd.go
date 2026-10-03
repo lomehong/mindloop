@@ -325,11 +325,13 @@ func (c *CLI) doctorSensors(identityName string) *doctorCheck {
 	}
 	var problems []string
 	enabled := 0
+	var listing []string
 	for _, cfg := range file.Sensors {
 		if !cfg.IsEnabled() {
 			continue
 		}
 		enabled++
+		listing = append(listing, cfg.ID+"("+cfg.Type+")")
 		switch cfg.Type {
 		case "file", "git":
 			if _, err := os.Stat(cfg.Path); err != nil {
@@ -342,7 +344,13 @@ func (c *CLI) doctorSensors(identityName string) *doctorCheck {
 	if enabled > 0 && os.Getenv("MINDLOOP_SPONTANEOUS_TOKENS") == "" {
 		problems = append(problems, "未设 MINDLOOP_SPONTANEOUS_TOKENS（感官唤醒无自发档预算上限）")
 	}
-	detail := fmt.Sprintf("%d 个感官（%d 启用）", len(file.Sensors), enabled)
+	detail := fmt.Sprintf("%d 个感官: %s", len(file.Sensors), strings.Join(listing, " "))
+	if enabled < len(file.Sensors) {
+		detail += fmt.Sprintf("（%d 启用）", enabled)
+	}
+	if len(listing) == 0 {
+		detail = fmt.Sprintf("%d 个感官（全部禁用）", len(file.Sensors))
+	}
 	if len(problems) > 0 {
 		ck.warn(detail + "；" + strings.Join(problems, "；"))
 		return ck

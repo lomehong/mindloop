@@ -146,3 +146,25 @@ func TestWebSensorTextExtraction(t *testing.T) {
 		t.Fatalf("非 http(s) 应拒绝")
 	}
 }
+
+// TestFileDigestContentExcerpt：file 感官的 digest 含内容前段——
+// 规则词面因此能命中内容而不只是文件名（黑盒验收实证的缺口）。
+func TestFileDigestContentExcerpt(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "daily.txt")
+	if err := os.WriteFile(p, []byte("生产物料短缺通知"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := fileDigest("文件修改", p)
+	if !contains(d, "daily.txt") || !contains(d, "生产物料短缺") {
+		t.Fatalf("digest 应含文件名与内容前段，得 %q", d)
+	}
+	// 二进制（NUL 探测）不给内容。
+	bin := filepath.Join(dir, "blob.bin")
+	if err := os.WriteFile(bin, []byte{'P', 0, 'K'}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if d := fileDigest("文件修改", bin); contains(d, "内容:") {
+		t.Fatalf("二进制不应给内容摘要，得 %q", d)
+	}
+}

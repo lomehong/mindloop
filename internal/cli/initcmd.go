@@ -247,11 +247,22 @@ func (c *CLI) initReadLine() string {
 	return line
 }
 
-// initConfirm 问 Y/n：空与 Y 算确认；EOF 也算确认（非交互容错）。
+// initConfirm 问 Y/n：空与 Y 算确认；EOF 也算确认（非交互容错——
+// init 的向导语义，demo 不能卡死）。
 func (c *CLI) initConfirm(question string) bool {
-	fmt.Fprintf(c.stdout, "%s [Y/n] ", question)
+	return c.initConfirmDefault(question, true)
+}
+
+// initConfirmDefault 问 Y/n，EOF/无输入取 defYes：init 用 true
+// （非交互容错），undo 等写操作用 false（缺省拒绝——黑盒验收实证
+// 无 stdin 时恢复被默认放行）。
+func (c *CLI) initConfirmDefault(question string, defYes bool) bool {
+	fmt.Fprintf(c.stdout, "%s [%s/n] ", question, map[bool]string{true: "Y", false: "y"}[defYes])
 	ans := strings.ToLower(strings.TrimSpace(c.initReadLine()))
-	return ans == "" || ans == "y" || ans == "yes"
+	if ans == "" {
+		return defYes
+	}
+	return ans == "y" || ans == "yes"
 }
 
 // probeLLM 实测一次最小补全。与 web 的 /api/llm-health/probe 同款

@@ -57,11 +57,16 @@ func TestJudgeRulesCooldownAndAgenda(t *testing.T) {
 		t.Fatalf("规则命中应 s3/rule:prod-fire，得 %s/%s", d.Salience, d.Reason)
 	}
 
-	// 冷却期内同规则不再升档（变体指纹绕过去重也不能风暴）。
-	e2 := PEvent{Subject: "D:/work/app/y.log", Dedup: "other", Digest: "生产又炸了"}
+	// 冷却语义（按主体）：同主体的变体指纹绕过去重也不能风暴；
+	// 不同主体各自升档（冷却管变体，去重管重复）。
+	e2 := PEvent{Subject: "D:/work/app/x.log", Dedup: "other", Digest: "生产又炸了"}
 	d = Judge(cfg, st, ReflexView{}, e2, now.Add(time.Minute))
 	if d.Salience == S3 {
-		t.Fatalf("冷却期内同规则不应再升到 s3")
+		t.Fatalf("同主体冷却期内不应再升到 s3")
+	}
+	d = Judge(cfg, st, ReflexView{}, PEvent{Subject: "D:/work/app/y.log", Dedup: "y1", Digest: "生产又炸了"}, now.Add(2*time.Minute))
+	if d.Salience != S3 {
+		t.Fatalf("不同主体应各自升档，得 %s/%s", d.Salience, d.Reason)
 	}
 }
 
@@ -115,6 +120,35 @@ func TestQuietWindow(t *testing.T) {
 	}
 	if q.Active(time.Date(2026, 10, 3, 8, 0, 0, 0, loc)) {
 		t.Fatalf("08:00 整不应在窗口内（窗口半开）")
+	}
+}
+
+// TestJudgeRuleCooldownPerSubject：冷却键含主体——同一主体的变体
+// 风暴被压住，不同主体各自升档（黑盒验收实证：全局冷却键把目录里
+// 不同的命中文件全部吞掉）。
+func TestJudgeRuleCooldownPerSubject(t *testing.T) {
+	cfg := mustCfg(t, `{"id":"w","type":"file","path":".","learning_days":-1,
+		"salience":{"rules":[{"name":"prod","keywords":["生产"],"salience":"s2"}]}}`)
+	st := NewState()
+	now := time.Now()
+
+	// 主体 A 首次命中 → s2。
+	d := Judge(cfg, st, ReflexView{}, PEvent{Subject: "D:/w/a.txt", Dedup: "k1", Digest: "生产告警"}, now)
+	if d.Salience != S2 || d.Reason != "rule:prod" {
+		t.Fatalf("首命中应 s2/rule:prod，得 %s/%s", d.Salience, d.Reason)
+	}
+	// 同主体变体（冷却期内）→ 不升档，reason 保留冷却信息。
+	d = Judge(cfg, st, ReflexView{Paths: []string{"D:/w"}}, PEvent{Subject: "D:/w/a.txt", Dedup: "k2", Digest: "生产告警2"}, now.Add(time.Minute))
+	if d.Salience >= S2 {
+		t.Fatalf("同主体冷却期内不应再升 s2，得 %s", d.Salience)
+	}
+	if !contains(d.Reason, "冷却") {
+		t.Fatalf("冷却信息应留在 reason，得 %q", d.Reason)
+	}
+	// 不同主体 → 各自升档（去重管同内容重复，冷却管同主体变体）。
+	d = Judge(cfg, st, ReflexView{}, PEvent{Subject: "D:/w/b.txt", Dedup: "k3", Digest: "生产日报"}, now.Add(2*time.Minute))
+	if d.Salience != S2 || d.Reason != "rule:prod" {
+		t.Fatalf("不同主体应各自升档，得 %s/%s", d.Salience, d.Reason)
 	}
 }
 

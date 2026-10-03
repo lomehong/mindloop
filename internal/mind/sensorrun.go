@@ -123,7 +123,7 @@ func (r *SensorRunner) Start(ctx context.Context) error {
 	}
 	go r.manageLoop()
 	if r.opts.Logger != nil {
-		r.opts.Logger("sensor: 感知系统启动，%d 个感官（学习期 %d 天）", len(enabled), r.learnDaysLocked())
+		r.opts.Logger("sensor: 感知系统启动，%d 个感官（学习期缺省 %d 天，条目可覆盖或关闭）", len(enabled), r.learnDaysLocked())
 	}
 	return nil
 }
@@ -238,6 +238,13 @@ func (r *SensorRunner) watchLoop(ctx context.Context, rs *runningSensor) {
 		}
 		s, err := factory(rs.cfg)
 		if err != nil {
+			if errors.Is(err, sensor.ErrDisabled) {
+				// 外部承载型感官（webhook 经 web 进程的 /hook 端点）：
+				// 心智进程内没有 Watch 循环可跑，静默停通道——不是
+				// 故障，不该进 10 分钟重试循环刷日志（黑盒验收实证）。
+				r.logf("感官 %s 由外部承载，通道静默", rs.cfg.ID)
+				return
+			}
 			r.logf("感官 %s 构造失败（%v）——10 分钟后重试", rs.cfg.ID, err)
 			if sleepCtx(ctx, 10*time.Minute) {
 				return

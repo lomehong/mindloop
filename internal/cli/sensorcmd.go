@@ -175,8 +175,8 @@ func (c *CLI) newSensorsAddCmd() *cobra.Command {
 			if err := saveSensorFile(id.Dir, f); err != nil {
 				return c.fail(err)
 			}
-			fmt.Fprintf(c.stdout, "已接入感官 %s（%s %s）——学习期 %d 天内只沉淀不叫醒。\n",
-				cfg.ID, typ, target, cfg.LearnDays())
+			fmt.Fprintf(c.stdout, "已接入感官 %s（%s %s）——学习期 %d 天内只沉淀不叫醒%s。\n",
+				cfg.ID, typ, target, cfg.LearnDays(), map[bool]string{true: "（缺省）", false: ""}[learnP == 0])
 			c.warnSensorTakeEffect(id)
 			return nil
 		},

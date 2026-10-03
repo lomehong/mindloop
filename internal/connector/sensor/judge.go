@@ -176,8 +176,11 @@ func Judge(cfg *SensorConfig, st *State, view ReflexView, e PEvent, now time.Tim
 
 	sal := salienceOf(cfg)
 	reason := "default"
+	ruleNote := "" // 冷却中的规则名（进 reason，不掩盖）
 
-	// 2. 规则表：按声明序，第一条命中生效；冷却期内同规则不再升档。
+	// 2. 规则表：按声明序，第一条命中生效；冷却期内同规则对同主体
+	// 不再升档——冷却键含 subject：同一网页变五次（同主体变体）被
+	// 压住，观察目录里不同的命中文件（不同主体）各自升档。
 	cooldown := DefaultRuleCooldown
 	if d, err := time.ParseDuration(cfg.RuleCooldown); err == nil && d > 0 {
 		cooldown = d
@@ -187,9 +190,9 @@ func Judge(cfg *SensorConfig, st *State, view ReflexView, e PEvent, now time.Tim
 		if !containsAny(hay, r.Keywords) {
 			continue
 		}
-		ck := "rule:" + r.Name
+		ck := "rule:" + r.Name + "|" + e.Subject
 		if t, ok := st.lastFired[ck]; ok && now.Sub(t) < cooldown {
-			reason = "rule:" + r.Name + " (冷却中)"
+			ruleNote = "rule:" + r.Name + " 冷却中"
 			break
 		}
 		st.lastFired[ck] = now
@@ -203,6 +206,11 @@ func Judge(cfg *SensorConfig, st *State, view ReflexView, e PEvent, now time.Tim
 	if sal < S1 && (matchesPath(e.Subject, view.Paths) || containsAny(hay, view.Keywords)) {
 		sal = S1
 		reason = "agenda-match"
+	}
+	// 冷却信息不掩盖：议程升档时把"哪条规则在冷却"留在 reason 里
+	//（校准与"为什么这次没升档"的诊断都靠 reason）。
+	if ruleNote != "" && reason != ruleNote && !strings.Contains(reason, "rule:") {
+		reason += "(" + ruleNote + ")"
 	}
 
 	// 4. 感官自带档位建议（内感受的严重性是信号的一部分，不归

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -68,6 +69,29 @@ var undoCauses = map[string]bool{
 	"changed-mind":       true,
 }
 
+// resolveRunPrefix 把 run-id 前缀解析为唯一完整 id；不唯一或不匹配
+// 给出可执行的报错。
+func resolveRunPrefix(snapsDir, prefix string) (string, error) {
+	entries, err := os.ReadDir(snapsDir)
+	if err != nil {
+		return "", fmt.Errorf("没有可撤销的快照（%s 不存在）", prefix)
+	}
+	var hits []string
+	for _, e := range entries {
+		if e.IsDir() && strings.HasPrefix(e.Name(), prefix) {
+			hits = append(hits, e.Name())
+		}
+	}
+	switch len(hits) {
+	case 1:
+		return hits[0], nil
+	case 0:
+		return "", fmt.Errorf("没有匹配 %q 的快照（undo 不带 run-id 可列出全部）", prefix)
+	default:
+		return "", fmt.Errorf("前缀 %q 匹配 %d 个快照，请加长：\n  %s", prefix, len(hits), strings.Join(hits, "\n  "))
+	}
+}
+
 func (c *CLI) runUndo(args []string, identityName string, yes, force bool, because string) error {
 	if because != "" && !undoCauses[because] {
 		return usageErr("--because 只接受 proposal-redundant|execution-failed|changed-mind")
@@ -101,7 +125,17 @@ func (c *CLI) runUndo(args []string, identityName string, yes, force bool, becau
 	if !runIDRe.MatchString(runID) {
 		return usageErr("运行 id 只允许字母数字与 - _（不接受路径片段）")
 	}
+	// 前缀解析：列表显示短 id，undo 也认唯一前缀（黑盒验收实证的
+	// 纸割：列表与撤销的 id 形态必须一致）。不唯一/不匹配如实报错。
 	dir := filepath.Join(snapsDir, runID)
+	if _, err := os.Stat(dir); err != nil {
+		full, resolveErr := resolveRunPrefix(snapsDir, runID)
+		if resolveErr != nil {
+			return c.fail(resolveErr)
+		}
+		runID = full
+		dir = filepath.Join(snapsDir, runID)
+	}
 	changes, err := snapshot.Changes(dir)
 	if err != nil {
 		return c.fail(fmt.Errorf("没有可撤销的快照: %w", err))
@@ -119,7 +153,10 @@ func (c *CLI) runUndo(args []string, identityName string, yes, force bool, becau
 	for _, ch := range changes {
 		fmt.Fprintf(c.stdout, "  %-8s %s\n", ch.Op, ch.Rel)
 	}
-	if !yes && !c.initConfirm("确认恢复到执行前?") {
+	// 严格确认：EOF/无输入 = 取消（写操作缺省拒绝，非交互容错的那
+	// 套"空即 Y"只属于 init——黑盒验收实证 undo 在无 stdin 时被
+	// 默认放行）。
+	if !yes && !c.initConfirmDefault("确认恢复到执行前?", false) {
 		fmt.Fprintln(c.stdout, "已取消，未做任何修改")
 		return nil
 	}
