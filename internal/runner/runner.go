@@ -143,6 +143,12 @@ type run struct {
 	lastFailCmd  string
 	lastFailExit int
 	budget       *prompt.Budget
+
+	// 字面模态（视觉回路）：startTS 是运行头时间戳（截屏新鲜度
+	// 边界）；lastScreenAttached 是已附图的 screen 章号（同一张
+	// 截图不重复进请求）。
+	startTS            string
+	lastScreenAttached string
 }
 
 // Run 执行循环直到 FINAL、失速或轮次耗尽。
@@ -191,6 +197,7 @@ func (r *run) start(ctx context.Context) (Result, error) {
 	}
 	r.runID = header.StepID
 	r.correlate(&header)
+	r.startTS = header.TS
 	taskBrief := r.opts.Task
 	if runes := []rune(taskBrief); len(runes) > 200 {
 		taskBrief = string(runes[:200]) + "…"
@@ -294,6 +301,11 @@ func (r *run) renderMessages() ([]llm.Message, error) {
 	msgs := make([]llm.Message, 0, len(steps))
 	for _, m := range prompt.Render(steps, opts) {
 		msgs = append(msgs, llm.Message{Role: string(m.Role), Content: m.Content})
+	}
+	// 字面模态：本运行的最新截屏作为图片消息附加（预算内分区，
+	// 见 vision.go 的双闸）。
+	if m, ok := r.screenVision(steps); ok {
+		msgs = append(msgs, m)
 	}
 	return msgs, nil
 }
@@ -442,6 +454,15 @@ func (r *run) loop(ctx context.Context) (Result, error) {
 		}
 
 		text, err := r.opts.Thinker.Think(ctx, r.opts.SystemPrompt, msgs)
+		if err != nil && ctx.Err() == nil && hasImages(msgs) {
+			// 带图调用失败：模型可能不支持图片消息。去图降档重试
+			// 一次——视觉是增益不是依赖，不能因供应商不支持多模态
+			// 而炸掉整个运行。
+			if r.logf != nil {
+				r.logf("带图调用失败，去图重试一次: %v", err)
+			}
+			text, err = r.opts.Thinker.Think(ctx, r.opts.SystemPrompt, stripImages(msgs))
+		}
 		if ctx.Err() != nil {
 			err = ctx.Err()
 		}

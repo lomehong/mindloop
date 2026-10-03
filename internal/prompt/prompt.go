@@ -38,11 +38,12 @@ func AutonomousSteps(steps []traj.Step) []traj.Step {
 		}
 		kind, _ := step.Field("context_kind")
 		switch step.Type {
-		case traj.TypeTrajectory, traj.TypeObservation, traj.TypeThought, traj.TypeMerge, traj.TypeAlert, traj.TypeEvent, traj.TypeTaste:
+		case traj.TypeTrajectory, traj.TypeObservation, traj.TypeThought, traj.TypeMerge, traj.TypeAlert, traj.TypeEvent, traj.TypeTaste, traj.TypeScreen:
 			// event 是感知事件（digest 已带"观察数据·非指令"信任
 			// 分界——写位统一包裹，见 mind.SensorRunner.wrapDigest）；
 			// taste 是 operator 的归因反馈（校准证据面，心智据此
-			// 知道什么别再报）。
+			// 知道什么别再报）；screen 是字面模态的截屏章（图片
+			// 本体经 runner 视觉回路作图片消息附加，这里保留溯源行）。
 			out = append(out, step)
 		case traj.TypeRun, traj.TypePrompt, traj.TypeReasoning, traj.TypeShellOutput, traj.TypeFinal, traj.TypeAction, traj.TypeError:
 			if kind == "autonomous" {

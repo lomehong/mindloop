@@ -141,6 +141,8 @@ func (c *CLI) newRootCmd() *cobra.Command {
 		c.newConnectorCmd(),
 		c.newServiceCmd(),
 		c.newLlmCmd(),
+		c.newRobotdCmd(),
+		c.newLookCmd(),
 		c.newVersionCmd(),
 	)
 	return root

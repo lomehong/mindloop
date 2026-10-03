@@ -75,6 +75,18 @@ func (b *Budget) TakeProtected(name, text string) error {
 	return nil
 }
 
+// TakeBytes 登记非文本字节（图片消息）。上下文预算不只吃字符——
+// 截屏图片与文本同一本账，超预算的图片不进请求。调用方先看
+// Remaining() 决定是否附加；这里的溢出错误只在竞争状态下出现。
+func (b *Budget) TakeBytes(name string, n int) error {
+	b.segs = append(b.segs, segment{name: name, bytes: n})
+	b.used += n
+	if b.used > b.total {
+		return &OverflowError{Total: b.total, Used: b.used, Segments: append([]segment(nil), b.segs...)}
+	}
+	return nil
+}
+
 // TakeCapped 装入低优先段：实际取 min(capBytes, 剩余预算) 字节
 // （rune 安全截断），返回被采用的部分；截断事实记进 Trimmed()。
 // capBytes <= 0 表示只受剩余预算限制。

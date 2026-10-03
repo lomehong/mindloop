@@ -456,12 +456,40 @@ export default function SensorsPage() {
           <SectionHead
             icon={<Hand className="size-4" />}
             title="身 · 触达"
-            hint="动作闭环（robotd）——按设计节奏后置：先看得见，再谈出手"
+            hint="动作闭环（robotd MCP 服务器）——动作必须自带回读验证"
           />
-          <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-            未启用。设计已存档（独立 robotd 服务 + 审批门全链），待
-            眼/耳/鼻的信噪比数据成熟后启动。
-          </div>
+          {view?.robotd?.configured ? (
+            <div className="rounded-lg border p-3 text-xs space-y-1">
+              <div>
+                已接入（mcp.json）。模式：
+                <span className={view.robotd.mode === "action" ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
+                  {view.robotd.mode === "action" ? "动作已授权" : "观察模式（只许看不许动）"}
+                </span>
+              </div>
+              {view.robotd.mode === "action" && (
+                <div className="text-muted-foreground">
+                  窗口白名单：{view.robotd.allow?.join("、")}——动作只在这些标题的窗口上进行；密码/凭据画面在任何模式下都拒绝。
+                </div>
+              )}
+              <div className="text-muted-foreground">
+                心智用法：截屏 <code>look</code>（下一轮思考即所见）；动作{" "}
+                <code>mcp call robotd screen_click / screen_type</code>（每次动作强制回读截图作为证据）。
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground space-y-1">
+              <div>
+                未接入。接入命令（在项目目录执行，白名单按需给出；不给 = 只许看不许动）：
+              </div>
+              <div className="font-mono break-all bg-muted rounded px-2 py-1">
+                mindloop mcp add robotd --identity {identityId} -- &lt;mindloop.exe 绝对路径&gt; robotd --window-allow 记事本
+              </div>
+              <div>
+                安全链：窗口白名单谓词（动作级 tripwire）→ 敏感窗口默认拒绝 →
+                每个动作强制回读验证，失败即报错 → 全程 stderr 审计留痕。
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

@@ -21,7 +21,9 @@ import (
 
 	"github.com/lomehong/mindloop/internal/connector/sensor"
 	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/mcp"
 	"github.com/lomehong/mindloop/internal/obs"
+	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // atomicWrite 原子写（临时文件 + 改名）。0600：sensors.json 含
@@ -90,6 +92,42 @@ func loadIdentitySensors(id *identity.Identity) (*sensor.File, error) {
 	return f, nil
 }
 
+// robotdStatus 从全局+身份 mcp.json 的合并视图读"身"（robotd）的
+// 授权面——只报配置事实（是否接入、观察/动作模式、白名单子串），
+// 不探测进程存活性（robotd 按调用起停，常驻与否不是状态）。
+func robotdStatus(idDir string) map[string]any {
+	cfg, err := mcp.LoadConfig(filepath.Join(traj.Home(), "mcp.json"), filepath.Join(idDir, "mcp.json"))
+	if err != nil {
+		return map[string]any{"configured": false, "error": err.Error()}
+	}
+	sc, ok := cfg.MCPServers["robotd"]
+	if !ok {
+		return map[string]any{"configured": false}
+	}
+	allow := parseWindowAllow(sc.Args)
+	mode := "observe"
+	if len(allow) > 0 {
+		mode = "action"
+	}
+	return map[string]any{"configured": true, "mode": mode, "allow": allow}
+}
+
+// parseWindowAllow 扫 robotd 启动参数里的 --window-allow（空格与
+// 等号两种形态都认）。
+func parseWindowAllow(args []string) []string {
+	out := []string{}
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--window-allow" && i+1 < len(args):
+			out = append(out, args[i+1])
+			i++
+		case strings.HasPrefix(args[i], "--window-allow="):
+			out = append(out, strings.TrimPrefix(args[i], "--window-allow="))
+		}
+	}
+	return out
+}
+
 func saveIdentitySensors(id *identity.Identity, f *sensor.File) error {
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
@@ -117,7 +155,7 @@ func (s *Server) handleSensors(w http.ResponseWriter, r *http.Request, id *ident
 			// 响应里出现一次，列表永远剥除——刷新页面不能再次读出。
 			sensorViews[i].Secret = ""
 		}
-		writeJSON(w, 200, map[string]any{"sensors": sensorViews})
+		writeJSON(w, 200, map[string]any{"sensors": sensorViews, "robotd": robotdStatus(id.Dir)})
 	case len(rest) == 0 && r.Method == http.MethodPost:
 		var cfg sensor.SensorConfig
 		if json.NewDecoder(r.Body).Decode(&cfg) != nil {

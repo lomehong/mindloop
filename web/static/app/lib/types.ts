@@ -699,9 +699,19 @@ export interface SensorView {
   enabled?: boolean;
 }
 
+/** robotd（"身"）的授权面，从 mcp.json 合并视图读出。 */
+export interface RobotdStatus {
+  configured: boolean;
+  /** action = 给过 --window-allow；observe = 只许看不许动。 */
+  mode?: "observe" | "action";
+  allow?: string[];
+  error?: string;
+}
+
 /** 感官清单（GET /api/identities/{id}/sensors）。 */
 export interface SensorsView {
   sensors: SensorView[];
+  robotd?: RobotdStatus;
 }
 
 /** 味觉聚合（GET /api/identities/{id}/taste，近 7 天）。字段名与

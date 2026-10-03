@@ -65,6 +65,60 @@ func TestSensorsGetNeverReturnsSecret(t *testing.T) {
 	}
 }
 
+// TestRobotdStatusFromMcpJSON：身（robotd）的授权面从 mcp.json 合并
+// 视图读出——未配置 / 观察模式 / 动作模式三态。
+func TestRobotdStatusFromMcpJSON(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MINDLOOP_HOME", home)
+	id, err := identity.Create(context.Background(), "ada")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	ts, _ := newTestServer(t, home, "")
+
+	// 未配置。
+	body := getSensors(t, ts.URL, "ada")
+	var wrap struct {
+		Robotd map[string]any `json:"robotd"`
+	}
+	if err := json.Unmarshal([]byte(body), &wrap); err != nil {
+		t.Fatalf("解析: %v", err)
+	}
+	if wrap.Robotd["configured"] != false {
+		t.Fatalf("未配置应报 configured=false: %v", wrap.Robotd)
+	}
+
+	// 身份级观察模式（无 --window-allow）。
+	obs := `{"mcpServers":{"robotd":{"command":"mindloop.exe","args":["robotd"]}}}`
+	if err := os.WriteFile(filepath.Join(id.Dir, "mcp.json"), []byte(obs), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body = getSensors(t, ts.URL, "ada")
+	if err := json.Unmarshal([]byte(body), &wrap); err != nil {
+		t.Fatal(err)
+	}
+	if wrap.Robotd["configured"] != true || wrap.Robotd["mode"] != "observe" {
+		t.Fatalf("观察模式不符: %v", wrap.Robotd)
+	}
+
+	// 动作模式（--window-allow 两种形态混用）。
+	act := `{"mcpServers":{"robotd":{"command":"mindloop.exe","args":["robotd","--window-allow","记事本","--window-allow=终端"]}}}`
+	if err := os.WriteFile(filepath.Join(id.Dir, "mcp.json"), []byte(act), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body = getSensors(t, ts.URL, "ada")
+	if err := json.Unmarshal([]byte(body), &wrap); err != nil {
+		t.Fatal(err)
+	}
+	if wrap.Robotd["mode"] != "action" {
+		t.Fatalf("动作模式不符: %v", wrap.Robotd)
+	}
+	allow, _ := wrap.Robotd["allow"].([]any)
+	if len(allow) != 2 || allow[0] != "记事本" || allow[1] != "终端" {
+		t.Fatalf("白名单解析不符: %v", wrap.Robotd["allow"])
+	}
+}
+
 func TestSensorsPostSecretOnceAndCredentialFilePerms(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("MINDLOOP_HOME", home)

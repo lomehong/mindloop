@@ -52,6 +52,11 @@ const (
 	// signal=undo|approve|deny + cause（强制选因）+ run/source——
 	// S 阈值校准的证据面（perception.md Phase 4）。审批决定文件
 	// 是瞬态的（消费即删），归因必须自己落轨迹。
+	TypeScreen = "screen" // 字面模态截屏（look 命令写入）：
+	// fields 载 path（相对身份目录）+ title + 几何——图片字节落
+	// 身份目录 screens/ 不进轨迹（append-only JSONL 不背二进制）；
+	// runner 把运行内的最新 screen 步骤转成 llm 图片消息（视觉回
+	// 路的轨迹溯源：哪一轮看了哪张屏，路径在此）。
 )
 
 // reservedTypes 是结构性步骤类型，它们永远不会从环境继承 run id
