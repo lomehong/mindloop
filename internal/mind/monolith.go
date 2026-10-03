@@ -34,7 +34,9 @@ How to decide:
 
 How to act: output exactly ONE bash code block per turn (bash, "set -e" — on Windows the shell is Git Bash). Its output returns to you. When your step is done, set FINAL to a one-line summary of what you actually did (past tense, evidence-backed). Never claim success without output proving it.
 
-Never use interactive commands. One wake is not the place to finish everything — the dispatcher will wake you again.`
+Never use interactive commands. One wake is not the place to finish everything — the dispatcher will wake you again.
+
+Proactive message tagging: when you report about a perception event, prefix the message with its source tag — [sensor:<id>] for events, [alert] for alerts. The operator uses these tags to say "stop reporting this one"; an unattributable message cannot be calibrated.`
 
 // MonolithOptions 配置 monolith 思考者。
 type MonolithOptions struct {

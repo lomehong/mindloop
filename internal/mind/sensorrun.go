@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -268,10 +269,14 @@ func (r *SensorRunner) watchLoop(ctx context.Context, rs *runningSensor) {
 			return
 		}
 		fails++
-		if fails > 10 {
-			fails = 10 // 退避上限 2s
+		// 退避：前 5 次快速重试（瞬时争用自愈）；持续失败（网络盘
+		// 下线、目录被删）拉长到 30s——观察者不该对着死目标热旋。
+		var wait time.Duration
+		if fails <= 5 {
+			wait = time.Duration(fails) * 200 * time.Millisecond
+		} else {
+			wait = 30 * time.Second
 		}
-		wait := time.Duration(fails) * 200 * time.Millisecond
 		r.logf("感官 %s 退出（%v），%v 后重启（连续 %d 次）", rs.cfg.ID, watchErr, wait, fails)
 		if sleepCtx(ctx, wait) {
 			return
@@ -412,17 +417,48 @@ func (r *SensorRunner) append(s traj.Step) {
 // 不上 S2。
 func WrapSensorDigest(source, digest string) string { return wrapDigest(source, digest) }
 
+// credPatterns 是凭据形态的打码规则（perception.md §8：digest 生成
+// 时过凭据模式扫描——tripwire 拦 agent 写 .env，不拦 digest 引用
+// .env 内容；被观察文件里的密钥不能经事件/报告二次扩散）。保守
+// 集合：键值对形态 + 已知令牌前缀 + 私钥块，宁漏勿误（误码会毁
+// digest 的可读性，漏网还有外发分类与本地落盘边界兜着）。
+var credPatterns = []struct {
+	re *regexp.Regexp
+	to string
+}{
+	// key=value / key: value 形态（password=xxx、token: xxx）
+	{regexp.MustCompile(`(?i)\b(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|secret[_-]?key|app[_-]?secret|private[_-]?key)(\s*[=:：]\s*)("[^"]*"|\S+)`), `${1}${2}***`},
+	// 已知令牌前缀
+	{regexp.MustCompile(`AKIA[0-9A-Z]{16}`), "AKIA***"},
+	{regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{8,}`), "sk-***"},
+	{regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{16,}`), "gh***"},
+	{regexp.MustCompile(`\bxox[baprs]-[0-9A-Za-z-]{10,}`), "xox***"},
+	{regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}`), "eyJ***(JWT)"},
+	{regexp.MustCompile(`(?i)\bBearer\s+[A-Za-z0-9._-]{16,}`), "Bearer ***"},
+	// 私钥块（digest 已剥换行，块形态塌成一行，用起止锚）
+	{regexp.MustCompile(`(?i)-----BEGIN [A-Z ]*PRIVATE KEY-----.*`), "[私钥块已打码]"},
+}
+
+// maskCredentials 打码 digest 里的凭据形态。
+func maskCredentials(s string) string {
+	for _, p := range credPatterns {
+		s = p.re.ReplaceAllString(s, p.to)
+	}
+	return s
+}
+
 // wrapDigest 是"数据非指令"信任分界的统一写点：外部内容进 prompt
-// 前在此显式标界（来源 + 非指令声明），剥控制字符、按 rune 截断
-// 到 200。S2 唤醒的 digest 不经 mem 检索直达 prompt，这个分界就是
-// P0 整改的落点——无框架不上 S2。
+// 前在此显式标界（来源 + 非指令声明）、凭据打码、剥控制字符、按
+// rune 截断到 200。S2 唤醒的 digest 不经 mem 检索直达 prompt，这个
+// 分界就是 P0 整改的落点——无框架不上 S2。
 func wrapDigest(source, digest string) string {
-	d := strings.Map(func(r rune) rune {
+	d := maskCredentials(digest)
+	d = strings.Map(func(r rune) rune {
 		if r == '\n' || r == '\r' || r == '\t' {
 			return ' '
 		}
 		return r
-	}, digest)
+	}, d)
 	runes := []rune(strings.TrimSpace(d))
 	if len(runes) > 200 {
 		runes = runes[:200]

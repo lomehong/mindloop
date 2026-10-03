@@ -10,6 +10,8 @@
 package sensor
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -190,6 +192,9 @@ func Judge(cfg *SensorConfig, st *State, view ReflexView, e PEvent, now time.Tim
 		if !containsAny(hay, r.Keywords) {
 			continue
 		}
+		if r.Min > 0 && !digestHasNumberGE(e.Digest, r.Min) {
+			continue // 阈值越界未达：词面命中但数值不够
+		}
 		ck := "rule:" + r.Name + "|" + e.Subject
 		if t, ok := st.lastFired[ck]; ok && now.Sub(t) < cooldown {
 			ruleNote = "rule:" + r.Name + " 冷却中"
@@ -220,6 +225,25 @@ func Judge(cfg *SensorConfig, st *State, view ReflexView, e PEvent, now time.Tim
 		reason = "hint:" + string(e.Hint)
 	}
 
+	// 5. 鼻三件套（perception.md §5 Phase 3 补齐，便宜统计）：
+	// 首次出现——kind=appeared 的新主体保底 s1（"新东西出现"值得
+	// 知道；changed 类首见只做状态登记不抬档）。
+	_, isNew := st.FirstSeen(e.Subject, now)
+	if isNew && e.Kind == KindAppeared && sal < S1 {
+		sal = S1
+		reason += "+first-seen"
+	}
+	// 速率突增——同 kind 最近 5 分钟 ≥5 条且 ≥ 此前 25 分钟的 3 倍
+	// → 保底 s2（窗口含当前事件；零星事件永不触发）。
+	recent := st.Rate(now.Add(-5*time.Minute), kind)
+	older := st.Rate(now.Add(-30*time.Minute), kind) - recent
+	if recent >= 5 && recent >= 3*older {
+		if sal < S2 {
+			sal = S2
+		}
+		reason += "+spike"
+	}
+
 	return Decision{Salience: sal, Reason: reason}
 }
 
@@ -229,6 +253,20 @@ func salienceOf(cfg *SensorConfig) Salience {
 	}
 	return DefaultSalience(cfg.Type)
 }
+
+// digestHasNumberGE 报告 digest 中是否存在 ≥ min 的数值（阈值越界
+// 规则的原料）。
+func digestHasNumberGE(digest string, min float64) bool {
+	for _, m := range numRe.FindAllString(digest, 32) {
+		if v, err := strconv.ParseFloat(m, 64); err == nil && v >= min {
+			return true
+		}
+	}
+	return false
+}
+
+// numRe 提取十进制数。
+var numRe = regexp.MustCompile(`[0-9]+(?:\.[0-9]+)?`)
 
 func containsAny(hay string, needles []string) bool {
 	for _, n := range needles {

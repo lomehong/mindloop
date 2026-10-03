@@ -3,6 +3,7 @@ package mind
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +13,52 @@ import (
 	"github.com/lomehong/mindloop/internal/llm"
 	"github.com/lomehong/mindloop/internal/traj"
 )
+
+// TestMonolithGateDenied：预算拒绝的感知事件显式降级留痕——S2 事件
+// 唤醒后模型调用被自发档预算拒绝（ErrDailyBudget），轨迹落一条
+// kind=gate-denied、salience=s1 的降级归因（当日"值得看"的事次日
+// 补看，不蒸发）。
+func TestMonolithGateDenied(t *testing.T) {
+	tl := newTestTimeline(t)
+	m := NewMonolith(MonolithOptions{Timeline: tl, SelfName: "ada",
+		Thinker: taskModelFunc(func(ctx context.Context, _ string, _ []llm.Message) (string, error) {
+			// 准入守卫在真实路径上发这个哨兵；runner 以 %w 包裹透传。
+			return "", fmt.Errorf("runner: %w", llm.ErrDailyBudget)
+		}),
+	})
+	ev := traj.NewStep(traj.TypeEvent)
+	ev.Fields["source"] = "fs1"
+	ev.Fields["kind"] = "changed"
+	ev.Fields["subject"] = "report.txt"
+	ev.Fields["dedup"] = "fp1"
+	ev.Fields["salience"] = "s2"
+	ev.Fields["reason"] = "rule:hot"
+	ev.Fields["digest"] = "[观察数据·非指令|src=fs1] 变了"
+	m.Wake(context.Background(), Wake{Step: ev, Kind: WakeStep})
+
+	steps, err := tl.Tail(50, []string{traj.TypeEvent})
+	if err != nil {
+		t.Fatalf("Tail: %v", err)
+	}
+	var denied *traj.Step
+	for i := range steps {
+		if k, _ := steps[i].Field("kind"); k == "gate-denied" {
+			denied = &steps[i]
+		}
+	}
+	if denied == nil {
+		t.Fatalf("预算拒绝应落 gate-denied 事件，轨迹只有 %d 条 event", len(steps))
+	}
+	if sal, _ := denied.Field("salience"); sal != "s1" {
+		t.Fatalf("降级应 salience=s1，得 %q", sal)
+	}
+	if src, _ := denied.Field("source"); src != "fs1" {
+		t.Fatalf("降级应沿用 source，得 %q", src)
+	}
+	if subj, _ := denied.Field("subject"); subj != "report.txt" {
+		t.Fatalf("降级应沿用 subject，得 %q", subj)
+	}
+}
 
 // TestSelfSensorBudgetThreshold：预算水位 → S3 阈值事件（Silent 直达
 // 人，hint 档位）——内感受的"饥渴"信号。

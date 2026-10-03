@@ -28,6 +28,10 @@ type SalienceRule struct {
 	Keywords []string `json:"keywords"`
 	// Salience 命中后的档位（s1-s3；s0 无意义，校验拒绝）。
 	Salience Salience `json:"salience"`
+	// Min 是阈值越界门槛（>0 启用，鼻的阈值检测）：关键词命中的
+	// 前提下，digest 中存在 ≥ Min 的数值才算命中——"错误数 500"
+	// "磁盘 95%" 这类数值型 digest 的阈值规则。0 = 纯词面。
+	Min float64 `json:"min,omitempty"`
 }
 
 // QuietWindow 是安静时段：S2/S3 在窗口内自动降级 S1（kind 附

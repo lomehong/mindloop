@@ -20,6 +20,13 @@ import (
 	"github.com/lomehong/mindloop/internal/traj"
 )
 
+// MaxSedimentEvents 是感知分区上限（perception.md §6）：自主上下文
+// 里 s0/s1 沉淀事件超过它时，只保留新近的这些，更早的折叠为一条
+// 计数步骤——低显著事件不许挤占任务/记忆/对话的上下文预算（事件
+// 越多→每次唤醒越贵→自发档越快见顶的隐性通路）。s2+（叫醒源）
+// 全保留。
+const MaxSedimentEvents = 20
+
 // AutonomousSteps 限定自主运行可读取的事实。聊天和委托不能通过历史重放取得执行授权。
 // 旧运行没有上下文来源标记，不作为待续办事项；独立观察仍保留。
 func AutonomousSteps(steps []traj.Step) []traj.Step {
@@ -42,6 +49,49 @@ func AutonomousSteps(steps []traj.Step) []traj.Step {
 				out = append(out, step)
 			}
 		}
+	}
+	return partitionEvents(out)
+}
+
+// partitionEvents 折叠低显著感知事件：保留全部 s2/s3 与新近
+// MaxSedimentEvents 条 s0/s1，被折叠的换成一条计数标记（渲染层
+// 可见"另有 N 条已折叠"，原文永远在轨迹上可查）。
+func partitionEvents(steps []traj.Step) []traj.Step {
+	// 收集沉淀级事件的位置（保序）。
+	var sediment []int
+	for i, s := range steps {
+		if s.Type != traj.TypeEvent {
+			continue
+		}
+		if sal, _ := s.Field("salience"); sal == "s0" || sal == "s1" || sal == "" {
+			sediment = append(sediment, i)
+		}
+	}
+	if len(sediment) <= MaxSedimentEvents {
+		return steps
+	}
+	drop := sediment[:len(sediment)-MaxSedimentEvents] // 最旧的折叠
+	dropSet := make(map[int]bool, len(drop))
+	for _, i := range drop {
+		dropSet[i] = true
+	}
+	out := make([]traj.Step, 0, len(steps)-len(drop)+1)
+	markerDone := false
+	for i, s := range steps {
+		if dropSet[i] {
+			if !markerDone {
+				markerDone = true
+				m := traj.NewStep(traj.TypeEvent)
+				m.Fields["source"] = "prompt"
+				m.Fields["kind"] = "folded"
+				m.Fields["salience"] = "s0"
+				m.Fields["reason"] = "context-partition"
+				m.Fields["digest"] = fmt.Sprintf("另有 %d 条低显著感知事件已折叠（原文在轨迹可查）", len(drop))
+				out = append(out, m)
+			}
+			continue
+		}
+		out = append(out, s)
 	}
 	return out
 }

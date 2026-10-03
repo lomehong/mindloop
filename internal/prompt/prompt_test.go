@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -18,6 +19,69 @@ func mkSteps(n int) []traj.Step {
 		steps = append(steps, s)
 	}
 	return steps
+}
+
+// TestAutonomousStepsEventPartition：感知分区——s0/s1 沉淀超过上限
+// 时折叠为计数标记，s2 全保留（低显著事件不挤占上下文预算）。
+func TestAutonomousStepsEventPartition(t *testing.T) {
+	var steps []traj.Step
+	steps = append(steps, traj.NewStep(traj.TypeTrajectory))
+	// 25 条 s1 沉淀 + 2 条 s2 唤醒源，交错排布。
+	for i := 0; i < 25; i++ {
+		s := traj.NewStep(traj.TypeEvent)
+		s.Fields["source"] = "fs1"
+		s.Fields["salience"] = "s1"
+		s.Fields["digest"] = fmt.Sprintf("沉淀 #%d", i)
+		steps = append(steps, s)
+		if i == 10 {
+			w := traj.NewStep(traj.TypeEvent)
+			w.Fields["source"] = "fs1"
+			w.Fields["salience"] = "s2"
+			w.Fields["digest"] = "唤醒源事件"
+			steps = append(steps, w)
+		}
+	}
+	w2 := traj.NewStep(traj.TypeEvent)
+	w2.Fields["source"] = "fs1"
+	w2.Fields["salience"] = "s2"
+	steps = append(steps, w2)
+
+	out := AutonomousSteps(steps)
+	var s2Count, folded, sediment int
+	for _, s := range out {
+		if s.Type != traj.TypeEvent {
+			continue
+		}
+		reason, _ := s.Field("reason")
+		sal, _ := s.Field("salience")
+		switch {
+		case reason == "context-partition":
+			folded++
+		case sal == "s2":
+			s2Count++
+		default:
+			sediment++
+		}
+	}
+	if s2Count != 2 {
+		t.Fatalf("s2 应全保留（2），得 %d", s2Count)
+	}
+	if folded != 1 {
+		t.Fatalf("应有一条折叠标记，得 %d", folded)
+	}
+	if sediment != MaxSedimentEvents {
+		t.Fatalf("沉淀应只保留新近 %d 条，得 %d", MaxSedimentEvents, sediment)
+	}
+	// 上限内不折叠。
+	var few []traj.Step
+	for i := 0; i < 5; i++ {
+		s := traj.NewStep(traj.TypeEvent)
+		s.Fields["salience"] = "s1"
+		few = append(few, s)
+	}
+	if got := AutonomousSteps(few); len(got) != 5 {
+		t.Fatalf("上限内不应折叠，得 %d", len(got))
+	}
 }
 
 func itoa(i int) string {

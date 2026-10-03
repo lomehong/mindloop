@@ -24,8 +24,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -39,6 +41,30 @@ import (
 // hookStates 是端点侧的判定状态（每感官一槽）：webhook 的去重靠
 // 载荷指纹——同一系统重推同一载荷在去重窗内只落一条。
 var hookStates = map[string]*sensor.State{}
+
+// hookFirstSeen 读心智维护的学习期起点（sensors-state.json，只读：
+// 该文件的写位归 mind 进程，mind 停着时 webhook 也沿用既有起点）。
+func hookFirstSeen(identityDir, sensorID string) (time.Time, bool) {
+	data, err := os.ReadFile(filepath.Join(identityDir, "sensors-state.json"))
+	if err != nil {
+		return time.Time{}, false
+	}
+	var st struct {
+		FirstSeen map[string]string `json:"first_seen"`
+	}
+	if json.Unmarshal(data, &st) != nil {
+		return time.Time{}, false
+	}
+	v, ok := st.FirstSeen[sensorID]
+	if !ok {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
 
 func (s *Server) registerHookRoute() {
 	s.mux.HandleFunc("POST /hook/", s.handleHook)
@@ -114,6 +140,12 @@ func (s *Server) handleHook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sal, reason := dec.Salience, dec.Reason
+	// 学习期（读心智维护的 sensors-state.json，只读不写——写位归
+	// mind 进程）：新 webhook 前 N 天封顶 s1，与 Watch 型感官同规。
+	if firstSeen, ok := hookFirstSeen(id.Dir, sensorID); ok &&
+		time.Since(firstSeen) < time.Duration(cfg.LearnDays())*24*time.Hour && sal >= sensor.S2 {
+		sal, reason = sensor.S1, reason+"+learning-cap"
+	}
 	if cfg.Quiet.Active(now.Local()) && sal >= sensor.S2 {
 		sal, reason = sensor.S1, "quiet-held:"+reason
 	}

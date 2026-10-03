@@ -1,6 +1,7 @@
 package sensor
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -149,6 +150,56 @@ func TestJudgeRuleCooldownPerSubject(t *testing.T) {
 	d = Judge(cfg, st, ReflexView{}, PEvent{Subject: "D:/w/b.txt", Dedup: "k3", Digest: "生产日报"}, now.Add(2*time.Minute))
 	if d.Salience != S2 || d.Reason != "rule:prod" {
 		t.Fatalf("不同主体应各自升档，得 %s/%s", d.Salience, d.Reason)
+	}
+}
+
+// TestJudgeThresholdRule：阈值越界（Min）——词面命中但数值不够不
+// 升档，达到门槛才升。
+func TestJudgeThresholdRule(t *testing.T) {
+	cfg := mustCfg(t, `{"id":"m","type":"file","path":".","learning_days":-1,
+		"salience":{"rules":[{"name":"err-rate","keywords":["错误"],"min":100,"salience":"s2"}]}}`)
+	st := NewState()
+	now := time.Now()
+
+	d := Judge(cfg, st, ReflexView{}, PEvent{Subject: "app.log", Dedup: "1", Digest: "错误数 5 条"}, now)
+	if d.Salience >= S2 {
+		t.Fatalf("数值未达门槛不应升档，得 %s/%s", d.Salience, d.Reason)
+	}
+	d = Judge(cfg, st, ReflexView{}, PEvent{Subject: "app.log", Dedup: "2", Digest: "错误数 500 条"}, now.Add(time.Second))
+	if d.Salience != S2 || d.Reason != "rule:err-rate" {
+		t.Fatalf("达门槛应升档，得 %s/%s", d.Salience, d.Reason)
+	}
+}
+
+// TestJudgeFirstSeenAndSpike：鼻的首次出现（appeared 新主体保底 s1）
+// 与速率突增（同 kind 5 分钟 ≥5 条且 ≥ 前窗 3 倍 → 保底 s2）。
+func TestJudgeFirstSeenAndSpike(t *testing.T) {
+	cfg := mustCfg(t, `{"id":"f","type":"file","path":"."}`)
+	st := NewState()
+	now := time.Now()
+
+	// appeared 新主体 → s1 +first-seen。
+	d := Judge(cfg, st, ReflexView{}, PEvent{Kind: KindAppeared, Subject: "new.txt", Dedup: "n1"}, now)
+	if d.Salience != S1 || !contains(d.Reason, "first-seen") {
+		t.Fatalf("appeared 新主体应 s1+first-seen，得 %s/%s", d.Salience, d.Reason)
+	}
+	// changed 类首见不抬档。
+	d = Judge(cfg, st, ReflexView{}, PEvent{Kind: KindChanged, Subject: "c.txt", Dedup: "c1"}, now)
+	if d.Salience != S0 || contains(d.Reason, "first-seen") {
+		t.Fatalf("changed 首见不应抬档，得 %s/%s", d.Salience, d.Reason)
+	}
+
+	// 速率突增：30 分钟窗内先垫 1 条旧行为（>5m 前），再在 5m 内
+	// 打满 5 条 → recent=5 ≥ 5 且 ≥ 3*older=3 → 保底 s2。
+	for i := 0; i < 1; i++ {
+		Judge(cfg, st, ReflexView{}, PEvent{Kind: KindChanged, Subject: fmt.Sprintf("old%d.txt", i), Dedup: fmt.Sprintf("o%d", i)}, now.Add(-20*time.Minute))
+	}
+	var d2 Decision
+	for i := 0; i < 5; i++ {
+		d2 = Judge(cfg, st, ReflexView{}, PEvent{Kind: KindChanged, Subject: fmt.Sprintf("burst%d.txt", i), Dedup: fmt.Sprintf("b%d", i)}, now.Add(time.Duration(i)*time.Second))
+	}
+	if d2.Salience < S2 || !contains(d2.Reason, "spike") {
+		t.Fatalf("速率突增应保底 s2+spike，得 %s/%s", d2.Salience, d2.Reason)
 	}
 }
 
