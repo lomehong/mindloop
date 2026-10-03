@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -97,13 +98,40 @@ type SensorConfig struct {
 func (c SensorConfig) IsEnabled() bool { return c.Enabled == nil || *c.Enabled }
 
 // LearnDays 折算学习期天数：>0 显式天数；<0 显式关闭学习期（测试
-// 与高级用户）；0 = 全局缺省。
+// 与高级用户）；0 = 全局缺省。注意：不含 MINDLOOP_SENSOR_LEARN_DAYS
+// 覆盖——判级消费方一律用 EffectiveLearnDays（本方法只留展示用途）。
 func (c SensorConfig) LearnDays() int {
 	if c.LearningDays > 0 {
 		return c.LearningDays
 	}
 	if c.LearningDays < 0 {
 		return -1
+	}
+	return DefaultLearningDays
+}
+
+// EnvLearnDays 读 MINDLOOP_SENSOR_LEARN_DAYS（>0 才有效；未设/非法/
+// 非正 = 0 未覆盖）。装配层折算一次，随 EffectiveLearnDays 进判级。
+func EnvLearnDays() int {
+	n, err := strconv.Atoi(strings.TrimSpace(os.Getenv("MINDLOOP_SENSOR_LEARN_DAYS")))
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
+}
+
+// EffectiveLearnDays 折算条目最终生效的学习期天数（判级的唯一口径）：
+// 条目显式配置（>0 天数；<0 关闭）优先，其次全局覆盖（env），
+// 最后代码缺省。豁免判定（self 型）不在这里，由调用方叠加。
+func EffectiveLearnDays(c SensorConfig, override int) int {
+	if c.LearningDays > 0 {
+		return c.LearningDays
+	}
+	if c.LearningDays < 0 {
+		return -1
+	}
+	if override > 0 {
+		return override
 	}
 	return DefaultLearningDays
 }

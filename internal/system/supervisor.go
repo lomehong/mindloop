@@ -37,6 +37,7 @@ type childProc struct {
 	fails    int       // 连败计数（退避用）
 	lastOK   time.Time // 稳定计时起点
 	stopping bool      // 计划内停止（不重启）
+	exited   bool      // Wait 落定（ProcessState 只在 Wait 后可用——退出判据用它）
 }
 
 // ChildStatus 是状态投影里一个孩子的条目。
@@ -61,6 +62,8 @@ type Supervisor struct {
 	restarts map[ChildName]int
 	lastExit map[ChildName]string
 	job      jobObject
+	stopped  bool                                    // 停机：禁止一切重启路径（含已排定的退避定时器）
+	spawn    func(name ChildName) (string, []string) // 子进程命令注入点（测试用）；nil = self-exec
 	logger   func(format string, args ...any)
 }
 
@@ -127,17 +130,20 @@ func (s *Supervisor) Run(ctx context.Context) error {
 // start 派生一个孩子（调用方须持锁）。输出重定向到
 // <home>/logs/<名>.log（追加）——孩子自己的结构化产物（轨迹/台账）
 // 不经过宿主。命令装配走 Cmd 结构体（程序位 = 已校验的 self 绝对
-// 路径，参数列表来自配置纯函数，无 shell）。
+// 路径，参数列表来自配置纯函数，无 shell；s.spawn 为测试注入点）。
 func (s *Supervisor) start(name ChildName) {
-	args := Args(name, s.cfg)
-	if len(args) == 0 || s.exePath == "" {
+	path, args := s.exePath, Args(name, s.cfg)
+	if s.spawn != nil {
+		path, args = s.spawn(name)
+	}
+	if path == "" || len(args) == 0 {
 		return
 	}
 	logFile, err := os.OpenFile(s.logPath(name), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		logFile = nil
 	}
-	cmd := &exec.Cmd{Path: s.exePath, Args: append([]string{s.exePath}, args...)}
+	cmd := &exec.Cmd{Path: path, Args: append([]string{path}, args...)}
 	if logFile != nil {
 		cmd.Stdout, cmd.Stderr = logFile, logFile
 	}
@@ -153,33 +159,44 @@ func (s *Supervisor) start(name ChildName) {
 		return
 	}
 	s.job.assign(cmd.Process)
-	s.children[name] = &childProc{name: name, cmd: cmd, logFile: logFile, started: time.Now(), lastOK: time.Now()}
+	c := &childProc{name: name, cmd: cmd, logFile: logFile, started: time.Now(), lastOK: time.Now()}
+	s.children[name] = c
+	// 退出的唯一落定点：ProcessState 只在 Wait 后可用——没有这个
+	// goroutine，reap 会把死孩子永远视作运行中（崩溃自愈与停后再
+	// 启双双静默失效，冒烟实测复现）。
+	go func() {
+		_ = cmd.Wait()
+		s.mu.Lock()
+		c.exited = true
+		s.mu.Unlock()
+	}()
 	if s.logger != nil {
 		s.logger("system: %s 已启动（pid %d，第 %d 次派生）", name, cmd.Process.Pid, s.restarts[name])
 	}
 }
 
-// reap 巡检退出的孩子：计划内停止的摘除；意外退出记因并按退避重启
-// （1s 起指数翻倍封顶 60s；稳定运行 ≥ stableAfter 清零连败）。
+// reap 巡检退出的孩子（exited 由 start 的 Wait goroutine 落定）：计划
+// 内停止的摘除；意外退出记因并按退避重启（1s 起指数翻倍封顶 60s；
+// 稳定运行 ≥ stableAfter 清零连败）。
 func (s *Supervisor) reap() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
 	for name, c := range s.children {
-		if c.cmd.ProcessState == nil {
+		if !c.exited {
 			if now.Sub(c.lastOK) >= stableAfter {
 				c.fails = 0
 				c.lastOK = now
 			}
 			continue
 		}
-		exit := c.cmd.ProcessState.String()
+		exit := ""
+		if c.cmd.ProcessState != nil {
+			exit = c.cmd.ProcessState.String()
+		}
 		s.lastExit[name] = exit
 		stopping := c.stopping
-		if c.logFile != nil {
-			c.logFile.Close()
-		}
-		delete(s.children, name)
+		s.removeChildLocked(name)
 		s.projectLocked()
 		if stopping {
 			if s.logger != nil {
@@ -189,7 +206,7 @@ func (s *Supervisor) reap() {
 		}
 		c.fails++
 		s.restarts[name]++
-		delay := time.Duration(1<<uint(min64(int64(c.fails), 6))) * time.Second
+		delay := time.Duration(1<<uint(min64(int64(c.fails-1), 6))) * time.Second // 1s 起翻倍
 		if delay > backoffCap {
 			delay = backoffCap
 		}
@@ -199,6 +216,9 @@ func (s *Supervisor) reap() {
 		time.AfterFunc(delay, func() {
 			s.mu.Lock()
 			defer s.mu.Unlock()
+			if s.stopped {
+				return // 宿主已停机：幽灵重启防线
+			}
 			if _, ok := s.children[name]; ok {
 				return
 			}
@@ -207,6 +227,16 @@ func (s *Supervisor) reap() {
 			}
 			s.start(name)
 		})
+	}
+}
+
+// removeChildLocked 摘除子进程条目（reap 与 applyDesiredLocked 共用）。
+func (s *Supervisor) removeChildLocked(name ChildName) {
+	if c, ok := s.children[name]; ok {
+		if c.logFile != nil {
+			c.logFile.Close()
+		}
+		delete(s.children, name)
 	}
 }
 
@@ -242,7 +272,7 @@ func (s *Supervisor) reload() {
 func (s *Supervisor) runningLocked() map[ChildName]bool {
 	out := map[ChildName]bool{}
 	for name, c := range s.children {
-		if c.cmd.ProcessState == nil {
+		if !c.exited {
 			out[name] = true
 		}
 	}
@@ -251,8 +281,11 @@ func (s *Supervisor) runningLocked() map[ChildName]bool {
 
 func (s *Supervisor) applyDesiredLocked() {
 	for name := range s.cfg.Desired() {
-		if _, ok := s.children[name]; ok {
-			continue
+		if c, ok := s.children[name]; ok {
+			if !c.exited {
+				continue
+			}
+			s.removeChildLocked(name) // 已退出未及收割：允许立刻重新拉起
 		}
 		s.start(name)
 	}
@@ -263,6 +296,7 @@ func (s *Supervisor) applyDesiredLocked() {
 func (s *Supervisor) stopAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.stopped = true
 	for _, c := range s.children {
 		c.stopping = true
 		_ = c.cmd.Process.Kill()
@@ -280,7 +314,7 @@ func (s *Supervisor) statusLocked() []ChildStatus {
 	out := make([]ChildStatus, 0, len(s.children))
 	for name, c := range s.children {
 		out = append(out, ChildStatus{
-			Name: string(name), Running: c.cmd.ProcessState == nil,
+			Name: string(name), Running: !c.exited,
 			PID: pidOf(c), Since: c.started.Format(traj.TimeFormat),
 			Restarts: s.restarts[name], LastExit: s.lastExit[name], Stopping: c.stopping,
 		})

@@ -10,6 +10,28 @@ import (
 	"testing"
 )
 
+// TestWrapDigestMasksMultilinePrivateKey：多行 PEM 是打码的常态输入
+// （wrapDigest 先打码后剥换行）——整块吞掉（含 base64 正文与 END
+// 行），块后正文保留；截断无 END 形态吃到串尾。
+func TestWrapDigestMasksMultilinePrivateKey(t *testing.T) {
+	body := "MIIEowIBAAKCAQEA" + "x7Pr9kQ2mD4w8fJt" // 动态拼接，非真实密钥
+	in := "构建日志如下:\n-----BEGIN RSA PRIVATE KEY-----\n" + body +
+		"\n-----END RSA PRIVATE KEY-----\n构建完成"
+	got := wrapDigest("fs1", in)
+	if strings.Contains(got, body) || strings.Contains(got, "END") {
+		t.Fatalf("多行私钥块应整块打码，得 %q", got)
+	}
+	if !strings.Contains(got, "构建日志如下") || !strings.Contains(got, "构建完成") {
+		t.Fatalf("块前后正文应保留，得 %q", got)
+	}
+
+	trunc := "配置片段:\n-----BEGIN OPENSSH PRIVATE KEY-----\n" + body + "\n（截断）"
+	got = wrapDigest("fs1", trunc)
+	if strings.Contains(got, body) {
+		t.Fatalf("截断私钥块（无 END）应吃到串尾打码，得 %q", got)
+	}
+}
+
 func TestWrapDigestMasksCredentials(t *testing.T) {
 	// 动态拼接：避开扫描器的字面量模式，打码逻辑照常被 exercising。
 	fakeSK := "sk-" + "live-abcdef123456"

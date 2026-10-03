@@ -180,6 +180,44 @@ func TestSensorRunnerLearningCapAndExempt(t *testing.T) {
 	}
 }
 
+// TestSensorRunnerLearnDaysOverride：全局学习期覆盖（装配层从
+// MINDLOOP_SENSOR_LEARN_DAYS 折算进 opts.LearnDays）必须真的进封顶
+// 判定——旧实现判级只认 cfg.LearnDays()（恒缺省 3 天），env 是摆设。
+func TestSensorRunnerLearnDaysOverride(t *testing.T) {
+	cfg := `{"version":1,"sensors":[
+		{"id":"f1","type":"file","path":".","salience":{"rules":[{"name":"hot","keywords":["紧急"],"salience":"s2"}]}}
+	]}`
+
+	// 覆盖 1 天 + 首见 48h 前 → 学习期已过，s2 放行。
+	h := newSensorHarness(t, cfg, 1)
+	seedFirstSeen(t, h, "f1", 48*time.Hour)
+	h.fire("f1", sensor.PEvent{Subject: "notes.txt", Dedup: "a1", Digest: "紧急事项"})
+	steps := waitForSteps(t, h, traj.TypeEvent, 1)
+	if sal, _ := steps[len(steps)-1].Field("salience"); sal != string(sensor.S2) {
+		t.Fatalf("覆盖 1 天且首见 48h 前应放行 s2，得 %q（env 覆盖未进判定？）", sal)
+	}
+
+	// 覆盖 5 天 + 首见 48h 前 → 仍在学习期，封顶 s1。
+	h2 := newSensorHarness(t, cfg, 5)
+	seedFirstSeen(t, h2, "f1", 48*time.Hour)
+	h2.fire("f1", sensor.PEvent{Subject: "notes.txt", Dedup: "a1", Digest: "紧急事项"})
+	steps2 := waitForSteps(t, h2, traj.TypeEvent, 1)
+	if sal, _ := steps2[len(steps2)-1].Field("salience"); sal != string(sensor.S1) {
+		t.Fatalf("覆盖 5 天且首见 48h 前仍应封顶 s1，得 %q", sal)
+	}
+	if reason, _ := steps2[len(steps2)-1].Field("reason"); !strings.Contains(reason, "learning-cap") {
+		t.Fatalf("reason 应带 learning-cap，得 %q", reason)
+	}
+}
+
+// seedFirstSeen 把首见时刻拨到 ago 之前（学习期判定的定向夹具）。
+func seedFirstSeen(t *testing.T, h *sensorHarness, id string, ago time.Duration) {
+	t.Helper()
+	h.runner.mu.Lock()
+	h.runner.firstSeen[id] = time.Now().Add(-ago)
+	h.runner.mu.Unlock()
+}
+
 func TestSensorRunnerS3WritesAlert(t *testing.T) {
 	h := newSensorHarness(t, `{"version":1,"sensors":[
 		{"id":"f1","type":"file","path":".","learning_days":-1,

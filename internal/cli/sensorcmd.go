@@ -65,7 +65,8 @@ func saveSensorFile(dir string, f *sensor.File) error {
 	}
 	path := filepath.Join(dir, "sensors.json")
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	// 0600：sensors.json 含 webhook HMAC 密钥（凭据文件，同 .env 待遇）。
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

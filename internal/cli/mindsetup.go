@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/lomehong/mindloop/internal/childenv"
+	"github.com/lomehong/mindloop/internal/connector/sensor"
 	"github.com/lomehong/mindloop/internal/identity"
 	"github.com/lomehong/mindloop/internal/llm"
 	"github.com/lomehong/mindloop/internal/mcp"
@@ -151,20 +152,10 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 		IdentityDir: id.Dir,
 		SelfName:    id.Name,
 		Factory:     sensorFactory(id),
-		LearnDays:   sensorLearnDays(),
+		LearnDays:   sensor.EnvLearnDays(),
 		Logger:      o.logger,
 	}))
 	return &mindStack{dispatcher: dispatcher, client: client, request: requestClient, summary: summaryClient}, nil
-}
-
-// sensorLearnDays 折算全局学习期天数（MINDLOOP_SENSOR_LEARN_DAYS，
-// 0 = sensor 包缺省 3 天）。
-func sensorLearnDays() int {
-	v := strings.TrimSpace(os.Getenv("MINDLOOP_SENSOR_LEARN_DAYS"))
-	if n, err := strconv.Atoi(v); err == nil && n > 0 {
-		return n
-	}
-	return 0
 }
 
 // contextBudgets 读取上下文预算环境变量：MINDLOOP_CONTEXT_BYTES

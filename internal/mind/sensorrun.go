@@ -50,7 +50,9 @@ type SensorRunnerOptions struct {
 	Factory SensorFactory
 	// ReloadEvery 是配置热加载的检查间隔；0 = 5s。
 	ReloadEvery time.Duration
-	// LearnDays 覆盖全局学习期天数；0 = sensor 包缺省（3 天）。
+	// LearnDays 覆盖全局学习期天数（装配层从 MINDLOOP_SENSOR_LEARN_DAYS
+	// 折算传入）；0 = sensor 包缺省（3 天）。条目显式 learning_days
+	// 始终优先（sensor.EffectiveLearnDays 折算）。
 	LearnDays int
 	Logger    func(format string, args ...any)
 }
@@ -348,7 +350,8 @@ func (r *SensorRunner) handle(rs *runningSensor, st *sensor.State, view sensor.R
 	sal, reason := dec.Salience, dec.Reason
 
 	// 学习期封顶（self 内感受豁免——预算见顶的通知不能等三天）。
-	if days := rs.cfg.LearnDays(); days >= 0 && r.learning(rs.cfg) && sal > sensor.S1 && rs.cfg.Type != "self" {
+	// 天数口径 = 条目显式 > MINDLOOP_SENSOR_LEARN_DAYS > 代码缺省。
+	if days := sensor.EffectiveLearnDays(rs.cfg, r.opts.LearnDays); days >= 0 && r.learning(rs.cfg, days) && sal > sensor.S1 && rs.cfg.Type != "self" {
 		sal = sensor.S1
 		reason += "+learning-cap"
 	}
@@ -435,8 +438,10 @@ var credPatterns = []struct {
 	{regexp.MustCompile(`\bxox[baprs]-[0-9A-Za-z-]{10,}`), "xox***"},
 	{regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}`), "eyJ***(JWT)"},
 	{regexp.MustCompile(`(?i)\bBearer\s+[A-Za-z0-9._-]{16,}`), "Bearer ***"},
-	// 私钥块（digest 已剥换行，块形态塌成一行，用起止锚）
-	{regexp.MustCompile(`(?i)-----BEGIN [A-Z ]*PRIVATE KEY-----.*`), "[私钥块已打码]"},
+	// 私钥块：打码发生在剥换行之前（wrapDigest 先码后剥），多行
+	// PEM 是常态——(?s) 让 . 吞换行，惰性吃到 END 锚（截断无 END
+	// 则吃到串尾），块后的正文原样保留。
+	{regexp.MustCompile(`(?is)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\z)`), "[私钥块已打码]"},
 }
 
 // maskCredentials 打码 digest 里的凭据形态。
@@ -473,16 +478,17 @@ func kindOf(e sensor.PEvent) string {
 	return e.Kind
 }
 
-// learning 报告感官是否仍在学习期（首见 + N 天内）。状态持久化——
-// 重启不重置学习期。
-func (r *SensorRunner) learning(cfg sensor.SensorConfig) bool {
+// learning 报告感官是否仍在学习期（首见 + 天数内）。天数由调用方用
+// EffectiveLearnDays 折算（含 env 覆盖）；状态持久化——重启不重置
+// 学习期。
+func (r *SensorRunner) learning(cfg sensor.SensorConfig, days int) bool {
 	r.mu.Lock()
 	first, ok := r.firstSeen[cfg.ID]
 	r.mu.Unlock()
 	if !ok {
 		return false
 	}
-	return time.Since(first) < time.Duration(cfg.LearnDays())*24*time.Hour
+	return days > 0 && time.Since(first) < time.Duration(days)*24*time.Hour
 }
 
 // bucketFor 取（惰性建）感官的准入桶。

@@ -30,6 +30,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lomehong/mindloop/internal/connector/sensor"
@@ -38,9 +39,17 @@ import (
 	"github.com/lomehong/mindloop/internal/traj"
 )
 
-// hookStates 是端点侧的判定状态（每感官一槽）：webhook 的去重靠
-// 载荷指纹——同一系统重推同一载荷在去重窗内只落一条。
-var hookStates = map[string]*sensor.State{}
+// hookStates 是端点侧的判定状态（每个 身份/感官 一槽）：webhook 的
+// 去重靠载荷指纹——同一系统重推同一载荷在去重窗内只落一条。键含
+// 身份：ada/hook1 与 bob/hook1 是不同系统，判定状态不得互相吞事件。
+//
+// hookStatesMu 串行化判定：State 契约是单 goroutine 串行调用（方法
+// 不加锁），HTTP 每请求一 goroutine——不加锁既踩 Go map 并发写崩溃，
+// 也违判定契约。
+var (
+	hookStatesMu sync.Mutex
+	hookStates   = map[string]*sensor.State{}
+)
 
 // hookFirstSeen 读心智维护的学习期起点（sensors-state.json，只读：
 // 该文件的写位归 mind 进程，mind 停着时 webhook 也沿用既有起点）。
@@ -129,12 +138,15 @@ func (s *Server) handleHook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	st, ok := hookStates[sensorID]
+	stKey := idName + "/" + sensorID
+	hookStatesMu.Lock()
+	st, ok := hookStates[stKey]
 	if !ok {
 		st = sensor.NewState()
-		hookStates[sensorID] = st
+		hookStates[stKey] = st
 	}
 	dec := sensor.JudgeHook(cfg, st, e, now)
+	hookStatesMu.Unlock()
 	if dec.Duplicate {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -142,9 +154,12 @@ func (s *Server) handleHook(w http.ResponseWriter, r *http.Request) {
 	sal, reason := dec.Salience, dec.Reason
 	// 学习期（读心智维护的 sensors-state.json，只读不写——写位归
 	// mind 进程）：新 webhook 前 N 天封顶 s1，与 Watch 型感官同规。
-	if firstSeen, ok := hookFirstSeen(id.Dir, sensorID); ok &&
-		time.Since(firstSeen) < time.Duration(cfg.LearnDays())*24*time.Hour && sal >= sensor.S2 {
-		sal, reason = sensor.S1, reason+"+learning-cap"
+	// 天数口径与心智侧同源：EffectiveLearnDays（含 env 覆盖）。
+	if days := sensor.EffectiveLearnDays(*cfg, sensor.EnvLearnDays()); days > 0 {
+		if firstSeen, ok := hookFirstSeen(id.Dir, sensorID); ok &&
+			time.Since(firstSeen) < time.Duration(days)*24*time.Hour && sal >= sensor.S2 {
+			sal, reason = sensor.S1, reason+"+learning-cap"
+		}
 	}
 	if cfg.Quiet.Active(now.Local()) && sal >= sensor.S2 {
 		sal, reason = sensor.S1, "quiet-held:"+reason

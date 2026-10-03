@@ -50,6 +50,10 @@ code{background:#f4f4f4;padding:1px 5px;border-radius:4px}
 let H = () => ({"Authorization":"Bearer "+document.getElementById("token").value,"Content-Type":"application/json"});
 let j = async (u,o) => { const r = await fetch(u,o); const t = await r.text();
   if (!r.ok) throw new Error(r.status+" "+t); return t?JSON.parse(t):null; };
+// esc 是插值进 innerHTML 的唯一入口：身份名/感官配置是数据不是标记
+//（可经 API 与审批提案写入），不转义就是存储型 XSS→控制面令牌窃取。
+let esc = s => String(s==null?"":s).replace(/[&<>"']/g, function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; });
 
 async function loadAll(){
   try{
@@ -64,15 +68,15 @@ async function loadAll(){
     for(const n of names){
       const it = c.identities[n];
       const row = document.createElement("div"); row.className="row";
-      row.innerHTML = '<b>'+n+'</b> ' +
-        '<label><input type="checkbox" data-i="'+n+'" data-k="enabled" '+(it.enabled?"checked":"")+'>启用</label> ' +
-        '<label><input type="checkbox" data-i="'+n+'" data-k="mind" '+(it.mind?"checked":"")+'>心智</label> ' +
-        '<label><input type="checkbox" data-i="'+n+'" data-k="wecom" '+(it.wecom?"checked":"")+'>企微桥</label>';
+      row.innerHTML = '<b>'+esc(n)+'</b> ' +
+        '<label><input type="checkbox" data-i="'+esc(n)+'" data-k="enabled" '+(it.enabled?"checked":"")+'>启用</label> ' +
+        '<label><input type="checkbox" data-i="'+esc(n)+'" data-k="mind" '+(it.mind?"checked":"")+'>心智</label> ' +
+        '<label><input type="checkbox" data-i="'+esc(n)+'" data-k="wecom" '+(it.wecom?"checked":"")+'>企微桥</label>';
       box.appendChild(row);
     }
     document.getElementById("status").textContent = JSON.stringify(d.status||{}, null, 1);
     document.getElementById("authmsg").innerHTML = '<span class="ok">已载入</span>';
-  }catch(e){ document.getElementById("authmsg").innerHTML = '<span class="err">'+e.message+'</span>'; }
+  }catch(e){ document.getElementById("authmsg").innerHTML = '<span class="err">'+esc(e.message)+'</span>'; }
 }
 
 async function saveSystem(){
@@ -87,33 +91,42 @@ async function saveSystem(){
     identities:idents};
   try{ await j("/api/system",{method:"PUT",headers:H(),body:JSON.stringify(cfg)});
     document.getElementById("sysmsg").innerHTML='<span class="ok">已保存</span>';
-  }catch(e){ document.getElementById("sysmsg").innerHTML='<span class="err">'+e.message+'</span>'; }
+  }catch(e){ document.getElementById("sysmsg").innerHTML='<span class="err">'+esc(e.message)+'</span>'; }
 }
 
 async function loadSensors(){
   const n = document.getElementById("ident-name").value;
   try{
-    const d = await j("/api/identities/"+n+"/sensors",{headers:H()});
+    const d = await j("/api/identities/"+encodeURIComponent(n)+"/sensors",{headers:H()});
     const box = document.getElementById("sensors"); box.innerHTML="";
     if(!(d.sensors||[]).length) box.innerHTML="<em>（未配置）</em>";
     for(const s of d.sensors||[]){
-      const target = s.path||s.url||"";
-      const row = document.createElement("div"); row.className="row";
-      row.innerHTML = '<code>'+s.id+'</code> ['+s.type+'] '+target+' ' +
-        '<label><input type="checkbox" '+(s.enabled!==false?"checked":"")+' onchange="toggleSensor(\''+s.id+'\',this.checked)">启用</label> ' +
-        '<button onclick="rmSensor(\''+s.id+'\')">移除</button>';
+      // 逐节点构建：id/target 是配置数据（可含任意字符），一律走
+      // textContent——旧实现把 id 拼进内联 onclick 字符串，是存储型
+      // XSS 的入口（配置可经 API/审批提案写入，页面又持有控制面令牌）。
+      const row=document.createElement("div"); row.className="row";
+      const codeEl=document.createElement("code"); codeEl.textContent=s.id; row.appendChild(codeEl);
+      row.appendChild(document.createTextNode(" ["+(s.type||"")+"] "+(s.path||s.url||"")+" "));
+      const lab=document.createElement("label");
+      const cb=document.createElement("input"); cb.type="checkbox"; cb.checked=(s.enabled!==false);
+      cb.addEventListener("change",function(){ toggleSensor(s.id,cb.checked); });
+      lab.appendChild(cb); lab.appendChild(document.createTextNode("启用"));
+      row.appendChild(lab);
+      const btn=document.createElement("button"); btn.textContent="移除";
+      btn.addEventListener("click",function(){ rmSensor(s.id); });
+      row.appendChild(btn);
       box.appendChild(row);
     }
-  }catch(e){ document.getElementById("smsg").innerHTML='<span class="err">'+e.message+'</span>'; }
+  }catch(e){ document.getElementById("smsg").innerHTML='<span class="err">'+esc(e.message)+'</span>'; }
 }
 async function toggleSensor(id,enabled){
   const n = document.getElementById("ident-name").value;
-  await j("/api/identities/"+n+"/sensors/"+id+"/enabled",{method:"PUT",headers:H(),body:JSON.stringify({enabled})});
+  await j("/api/identities/"+encodeURIComponent(n)+"/sensors/"+encodeURIComponent(id)+"/enabled",{method:"PUT",headers:H(),body:JSON.stringify({enabled})});
   loadSensors();
 }
 async function rmSensor(id){
   const n = document.getElementById("ident-name").value;
-  await j("/api/identities/"+n+"/sensors/"+id,{method:"DELETE",headers:H()});
+  await j("/api/identities/"+encodeURIComponent(n)+"/sensors/"+encodeURIComponent(id),{method:"DELETE",headers:H()});
   loadSensors();
 }
 async function addSensor(){
@@ -124,9 +137,9 @@ async function addSensor(){
   if(document.getElementById("ns-type").value==="web") body.url=t; else body.path=t;
   const kws = document.getElementById("ns-keywords").value.split(",").map(x=>x.trim()).filter(Boolean);
   if(kws.length) body.keywords=kws;
-  try{ await j("/api/identities/"+n+"/sensors",{method:"POST",headers:H(),body:JSON.stringify(body)});
+  try{ await j("/api/identities/"+encodeURIComponent(n)+"/sensors",{method:"POST",headers:H(),body:JSON.stringify(body)});
     document.getElementById("smsg").innerHTML='<span class="ok">已接入（宿主在跑则 5 秒内生效）</span>'; loadSensors();
-  }catch(e){ document.getElementById("smsg").innerHTML='<span class="err">'+e.message+'</span>'; }
+  }catch(e){ document.getElementById("smsg").innerHTML='<span class="err">'+esc(e.message)+'</span>'; }
 }
 </script></body></html>`
 

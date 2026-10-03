@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -160,6 +161,91 @@ func TestHookEndpointQuietDowngrade(t *testing.T) {
 	}
 	if reason, _ := steps[0].Field("reason"); !strings.HasPrefix(reason, "hook:quiet-held:") {
 		t.Fatalf("reason 应带 quiet-held，得 %q", reason)
+	}
+}
+
+// TestHookStatesIdentityScopedAndConcurrent：端点判定态按 身份/感官
+// 分槽且串行——(a) 两个身份的同名感官互不吞事件（同载荷各自落盘；
+// 共享单槽时第二个身份会被判重丢事件）；(b) 并发签名 POST 不撞
+// Go map、不违 State 单 goroutine 判定契约（-race 下验证）。
+func TestHookStatesIdentityScopedAndConcurrent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MINDLOOP_HOME", home)
+	idents := map[string]*identity.Identity{}
+	for _, name := range []string{"ada", "bob"} {
+		id, err := identity.Create(context.Background(), name)
+		if err != nil {
+			t.Fatalf("Create %s: %v", name, err)
+		}
+		cfg := fmt.Sprintf(`{"version":1,"sensors":[{"id":"hook1","type":"webhook","secret":%q,"learning_days":-1}]}`, hookSecret)
+		if err := os.WriteFile(filepath.Join(id.Dir, "sensors.json"), []byte(cfg), 0o600); err != nil {
+			t.Fatalf("写 sensors.json: %v", err)
+		}
+		idents[name] = id
+	}
+	ts, _ := newTestServer(t, home, "")
+
+	post := func(name, body string) {
+		now := nowUnix()
+		sig := hookSignature(hookSecret, now, []byte(body))
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/hook/"+name+"/hook1", strings.NewReader(body))
+		req.Header.Set("X-Mindloop-Timestamp", now)
+		req.Header.Set("X-Mindloop-Signature", "sha256="+sig)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Errorf("POST %s: %v", name, err)
+			return
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNoContent {
+			t.Errorf("POST %s: 状态 %d", name, resp.StatusCode)
+		}
+	}
+
+	// 载荷带运行期随机数：hookStates 是进程级去重态（-count 复跑/
+	// 同进程多测试共享），载荷必须每次唯一。
+	run := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	// (a) 同载荷并发双身份：各落一条。
+	var wg sync.WaitGroup
+	shared := fmt.Sprintf(`{"text":"同载荷并发","run":%s}`, run)
+	for _, name := range []string{"ada", "bob"} {
+		wg.Add(1)
+		go func(name string) { defer wg.Done(); post(name, shared) }(name)
+	}
+	wg.Wait()
+
+	// (b) 同身份并发不同载荷：全部落盘（判定串行，不丢事件）。
+	for i := 0; i < 10; i++ {
+		for _, name := range []string{"ada", "bob"} {
+			wg.Add(1)
+			go func(name string, i int) {
+				defer wg.Done()
+				post(name, fmt.Sprintf(`{"n":%d,"run":%s}`, i, run))
+			}(name, i)
+		}
+	}
+	wg.Wait()
+
+	deadline := time.Now().Add(2 * time.Second)
+	want := 11 // 1 条共享 + 10 条唯一
+	for name, id := range idents {
+		for {
+			steps, err := id.Timeline.Tail(100, []string{"event", "alert"})
+			if err != nil {
+				t.Fatalf("Tail %s: %v", name, err)
+			}
+			if len(steps) >= want {
+				if len(steps) > want {
+					t.Fatalf("%s 落盘超过预期：%d 条", name, len(steps))
+				}
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s 应落 %d 条，得 %d", name, want, len(steps))
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
 	}
 }
 

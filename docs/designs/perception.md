@@ -23,9 +23,8 @@ AI 认知/安全/可靠性/框架一致性）一致判定"修订后可实施"，
   令牌桶准入、digest"数据非指令"信任分界、gate-denied 降级留痕。
 
 未实施（按设计节奏）：字面模态（屏幕视觉/语音，§9.3）、
-sensor/web 的 RSS 语义解析（当前按 HTML 文本处理）、webhook 的
-学习期（端点侧无首见状态，去重已生效）、反射层阈值自动校准
-（校准数据面已就绪，调参仍人工）。
+sensor/web 的 RSS 语义解析（当前按 HTML 文本处理）、反射层阈值
+自动校准（校准数据面已就绪，调参仍人工）。
 
 已知行为（如实声明，2026-10-03 黑盒验收沉淀）：file 感官的观察
 目标若包含身份目录自身，会看到自己的轨迹/锁文件写入——事件是 s0
@@ -125,17 +124,22 @@ coalesced 合并键）、`internal/mem`（记忆循环）、`internal/obs`
 ```
 traj.NewStep(traj.TypeEvent)   // "event"
 Fields: source=<sensor-id>      // 感官通道（file:.../web:.../git:.../wecom:.../hook:.../self）
-        kind=<changed|appeared|removed|spike|threshold|anomaly|quiet-held|gate-denied>
+        kind=<changed|appeared|removed|threshold|anomaly|absence|gate-denied>
+                                // spike/quiet-held 不是 kind，是 reason 标记（见下）
         subject=<归一化主体>     // 路径/URL/仓库/会话
         salience=<s0|s1|s2|s3>  // 判定层输出（§4.3）
-        reason=<命中规则名/阈值/关联路径>  // 必填：可解释性，校准的依据
+        reason=<规则/标记复合串>  // 必填：可解释性，校准的依据。
+                                // rule:<规则名> 可缀 +first-seen/+spike/+learning-cap；
+                                // 其余形态：agenda-match、hint:<档>、default；
+                                // 降级信息用前缀保留（quiet-held:<原 reason>）
         dedup=<内容指纹>        // 同主体同类事件的去重键
         digest=<结构化摘要 ≤200 字> // 变了什么/在哪/何时 + 未核实标记；分诊与去重用，不是决策依据
 ```
 
-- **reason 必填、闸门处置落痕**（评审 P1）：quiet 降级（quiet-held）、
-  预算拒绝（gate-denied）、熔断采样都写 event 落轨迹——"为什么没醒/
-  为什么降档"必须有据可查，Phase 4 校准与用户调参全靠它；
+- **reason 必填、闸门处置落痕**（评审 P1）：quiet 降级（reason 加
+  quiet-held: 前缀）、预算拒绝（kind=gate-denied）、熔断采样都写
+  event 落轨迹——"为什么没醒/为什么降档"必须有据可查，Phase 4
+  校准与用户调参全靠它；
 - **digest 定位**（评审修正）：反射层（非模型）生成，是**检索指引
   不是决策依据**——思考者被唤醒后必经回读 subject 才处置；外部内容
   原样摘录属不可信数据，落盘前过凭据模式扫描打码，进 prompt 走
@@ -201,7 +205,8 @@ judge(cfg Config, state *State, view ReflexView, e PEvent) (Salience, *State)
 
 **quiet 的真实语义（评审修正，v1 的 effectiveFires 类比删除）**：
 sensor 事件没有 plannedAt/lastSeen，套不进 effectiveFires 的顺延
-模型。quiet 窗口内 S2/S3 **自动降级为 S1 沉淀**（kind=quiet-held），
+模型。quiet 窗口内 S2/S3 **自动降级为 S1 沉淀**（reason 前缀
+quiet-held:，kind 不变——降级是判定结论不是事件类型），
 窗口结束后的下一次定时评估把 quiet-held 事件按新近度折叠补看——
 顺延是"补看素材"，不是"补叫醒"。
 
@@ -284,9 +289,12 @@ event 不叫醒；[钉子] 企微入站行为与升级前完全一致（回归�
 
 ### Phase 3 鼻：模式偏移、缺席与内感受
 
-- 对 event 流的便宜统计：速率突增（同 kind 超基线 N 倍）、首次
-  出现（新 subject）、阈值越界（数值型 digest 规则匹配）、**缺席
-  检测**（心跳类感官该来的没来也是事件——"没有消息"本身被感知）；
+- 对 event 流的便宜统计：速率突增（同 kind 近 5 分钟 ≥5 条且 ≥
+  此前 25 分钟基线的 3 倍 → 保底 s2、reason 缀 +spike，kind 不变）、
+  首次出现（新 subject，appeared 类保底 s1、reason 缀 +first-seen）、
+  阈值越界（数值型 digest 规则匹配，规则带 min 字段）、**缺席
+  检测**（心跳类感官该来的没来也是事件，kind=absence——"没有消息"
+  本身被感知）；
 - **内感受（同一机制指向内）**：`sensor/self` 监听自身健康/预算
   消耗/队列深度（llm-health 与 obs 已有数据），痛觉即既有 S3/
   alert 语义。**预算阈值事件免自发档准入**（评审 P1：自发档见顶时
@@ -361,9 +369,11 @@ v1 的"手"升级为"身"：触觉本就是感知-动作融合的感官。硬规
 
 ## 6. 注意力管理、校准与资源
 
-- **学习期（缺省，评审 P1）**：新 sensor 前 N 天（缺省 3）全部
-  封顶 S1，stats 出预演报告（"若升档你将被唤醒 X 次：样例"），
-  用户显式确认才放行 S2/S3——信任是一次事故就破产的资产，先演后放；
+- **学习期（缺省，评审 P1）**：新 sensor 前 N 天（缺省 3，可
+  MINDLOOP_SENSOR_LEARN_DAYS 全局调整、条目 learning_days 优先，
+  口径即 `sensor.EffectiveLearnDays`）全部封顶 S1，stats 出预演报
+  告（"若升档你将被唤醒 X 次：样例"），用户显式确认才放行
+  S2/S3——信任是一次事故就破产的资产，先演后放；
 - **路由钉死**（评审 P1）：S2 → `to=operator` 对话流（仪表盘/CLI
   是"数秒唤醒"的接收面）；S3 → 按任务模板路由（外发渠道）；手机
   推送只走既有 L3/L4 路由——打扰的战场在手机，缺省不放行；

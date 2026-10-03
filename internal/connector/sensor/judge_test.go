@@ -105,6 +105,33 @@ func TestStateRebuildSuppressesWakeAfterRestart(t *testing.T) {
 	}
 }
 
+// TestStateRebuildRuleCooldown：重启重建的规则冷却必须与 Judge 同键
+// （含主体）——键不一致等于重建白做，重启后同主体变体再次升档；
+// reason 的复合后缀（+spike）也不得污染规则名。
+func TestStateRebuildRuleCooldown(t *testing.T) {
+	cfg := mustCfg(t, `{"id":"f","type":"file","path":".","learning_days":-1,
+		"salience":{"rules":[{"name":"prod","keywords":["生产"],"salience":"s2"}]}}`)
+	now := time.Now()
+
+	records := []EventRecord{
+		{TS: now.Add(-time.Minute), Source: "f", Kind: KindChanged, Subject: "a.txt",
+			Dedup: "k1", Salience: string(S2), Reason: "rule:prod+spike"},
+	}
+	st := NewState()
+	st.Rebuild(records, now.Add(-2*time.Hour))
+
+	// 同主体变体：重建的冷却应压住升档，reason 保留冷却信息。
+	d := Judge(cfg, st, ReflexView{}, PEvent{Subject: "a.txt", Dedup: "k2", Digest: "生产又炸"}, now)
+	if d.Salience >= S2 || !contains(d.Reason, "冷却") {
+		t.Fatalf("重启后同主体规则冷却应生效（冷却键含主体），得 %s/%s", d.Salience, d.Reason)
+	}
+	// 不同主体照常各自升档（冷却管主体，不是全局）。
+	d = Judge(cfg, st, ReflexView{}, PEvent{Subject: "b.txt", Dedup: "k3", Digest: "生产告警"}, now)
+	if d.Salience != S2 || d.Reason != "rule:prod" {
+		t.Fatalf("不同主体应各自升档，得 %s/%s", d.Salience, d.Reason)
+	}
+}
+
 func TestQuietWindow(t *testing.T) {
 	loc := time.FixedZone("t", 0)
 	base := time.Date(2026, 10, 2, 23, 30, 0, 0, loc)

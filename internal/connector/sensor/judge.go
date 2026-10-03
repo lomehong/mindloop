@@ -35,7 +35,7 @@ type Decision struct {
 // 调用，方法不加锁；Clone/Rebuild 供热加载与重启重建。
 type State struct {
 	// lastFired 记录去重指纹的最近触发时刻（去重 + 冷却共用一张表：
-	// 冷却键是 "rule:<name>"，去重键是 "<kind>|<dedup>"）。
+	// 冷却键是 "rule:<name>|<subject>"，去重键是 "<kind>|<dedup>"）。
 	lastFired map[string]time.Time
 	// seenSubjects 是主体的首次出现时刻（首次出现语义 + 鼻的
 	// "新主体"检测共用）。
@@ -87,7 +87,9 @@ func (s *State) Rebuild(records []EventRecord, olderThan time.Time) {
 				s.lastFired[key] = r.TS
 			}
 			if name, ok := ruleNameOf(r.Reason); ok {
-				ck := "rule:" + name
+				// 冷却键与 Judge 同构（含主体）——键不一致等于重建
+				// 白做，重启即重复升档。
+				ck := "rule:" + name + "|" + r.Subject
 				if t, ok := s.lastFired[ck]; !ok || r.TS.After(t) {
 					s.lastFired[ck] = r.TS
 				}
@@ -103,14 +105,16 @@ func (s *State) Rebuild(records []EventRecord, olderThan time.Time) {
 
 // ruleNameOf 从判定理由反解规则名（"rule:<名>" 形态）；取不到就
 // 放弃冷却重建——漏一条冷却只是多叫醒一次，不是正确性问题。
+// reason 可能是复合形态（rule:<名>+first-seen+spike、" (冷却中)"
+// 后缀等），规则名截到 空格/加号/左括号 为止。
 func ruleNameOf(reason string) (string, bool) {
 	const p = "rule:"
 	if !strings.HasPrefix(reason, p) {
 		return "", false
 	}
 	name := strings.TrimPrefix(reason, p)
-	if i := strings.Index(name, " "); i >= 0 {
-		name = name[:i] // 剥掉 " (冷却中)" 等后缀
+	if i := strings.IndexAny(name, " +("); i >= 0 {
+		name = name[:i]
 	}
 	return name, true
 }
