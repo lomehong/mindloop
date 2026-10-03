@@ -672,6 +672,38 @@ export interface ScheduleEntry {
   last_note?: string;
 }
 
+/** 感官显著性规则（词面命中升档；min 为数值阈值门槛）。 */
+export interface SensorSalienceRule {
+  name: string;
+  keywords: string[];
+  salience: string;
+  min?: number;
+}
+
+/** 感官配置（sensors.json 的条目形态）。 */
+export interface SensorView {
+  id: string;
+  type: string;
+  path?: string;
+  url?: string;
+  interval?: string;
+  keywords?: string[];
+  quiet?: { start: string; end: string };
+  expect_every?: string;
+  learning_days?: number;
+  salience?: {
+    default?: string;
+    rules?: SensorSalienceRule[];
+  };
+  /** 缺省 true（后端 nil 即启用，序列化时省略）。 */
+  enabled?: boolean;
+}
+
+/** 感官清单（GET /api/identities/{id}/sensors）。 */
+export interface SensorsView {
+  sensors: SensorView[];
+}
+
 export interface ScheduleView {
   identity: { id: string; name: string };
   /** schedule.json 路径（修复指引用）。 */

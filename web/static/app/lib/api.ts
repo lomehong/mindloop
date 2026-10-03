@@ -32,6 +32,8 @@ import type {
   ScheduleRunResult,
   ScheduleToggleResult,
   ScheduleView,
+  SensorView,
+  SensorsView,
   Usage,
   SelfUpdateResult,
   SkillContent,
@@ -344,6 +346,48 @@ export function deleteScheduleEntry(
   return sendJson(
     "DELETE",
     `/api/identities/${encodeURIComponent(identityId)}/schedule/${encodeURIComponent(entryId)}`,
+    undefined
+  );
+}
+
+/** 感知：感官清单（sensors.json 视图）。 */
+export function fetchSensors(identityId: string): Promise<SensorsView> {
+  return getJson(
+    `/api/identities/${encodeURIComponent(identityId)}/sensors`
+  );
+}
+
+/** 感知：新增感官（type 必填；file/git 用 path，web 用 url）。 */
+export function addSensor(
+  identityId: string,
+  body: Partial<SensorView> & { type: string }
+): Promise<{ added: string }> {
+  return postJson(
+    `/api/identities/${encodeURIComponent(identityId)}/sensors`,
+    body
+  );
+}
+
+/** 感知：启停一条（写 sensors.json，心智热加载数秒内生效）。 */
+export function toggleSensor(
+  identityId: string,
+  sensorId: string,
+  enabled: boolean
+): Promise<{ id: string; enabled: boolean }> {
+  return putJson(
+    `/api/identities/${encodeURIComponent(identityId)}/sensors/${encodeURIComponent(sensorId)}/enabled`,
+    { enabled }
+  );
+}
+
+/** 感知：移除一条（观察停止，轨迹历史保留）。 */
+export function removeSensor(
+  identityId: string,
+  sensorId: string
+): Promise<{ removed: string }> {
+  return sendJson(
+    "DELETE",
+    `/api/identities/${encodeURIComponent(identityId)}/sensors/${encodeURIComponent(sensorId)}`,
     undefined
   );
 }

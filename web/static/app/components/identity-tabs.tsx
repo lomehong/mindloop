@@ -17,6 +17,7 @@ const TABS = [
   { key: "memories", label: "记忆", path: "/memories" },
   { key: "skills", label: "技能", path: "/skills" },
   { key: "schedule", label: "日程", path: "/schedule" },
+  { key: "sensors", label: "感知", path: "/sensors" },
   { key: "connections", label: "连接", path: "/connections" },
   { key: "config", label: "配置", path: "/config" },
 ] as const;
