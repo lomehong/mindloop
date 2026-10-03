@@ -7,6 +7,24 @@
 
 ### 新增
 
+- **系统宿主（声明式能力面，docs/designs/system.md）**："用功能不再
+  逐条运行命令"——
+  - `mindloop system run`：唯一的常驻宿主，按 `<状态根>/system.json`
+    监督全部能力子进程（web / 每身份心智 / 每身份渠道桥）：退出即
+    指数退避重启、配置变更 5 秒热加载增停启、Windows Job Object
+    强杀收割（孤儿不占运行锁）、宿主单实例锁、状态投影
+    system-status.json；零配置即用（按现状推导缺省并落盘）；
+  - `mindloop service install host --host`：装机即系统常驻（单任务
+    包装宿主，取代按身份×组件的三任务；旧形态保留兼容）；
+  - `mindloop system status`：宿主与各能力子进程状态（读投影）；
+  - 仪表盘 `/system` 页（统一配置面）：能力总开关（web/每身份
+    心智与企微桥）+ 感官管理（列表/启停/增删），后端
+    `GET/PUT /api/system` 与 `GET/POST/PUT/DELETE
+    /api/identities/{名}/sensors`（与 CLI 同一份校验；改配置即生效，
+    不需要运行命令）。
+
+### 新增
+
 - **感知系统补齐（鼻三检测器 + 验收缺口清偿）**：
   - **阈值越界规则**（SalienceRule.min）：词面命中的前提下 digest
     存在 ≥min 的数值才升档——"错误数 500""磁盘 95%"类数值型

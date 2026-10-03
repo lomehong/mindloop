@@ -22,7 +22,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/config", s.withAuth(s.handleConfig))
 	s.mux.HandleFunc("GET /api/identities", s.withAuth(s.handleIdentities))
 	s.mux.HandleFunc("POST /api/identities", s.withAuth(s.handleIdentityCreate))
-	s.mux.HandleFunc("/api/identities/", s.withAuth(s.routeIdentity)) // /api/identities/{name}/...
+	s.mux.HandleFunc("/api/identities/", s.withAuth(s.routeIdentityOrSensors)) // /api/identities/{name}/...（sensors 形态进感官管理）
 	s.mux.HandleFunc("GET /api/health", s.withAuth(s.handleHealth))
 	// 导入是字面路径（比 /api/identities/ 子树更具体，mux 择优）。
 	s.mux.HandleFunc("GET /api/export", s.withAuth(s.handleExport))
@@ -47,6 +47,10 @@ func (s *Server) routes() {
 	// 不走 withAuth/sameOrigin（对外系统的服务器间调用）。sameOrigin
 	// 的豁免在 ServeHTTP 里显式只此一条路径前缀。
 	s.registerHookRoute()
+
+	// /system —— 统一配置面（服务端直出页；SPA 系统页后续立项）。
+	s.mux.HandleFunc("GET /system", s.systemPage)
+	s.registerSystemRoutes()
 
 	// 静态 viewer 资源与 SPA catch-all——来自磁盘目录或嵌入产物
 	//（release 构建），staticRoot 二选一；root 为 nil 时不注册任何

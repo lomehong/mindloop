@@ -71,10 +71,6 @@ install。真正的"登录前 boot-start"需要服务账户决策，暂不支持
 // serviceManager 装配一个身份的 Manager：exe/user/home 在此刻固化
 // 进任务定义（身份目录必须已存在，未注册的身份直接拒绝）。
 func (c *CLI) serviceManager(identityName string) (*service.Manager, *identity.Identity, error) {
-	id, err := c.loadIdentity(identityName)
-	if err != nil {
-		return nil, nil, err
-	}
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, nil, c.fail(fmt.Errorf("无法定位自身可执行文件: %w", err))
@@ -82,6 +78,23 @@ func (c *CLI) serviceManager(identityName string) (*service.Manager, *identity.I
 	u, err := user.Current()
 	if err != nil {
 		return nil, nil, c.fail(fmt.Errorf("无法获取当前用户: %w", err))
+	}
+	// 宿主模式（service start/stop/restart/status host）：没有单一
+	// 身份可加载，Spec 占位 host（componentsFor 据此选系统宿主任务）。
+	if identityName == "host" {
+		return &service.Manager{
+			Spec: service.Spec{
+				Identity: "host",
+				Exe:      exe,
+				Home:     traj.Home(),
+				User:     u.Username,
+			},
+			Exec: newServiceExecer(),
+		}, nil, nil
+	}
+	id, err := c.loadIdentity(identityName)
+	if err != nil {
+		return nil, nil, err
 	}
 	return &service.Manager{
 		Spec: service.Spec{
@@ -95,11 +108,22 @@ func (c *CLI) serviceManager(identityName string) (*service.Manager, *identity.I
 }
 
 func (c *CLI) newServiceInstallCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "install <身份名>",
-		Short: "注册三个计划任务（覆盖已有，幂等）",
-		Args:  exactArgs(1, "用法: mindloop service install <身份名>"),
+	var hostP bool
+	cmd := &cobra.Command{
+		Use:   "install <身份名|host>",
+		Short: "注册计划任务（缺省按身份三组件；--host 装系统宿主单任务）",
+		Long: `两种装机形态：
+
+  mindloop service install ada          # 按身份：mind/connector/web 三个任务
+  mindloop service install host --host  # 系统宿主：一个任务包装 system run
+
+宿主模式按 system.json 监督全部能力子进程（崩溃自愈、配置热加载）
+——此后能力增减改配置（仪表盘 /system 页或 system.json），不再重装。`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if hostP {
+				return c.serviceInstallHost(args[0])
+			}
 			m, id, err := c.serviceManager(args[0])
 			if err != nil {
 				return c.fail(err)
@@ -126,6 +150,44 @@ func (c *CLI) newServiceInstallCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&hostP, "host", false, "装机即系统宿主：单任务包装 system run（能力增减走配置）")
+	return cmd
+}
+
+// serviceInstallHost 装宿主模式任务：Spec 的 Identity 占位为
+// "host"（任务名 Mindloop-host-system），Home 是状态根——宿主按
+// system.json 管全部身份，装机与会话身份解耦。
+func (c *CLI) serviceInstallHost(name string) error {
+	if name != "host" {
+		return c.fail(fmt.Errorf("宿主模式的任务名占位是 host（mindloop service install host --host）"))
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return c.fail(fmt.Errorf("无法定位自身可执行文件: %w", err))
+	}
+	u, err := user.Current()
+	if err != nil {
+		return c.fail(fmt.Errorf("无法获取当前用户: %w", err))
+	}
+	m := &service.Manager{
+		Spec: service.Spec{
+			Identity: "host",
+			Exe:      exe,
+			Home:     traj.Home(),
+			User:     u.Username,
+		},
+		Exec: newServiceExecer(),
+	}
+	// Identity=host 时 componentsFor() 只返回系统宿主组件——Install
+	// 即单任务装机。
+	if err := m.Install(); err != nil {
+		return c.fail(err)
+	}
+	fmt.Fprintln(c.stdout, "已注册系统宿主任务（登录自启）：")
+	fmt.Fprintf(c.stdout, "  %s → 日志 %s\n", service.TaskName(service.ComponentSystem, "host"), service.LogPath(m.Spec, service.ComponentSystem))
+	fmt.Fprintln(c.stdout, "立即拉起: mindloop service start host")
+	fmt.Fprintln(c.stdout, "此后能力增减改配置：仪表盘 /system 页或 <状态根>/system.json")
+	return nil
 }
 
 func (c *CLI) newServiceStartCmd() *cobra.Command {

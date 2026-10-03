@@ -108,7 +108,7 @@ func (m *Manager) Install() error {
 	if err := makeDirs(RunDir(m.Spec)); err != nil {
 		return fmt.Errorf("service: 建 run 目录失败: %w", err)
 	}
-	for _, c := range Components {
+	for _, c := range m.componentsFor() {
 		wrapper, err := RenderWrapper(m.Spec, c)
 		if err != nil {
 			return fmt.Errorf("service %s: %w", c, err)
@@ -141,7 +141,7 @@ func (m *Manager) Install() error {
 // Start 启用并立即拉起全部任务（/enable 兜住"刻意停止"留下的
 // Disabled 状态）。
 func (m *Manager) Start() error {
-	for _, c := range Components {
+	for _, c := range m.componentsFor() {
 		tn := TaskName(c, m.Spec.Identity)
 		if err := m.schtasks("/change", tn, "/enable"); err != nil {
 			return fmt.Errorf("service: 启用 %s 失败: %w", tn, err)
@@ -160,12 +160,15 @@ func (m *Manager) Start() error {
 // 随后 /disable 全部：**刻意停止标记**——防住 RestartOnFailure 对
 // 非零退出的复活，也防住下次登录自启（设计文档 §6）。
 func (m *Manager) Stop() error {
-	_, _ = m.execer().Run(m.Spec.Exe, "mind", "stop", m.Spec.Identity)
-	for _, c := range Components {
+	if m.Spec.Identity != "host" {
+		// 宿主模式没有单一身份可优雅停机（各身份心智由宿主收割）。
+		_, _ = m.execer().Run(m.Spec.Exe, "mind", "stop", m.Spec.Identity)
+	}
+	for _, c := range m.componentsFor() {
 		// 任务没在跑时 /end 会报错——刻意停止语义的一部分，忽略。
 		_ = m.schtasks("/end", TaskName(c, m.Spec.Identity))
 	}
-	for _, c := range Components {
+	for _, c := range m.componentsFor() {
 		if err := m.schtasks("/change", TaskName(c, m.Spec.Identity), "/disable"); err != nil {
 			return fmt.Errorf("service: 停用 %s 失败: %w", TaskName(c, m.Spec.Identity), err)
 		}
@@ -173,9 +176,18 @@ func (m *Manager) Stop() error {
 	return nil
 }
 
+// componentsFor 按 Spec.Identity 选择受管组件集：宿主模式
+// （Identity=="host"）只管系统宿主一个任务；按身份模式管三组件。
+func (m *Manager) componentsFor() []Component {
+	if m.Spec.Identity == "host" {
+		return []Component{ComponentSystem}
+	}
+	return Components
+}
+
 // Uninstall 停跑并删除全部任务。任务不存在时安静返回（幂等）。
 func (m *Manager) Uninstall() error {
-	for _, c := range Components {
+	for _, c := range m.componentsFor() {
 		tn := TaskName(c, m.Spec.Identity)
 		status, err := m.queryTask(tn)
 		if err != nil {
@@ -209,7 +221,7 @@ type TaskStatus struct {
 // 不可解析（设计文档 §6）。
 func (m *Manager) Status() ([]TaskStatus, error) {
 	out := make([]TaskStatus, 0, len(Components))
-	for _, c := range Components {
+	for _, c := range m.componentsFor() {
 		s, err := m.queryTask(TaskName(c, m.Spec.Identity))
 		if err != nil {
 			return nil, err

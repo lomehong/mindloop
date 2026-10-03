@@ -30,6 +30,10 @@ const (
 	ComponentMind      Component = "mind"
 	ComponentConnector Component = "connector"
 	ComponentWeb       Component = "web"
+	// ComponentSystem 是系统宿主（docs/designs/system.md）：一个
+	// 任务包装 system run，按 system.json 监督全部能力子进程——
+	// "装机即系统常驻"，能力增减走配置而非重装。
+	ComponentSystem Component = "system"
 )
 
 // Components 是全部受管组件，mind 在前（其余组件不依赖它，但人读
@@ -97,6 +101,10 @@ func RenderWrapper(spec Spec, c Component) (string, error) {
 // actionArgs 是组件的启动参数（不含 exe 与日志重定向）。
 func actionArgs(c Component, identity string) []string {
 	switch c {
+	case ComponentSystem:
+		// 宿主模式：参数里不出现身份（宿主按 system.json 管全部
+		// 身份）；任务名用 Mindloop-host-system。
+		return []string{"system", "run"}
 	case ComponentMind:
 		return []string{"mind", "run", identity}
 	case ComponentConnector:
