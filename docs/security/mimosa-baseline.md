@@ -33,7 +33,7 @@
 | A3 | `internal/sandbox/sandbox.go` `Run`（快照 :253 一带） | **0.7.0 已处合规形态**：`&exec.Cmd{Path: bash,...}` 结构体字面量 + `safeBashPath` 收口（快照行号为整改前旧位）。待门禁复核是否仍标 | 🔶 |
 | A4 | `internal/sandbox/sandbox.go` 快照 :133（`safeBashPath` 一带） | 与 A3 同一调用链，同上 | 🔶 |
 | A5 | `internal/web/usage_logs_env.go` mind start 分支（快照 :293） | **0.7.0 已处合规形态**：`mindRunNameRe` 校验 + `&exec.Cmd{Path: exe,...}`（快照 :293 为旧位，现 exec 在 :305）。待门禁复核 | 🔶 |
-| A6 | `internal/service/service.go` `Exec.Run`（快照 :23） | **0.7.0 已处合规形态**：`safeProgram`/`safeArg` 校验 + `&exec.Cmd{Path: name,...}`。待门禁复核 | 🔶 |
+| A6 | `internal/service/service.go` `Exec.Run`（快照 :23） | **已改（2026-10-03）**：`safeProgram`/`safeArg` 校验 + 裸程序名经 `exec.LookPath` 解析为绝对路径后 `&exec.Cmd{Path: program,...}` 结构体装配（与 A7 resolveStdioCommand、git 感官同款形态）。背景：黑盒发现裸名直进 Path 在 PATH 裁剪环境（git-bash）解析失败（`.\powershell` not found），schtasks/powershell 全不可用——修复前形态是"过了引擎却坏了功能"。待门禁复核 | 🔶 |
 | A7 | `internal/mcp/client.go` stdio 服务器进程启动（快照 :242） | **0.7.0 已处合规形态**：`resolveStdioCommand` 收口 + `&exec.Cmd{Path: command,...}`（现 :281）。待门禁复核 | 🔶 |
 
 ### B. 硬编码凭据（测试 fixture，4 处）

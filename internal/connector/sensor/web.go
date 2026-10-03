@@ -171,7 +171,7 @@ type feedItem struct {
 
 // parseFeed 识别并解析 RSS 2.0 / Atom。不是 feed 返回 ok=false
 // （调用方回退整页指纹路径）。两套 envelope 字段名不同，分开定义
-//（同结构体挂同名 XML 元素会冲突）。
+// （同结构体挂同名 XML 元素会冲突）。
 func parseFeed(body []byte) ([]feedItem, bool) {
 	head := body
 	if len(head) > 512 {

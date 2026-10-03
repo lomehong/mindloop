@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -400,5 +401,38 @@ func TestTaskNameAndLogPath(t *testing.T) {
 	}
 	if got := LogDir(spec); !strings.HasSuffix(got, "logs") {
 		t.Errorf("LogDir = %q", got)
+	}
+}
+
+// —— Exec 的裸程序名解析（2026-10-03 黑盒回归钉子）——
+
+// TestExecRunResolvesBareName 钉死 Exec.Run 对裸程序名的 PATH 解析：
+// Cmd 结构体字面量装配不做工厂函数的 PATH 推断——git-bash 等 PATH 被
+// 裁剪的环境里 "schtasks"/"powershell" 会直接找不到（实锤错误形态：
+// exec: ".\\powershell": executable file not found in %PATH%）。
+// 修复后裸名先经 LookPath 解析为绝对路径，再进结构体装配。
+func TestExecRunResolvesBareName(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("PATH 无 go，跳过真实进程测试")
+	}
+	out, err := Exec{}.Run("go", "version")
+	if err != nil {
+		t.Fatalf("裸程序名应可经 PATH 解析执行: %v", err)
+	}
+	if !strings.Contains(out, "go version") {
+		t.Fatalf("输出来自错误程序: %q", out)
+	}
+}
+
+// TestExecRunUnknownProgramFailsReadably：PATH 解析失败给出可读错误
+// （错误消息必须保留程序名，供 service 子命令诊断）。
+func TestExecRunUnknownProgramFailsReadably(t *testing.T) {
+	_, err := Exec{}.Run("mindloop-probe-definitely-missing")
+	if err == nil {
+		t.Fatal("不存在的程序名应报错")
+	}
+	if !strings.Contains(err.Error(), "在 PATH 中找不到") ||
+		!strings.Contains(err.Error(), "mindloop-probe-definitely-missing") {
+		t.Fatalf("错误应指明 PATH 解析失败与程序名: %v", err)
 	}
 }

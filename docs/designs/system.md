@@ -58,9 +58,10 @@ API）、三套配置热加载（sensors/schedule/bridge）。
 
 ## 5. CLI 的位置
 
-`system run/status/config` 是宿主运维；既有命令全部保留原语义
-（chat 仍可接管对话、doctor/stats/undo/approve 仍是诊断与控制面）
-——但它们不再是"获得功能"的必需品。
+`system run/status` 是宿主运维（配置面没有独立子命令：直接编辑
+system.json，或仪表盘 `/system` 页走 GET/PUT /api/system）；既有命令
+全部保留原语义（chat 仍可接管对话、doctor/stats/undo/approve 仍是
+诊断与控制面）——但它们不再是"获得功能"的必需品。
 
 ## 6. 非目标
 

@@ -56,9 +56,21 @@ func (Exec) Run(name string, args ...string) (string, error) {
 			return "", fmt.Errorf("service: 参数含控制字符: %q", a)
 		}
 	}
+	// 裸程序名经 LookPath 解析为绝对路径（mcp/git 感官同款收口）：
+	// Cmd 结构体字面量装配不做工厂函数的 PATH 推断——PATH 被裁剪的
+	// 环境（git-bash 等）里 "schtasks"/"powershell" 会直接找不到
+	// （2026-10-03 黑盒实锤：exec: ".\\powershell" not found in %PATH%）。
+	program := name
+	if !filepath.IsAbs(program) {
+		resolved, err := exec.LookPath(program)
+		if err != nil {
+			return "", fmt.Errorf("service: 在 PATH 中找不到 %q: %w", name, err)
+		}
+		program = filepath.Clean(resolved)
+	}
 	// 程序名与参数都经上方收口——用 Cmd 结构体直接装配，动态
 	// 程序名不经过工厂函数的注入模型。
-	cmd := &exec.Cmd{Path: name, Args: append([]string{name}, args...)}
+	cmd := &exec.Cmd{Path: program, Args: append([]string{program}, args...)}
 	var out, errOut strings.Builder
 	cmd.Stdout = &out
 	cmd.Stderr = &errOut

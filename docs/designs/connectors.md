@@ -3,7 +3,10 @@
 状态：v3 按国内渠道重做（2026-09-27）——渠道无关内核承自 v2 评审（cursor
 三态、rewound 防护、写入协议、投递语义分档），适配层按国内渠道（企业
 微信/微信客服/钉钉/飞书）重做；Phase 1 定为企业微信智能机器人长连接。
-待实施。
+**Phase 1 已实施（2026-10-03 对账回写）**：前置 traj 改动（LoadCursorAtEnd/
+ReadNewWithRewind）、bridge 出站泵、WS 最小客户端、企微适配器与
+`connector run/run-all/list` 均已交付（roadmap §2 现状行同期口径）；
+Phase 2 渠道按需启动。
 依赖：无（被 proactive-reporting.md 依赖）
 关联：`internal/mind/message.go`（PostMessageOnce）、`internal/traj/cursor.go`、
 `internal/mcp`（双向面）、`internal/childenv`
