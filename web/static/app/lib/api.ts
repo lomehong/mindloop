@@ -469,8 +469,14 @@ export function refreshUsage(
   });
 }
 
-export function fetchThinkers(identityId: string): Promise<ThinkersStatus> {
-  return getJson(`/api/identities/${encodeURIComponent(identityId)}/thinkers`);
+export async function fetchThinkers(identityId: string): Promise<ThinkersStatus> {
+  const status = await getJson<ThinkersStatus>(
+    `/api/identities/${encodeURIComponent(identityId)}/thinkers`
+  );
+  // 心智从未运行过的身份返回 thinkers:null——归一化为空数组，否则
+  // thinkers 页在 .map 处崩进错误边界（2026-10-04 UI 全覆盖测试实
+  // 锤：qa-e2e 的 /thinkers 整页崩）。
+  return { ...status, thinkers: status.thinkers ?? [] };
 }
 
 export function fetchThinkerSync(identityId: string): Promise<ThinkerSyncStatus> {
