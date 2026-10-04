@@ -10,6 +10,7 @@ package obs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -103,7 +104,14 @@ func UsageRecorder(dir, model, provider string, logf func(format string, args ..
 				fail("健康标记损坏，已按零值重建（旧内容: %v）", corrupt)
 			}
 			now := traj.NowString()
-			if err != nil {
+			if err != nil && admissionRejected(err) {
+				// 本地准入拒绝（每日预算/调用配额/熔断冷却）：供应商
+				// 根本没被联系——既不是失败证据（不能 ++ 连败），也
+				// 不清零连败（没有成功证据）。只刷新检查时间。否则
+				// 熔断拒绝会自刷 LastErrorAt 自我续期，治理链自锁
+				//（2026-10-04 全系统测试 #2：16→19 连败永续熔断）。
+				health.LastCheck = now
+			} else if err != nil {
 				health.ConsecutiveErrors++
 				health.LastError = err.Error()
 				health.LastErrorAt = now
@@ -158,4 +166,12 @@ func loadHealthChecked(path string) (Health, error) {
 		return Health{}, jerr
 	}
 	return h, nil
+}
+
+// admissionRejected 报告错误是否属于本地准入层拒绝（每日预算/
+// 调用配额/熔断冷却）——供应商未被联系，不构成失败证据。
+func admissionRejected(err error) bool {
+	return errors.Is(err, llm.ErrDailyBudget) ||
+		errors.Is(err, llm.ErrCircuitOpen) ||
+		errors.Is(err, llm.ErrBudgetExceeded)
 }

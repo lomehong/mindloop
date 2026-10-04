@@ -32,6 +32,16 @@ func (serviceUnavailableExecer) Run(string, ...string) (string, error) {
 	return "", fmt.Errorf("service 命令目前仅支持 Windows（任务计划程序宿主）；Linux/macOS 的 systemd user units 是后续立项")
 }
 
+// serviceName 是 host 模式安全的身份显示名：host 无 *identity.Identity
+//（serviceManager 对 "host" 返回 nil id），生命周期命令的提示行此前
+// 直接解引用 id.Name 连环崩（2026-10-04 全系统测试 #9）。
+func serviceName(id *identity.Identity) string {
+	if id == nil {
+		return "host"
+	}
+	return id.Name
+}
+
 // newServiceCmd 服务化命令组：注册与生命周期。任务设置与生命周期
 // 语义的完整决策链在 docs/designs/service.md。
 func (c *CLI) newServiceCmd() *cobra.Command {
@@ -203,7 +213,7 @@ func (c *CLI) newServiceStartCmd() *cobra.Command {
 			if err := m.Start(); err != nil {
 				return c.fail(err)
 			}
-			fmt.Fprintf(c.stdout, "已拉起身份 %s 的 %d 个任务；日志在 %s\n", id.Name, len(service.Components), service.LogDir(m.Spec))
+			fmt.Fprintf(c.stdout, "已拉起身份 %s 的 %d 个任务；日志在 %s\n", serviceName(id), len(service.Components), service.LogDir(m.Spec))
 			return nil
 		},
 	}
@@ -223,7 +233,7 @@ func (c *CLI) newServiceStopCmd() *cobra.Command {
 				return c.fail(err)
 			}
 			fmt.Fprintf(c.stdout, "已停止并禁用 %d 个任务（刻意停止：重启机制与登录自启都不再拉起）\n", len(service.Components))
-			fmt.Fprintf(c.stdout, "复活: mindloop service start %s\n", id.Name)
+			fmt.Fprintf(c.stdout, "复活: mindloop service start %s\n", serviceName(id))
 			return nil
 		},
 	}
@@ -265,7 +275,7 @@ func (c *CLI) newServiceStatusCmd() *cobra.Command {
 			if err != nil {
 				return c.fail(err)
 			}
-			mindAlive := mindRunning(id.Timeline.Dir)
+			mindAlive := id != nil && mindRunning(id.Timeline.Dir)
 			fmt.Fprintf(c.stdout, "%-32s %-10s %-24s %s\n", "任务", "状态", "上次结果", "备注")
 			for i, s := range statuses {
 				state := serviceStateText(s)
@@ -280,7 +290,7 @@ func (c *CLI) newServiceStatusCmd() *cobra.Command {
 				fmt.Fprintf(c.stdout, "%-32s %-10s %-24s %s\n", s.Name, state, serviceLastResultText(s), note)
 			}
 			if !mindAlive {
-				fmt.Fprintf(c.stdout, "\n提示: 拉起用 mindloop service start %s；组件日志在 %s\n", id.Name, service.LogDir(m.Spec))
+				fmt.Fprintf(c.stdout, "\n提示: 拉起用 mindloop service start %s；组件日志在 %s\n", serviceName(id), service.LogDir(m.Spec))
 			}
 			return nil
 		},
@@ -349,7 +359,7 @@ func (c *CLI) newServiceUninstallCmd() *cobra.Command {
 			if err := m.Uninstall(); err != nil {
 				return c.fail(err)
 			}
-			fmt.Fprintf(c.stdout, "已删除 %s 的全部服务化任务（不存在的已跳过）\n", id.Name)
+			fmt.Fprintf(c.stdout, "已删除 %s 的全部服务化任务（不存在的已跳过）\n", serviceName(id))
 			return nil
 		},
 	}

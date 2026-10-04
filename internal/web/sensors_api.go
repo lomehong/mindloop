@@ -163,7 +163,15 @@ func (s *Server) handleSensors(w http.ResponseWriter, r *http.Request, id *ident
 			return
 		}
 		if cfg.ID == "" {
-			cfg.ID = cfg.Type + "-" + id.Name + "-" + itoaLen(len(f.Sensors)+1)
+			// 自动取号要跳过删除史留下的缺号：len+1 会撞上仍在役的
+			// 旧 id（2026-10-04 全系统测试 #5：409「感官 id 已存在」）。
+			base := cfg.Type + "-" + id.Name + "-"
+			for n := len(f.Sensors) + 1; ; n++ {
+				if f.Get(base+itoaLen(n)) == nil {
+					cfg.ID = base + itoaLen(n)
+					break
+				}
+			}
 		}
 		// webhook 的 HMAC 密钥在此生成（与 CLI 同规）：独立 per-sensor
 		// 凭据，只随本次响应回显一次。

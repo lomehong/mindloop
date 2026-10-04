@@ -84,9 +84,11 @@ type runningSensor struct {
 	lastAbs  time.Time    // 最近一次缺席告警（防重复）
 }
 
-// Start 装载配置并启动全部启用的感官。没有 sensors.json = 静默
-// 不启动（感知系统整体缺位是合法状态）；配置坏 = 拒绝启动并返回
-// 错误（fail-closed：宁可不跑也不能按半份配置跑）。
+// Start 装载配置并启动全部启用的感官与热加载循环。没有 sensors.json
+// = 零感官启动（管理循环照起——否则首个感官的热加载永不兑现，
+// 2026-10-04 全系统测试 #1 实锤：qa-ui 零感官靴→add→15s 后轨迹仍
+// 无事件）；配置坏 = 拒绝启动并返回错误（fail-closed：宁可不跑也
+// 不能按半份配置跑）。
 func (r *SensorRunner) Start(ctx context.Context) error {
 	file, err := sensor.Load(r.cfgPath())
 	if err != nil {
@@ -99,9 +101,6 @@ func (r *SensorRunner) Start(ctx context.Context) error {
 				enabled[c.ID] = c
 			}
 		}
-	}
-	if len(enabled) == 0 {
-		return nil
 	}
 
 	r.mu.Lock()

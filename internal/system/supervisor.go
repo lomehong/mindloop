@@ -38,6 +38,7 @@ type childProc struct {
 	lastOK   time.Time // 稳定计时起点
 	stopping bool      // 计划内停止（不重启）
 	exited   bool      // Wait 落定（ProcessState 只在 Wait 后可用——退出判据用它）
+	fp       string    // 启动参数指纹（Args 派生）——热加载检测参数变更换参重启
 }
 
 // ChildStatus 是状态投影里一个孩子的条目。
@@ -61,10 +62,14 @@ type Supervisor struct {
 	children map[ChildName]*childProc
 	restarts map[ChildName]int
 	lastExit map[ChildName]string
-	job      jobObject
-	stopped  bool                                    // 停机：禁止一切重启路径（含已排定的退避定时器）
-	spawn    func(name ChildName) (string, []string) // 子进程命令注入点（测试用）；nil = self-exec
-	logger   func(format string, args ...any)
+	// fails 是按名字的连败计数——存活于孩子生命周期之外。挂在
+	// childProc 上会在摘除时丢失、新孩子又从 0 起，退避恒 1s
+	//（2026-10-04 全系统测试 #6：205 连崩全部 1s，指数承诺失效）。
+	fails   map[ChildName]int
+	job     jobObject
+	stopped bool                                    // 停机：禁止一切重启路径（含已排定的退避定时器）
+	spawn   func(name ChildName) (string, []string) // 子进程命令注入点（测试用）；nil = self-exec
+	logger  func(format string, args ...any)
 }
 
 // NewSupervisor 构造宿主。cfg 为 nil 时走 Defaults 推导（零配置即
@@ -91,6 +96,7 @@ func NewSupervisor(home, exe string, cfg *Config, logger func(format string, arg
 		children: map[ChildName]*childProc{},
 		restarts: map[ChildName]int{},
 		lastExit: map[ChildName]string{},
+		fails:    map[ChildName]int{},
 		logger:   logger,
 	}
 }
@@ -139,9 +145,18 @@ func (s *Supervisor) start(name ChildName) {
 	if path == "" || len(args) == 0 {
 		return
 	}
+	// 日志目录显式创建：service install 路径会建，宿主直启此前不
+	// 建——OpenFile 失败被静默吞掉，子进程输出整体丢失且无任何
+	// 痕迹（2026-10-04 全系统测试候选#7）。
+	if err := os.MkdirAll(filepath.Dir(s.logPath(name)), 0o755); err != nil && s.logger != nil {
+		s.logger("system: 日志目录创建失败（子进程输出将丢失）: %v", err)
+	}
 	logFile, err := os.OpenFile(s.logPath(name), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		logFile = nil
+		if s.logger != nil {
+			s.logger("system: %s 日志文件打开失败（子进程输出将丢失）: %v", name, err)
+		}
 	}
 	cmd := &exec.Cmd{Path: path, Args: append([]string{path}, args...)}
 	if logFile != nil {
@@ -159,7 +174,7 @@ func (s *Supervisor) start(name ChildName) {
 		return
 	}
 	s.job.assign(cmd.Process)
-	c := &childProc{name: name, cmd: cmd, logFile: logFile, started: time.Now(), lastOK: time.Now()}
+	c := &childProc{name: name, cmd: cmd, logFile: logFile, started: time.Now(), lastOK: time.Now(), fp: s.fingerprint(name)}
 	s.children[name] = c
 	// 退出的唯一落定点：ProcessState 只在 Wait 后可用——没有这个
 	// goroutine，reap 会把死孩子永远视作运行中（崩溃自愈与停后再
@@ -185,7 +200,7 @@ func (s *Supervisor) reap() {
 	for name, c := range s.children {
 		if !c.exited {
 			if now.Sub(c.lastOK) >= stableAfter {
-				c.fails = 0
+				s.fails[name] = 0 // 稳定运行清零：退避从 1s 重新起步
 				c.lastOK = now
 			}
 			continue
@@ -204,9 +219,11 @@ func (s *Supervisor) reap() {
 			}
 			continue
 		}
-		c.fails++
+		// 连败计数在 Supervisor 上（跨孩子存活）：摘除-重启不丢，
+		// 指数退避才真正翻倍（1s→2s→…→60s 封顶）。
+		s.fails[name]++
 		s.restarts[name]++
-		delay := time.Duration(1<<uint(min64(int64(c.fails-1), 6))) * time.Second // 1s 起翻倍
+		delay := time.Duration(1<<uint(min64(int64(s.fails[name]-1), 6))) * time.Second // 1s 起翻倍
 		if delay > backoffCap {
 			delay = backoffCap
 		}
@@ -256,6 +273,23 @@ func (s *Supervisor) reload() {
 		return // 零值 = 文件不存在：沿用现行（含启动时推导的缺省）
 	}
 	s.cfg = c
+	// 参数变更收敛：名字集不变但参数变了（如 web 端口 8095→8096）
+	// 的孩子，Diff 看不见——按指纹检测，标记计划内停止换参重启
+	//（reap 摘除后下一轮 applyDesiredLocked 以新参数拉起；失败计数
+	// 不涨——计划内换参不是连败）。
+	desired := c.Desired()
+	for name, ch := range s.children {
+		if ch.exited || !desired[name] {
+			continue
+		}
+		if fp := s.fingerprint(name); fp != ch.fp {
+			ch.stopping = true
+			_ = ch.cmd.Process.Kill()
+			if s.logger != nil {
+				s.logger("system: %s 参数变更，重启换参", name)
+			}
+		}
+	}
 	plan := c.Diff(s.runningLocked())
 	for name := range plan.Stop {
 		if p, ok := s.children[name]; ok {
@@ -267,6 +301,12 @@ func (s *Supervisor) reload() {
 	if s.logger != nil && (len(plan.Start) > 0 || len(plan.Stop) > 0) {
 		s.logger("system: 配置热加载（+%d/-%d）", len(plan.Start), len(plan.Stop))
 	}
+}
+
+// fingerprint 是配置派生的孩子参数指纹：热加载对比用——名字集
+// 相同而参数不同的变更靠它收敛（Diff 只看名字集）。
+func (s *Supervisor) fingerprint(name ChildName) string {
+	return strings.Join(Args(name, s.cfg), "\x00")
 }
 
 func (s *Supervisor) runningLocked() map[ChildName]bool {
@@ -300,6 +340,22 @@ func (s *Supervisor) stopAll() {
 	for _, c := range s.children {
 		c.stopping = true
 		_ = c.cmd.Process.Kill()
+	}
+	// 有界等待孩子退出并同步收割（关日志句柄、摘出映射）：宿主
+	// 返回后不留持句柄的垂死孩子——否则 Windows 上日志文件被继承
+	// 句柄锁住，停机后的目录清理/轮转全部撞锁（2026-10-04 测试实
+	// 证：退避拉长后清理窗口撞上）。退出判定 c.exited 由 start 的
+	// Wait goroutine 落定（其持锁窗口极短，这里解锁轮询）。
+	deadline := time.Now().Add(3 * time.Second)
+	for _, c := range s.children {
+		for !c.exited && time.Now().Before(deadline) {
+			s.mu.Unlock()
+			time.Sleep(20 * time.Millisecond)
+			s.mu.Lock()
+		}
+		if c.exited {
+			s.removeChildLocked(c.name)
+		}
 	}
 }
 

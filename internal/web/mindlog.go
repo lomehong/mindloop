@@ -388,6 +388,12 @@ func snippetAround(s string, idx, width int) string {
 // handleRunCommand 返回某次 run 的 prompt 全文（viewer 的
 // command_truncated 展开按钮用）。
 func (s *Server) handleRunCommand(w http.ResponseWriter, r *http.Request, id *identity.Identity, rest []string) {
+	if len(rest) == 0 {
+		// GET /api/identities/{名}/runs 裸路径（无 run id）此前在
+		// rest[0] 越界 panic 杀掉连接（2026-10-04 全系统测试 #3）。
+		writeError(w, 400, "缺少 run id")
+		return
+	}
 	runID := rest[0]
 	steps, err := id.Timeline.Steps()
 	if err != nil {

@@ -75,7 +75,7 @@ monolith 负责自主行动；闲置时指数回退（每级驻留 --idle-hold �
 			if err != nil {
 				return c.fail(err)
 			}
-			fmt.Fprintf(c.stderr, "心智 %s 启动（Ctrl+C 停机）。与它对话: mindloop chat ada 或 mindloop mind say ada \"...\"\n", id.Name)
+			fmt.Fprintf(c.stderr, "心智 %s 启动（Ctrl+C 停机）。与它对话: mindloop chat %[1]s 或 mindloop mind say %[1]s \"...\"\n", id.Name)
 			// 持锁启动：持久任务恢复只允许在身份运行权下进行；在途执行
 			// 未退出前锁不释放（defer lock.Release() 只请求释放）。
 			runErr := stack.dispatcher.RunOwned(c.ctx, lock)

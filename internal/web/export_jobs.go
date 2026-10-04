@@ -231,7 +231,11 @@ func (s *Server) handleIdentityExport(w http.ResponseWriter, r *http.Request, id
 //   - .env——密钥不进任何可携带归档（单身份导出与全量导出共用同一条
 //     铁律；此前"导出全部"漏掉这条规则，把每个身份的 API key 原样
 //     打包进了下载产物——归档一旦被共享或备份即密钥泄露）；
-//   - run/——运行控制面（运行锁、停机标志、wake 信号）。
+//   - run/ 目录——运行控制面（运行锁、停机标志、wake 信号）。任意
+//     深度匹配：轨迹目录下的同名控制面同样绝不进归档（2026-10-04
+//     全系统测试候选#4：仅匹配身份根深度漏掉 9 条深层 run/）。
+//     例外：runs/ 前缀是运行工作现场，归档与否由 slim 决定，本条
+//     不越权（runs/run 仍是可导出内容——测试钉死的边界）。
 //
 // rel 必须是 slash 分隔的相对路径；top 是身份目录在 rel 中的层号：
 // 单身份导出为 0（rel 形如 ".env"、"run/x"），全量导出为 1（第 0 层
@@ -239,11 +243,18 @@ func (s *Server) handleIdentityExport(w http.ResponseWriter, r *http.Request, id
 // （保守排除）。
 func archiveExcluded(rel string, top int) bool {
 	parts := strings.Split(rel, "/")
-	if top < len(parts) && parts[top] == "run" {
-		return true
+	_ = top // 保留参数形状（调用方两处），排除规则已收敛为任意层
+	if rel == "runs" || strings.HasPrefix(rel, "runs/") {
+		// 工作现场：本函数只管 .env 铁律。
+		for _, part := range parts {
+			if part == ".env" {
+				return true
+			}
+		}
+		return false
 	}
 	for _, part := range parts {
-		if part == ".env" {
+		if part == ".env" || part == "run" {
 			return true
 		}
 	}
