@@ -32,7 +32,7 @@ func newTestServer(t *testing.T, allow []string, foreground string) (*Server, *[
 	s.typeText = func(text string) error { *acted = true; return nil }
 	s.focus = func(substr string) (string, error) {
 		*actions = append(*actions, "focus "+substr)
-		return "fake-"+substr, nil
+		return "fake-" + substr, nil
 	}
 	return s, actions, acted
 }

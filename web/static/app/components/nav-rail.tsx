@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Activity, ChevronLeft, ChevronRight, LayoutGrid, Minus, Moon, PanelLeft, Plus, RefreshCw, Square, Sun, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, LayoutGrid, Minus, Moon, PanelLeft, Plus, RefreshCw, Square, Sun, X } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Link, useLocation, useNavigationType } from "react-router";
@@ -9,21 +9,16 @@ import { CredentialControl } from "~/components/credential-control";
 import { NewTaskDialog } from "~/components/new-task-dialog";
 import { useControlsEnabled } from "~/components/thinker-controls";
 import { Button } from "~/components/ui/button";
-import {
-  fetchConfig,
-  fetchIdentities,
-  fetchLlmHealth,
-  probeLlm,
-  selfUpdate,
-} from "~/lib/api";
-import type { Config, LlmProbeResult } from "~/lib/types";
+import { fetchConfig, fetchIdentities, selfUpdate } from "~/lib/api";
+import type { Config } from "~/lib/types";
 
 // Trellis 左导航栏（docs/designs/ui-language.md）：新的任务（打开派发
-// 对话框）+「工作区」身份列表；底部常驻操作员控件（凭据/LLM 健康/构建/
-// 主题）。顶排：面板钮（左栏展开/收起）+ 壳内窗体 chrome（拖动/双击最大
-// 化/后退/前进，对齐 Qoder 左上角导航簇）。最小化/最大化/关闭在窗口右上
-// 角（root.tsx 挂载）——壳自身不再渲染标题栏（capabilities/default.json
-// 已开放 main 窗远程源 IPC；浏览器里这些按钮自动隐藏）。
+// 对话框）+「工作区」身份列表；底部常驻操作员控件（凭据/构建）。顶排：
+// 面板钮（左栏展开/收起）+ 壳内窗体 chrome（拖动/双击最大化/后退/前进，
+// 对齐 Qoder 左上角导航簇）。右上角 = 主题切换 + 最小化/最大化/关闭
+// 控件簇（root.tsx 挂载；浏览器里窗控三钮自动隐去、只留主题钮）。LLM
+// 健康读数归右侧系统面板（导航栏不再挂气泡）。壳自身不渲染标题栏
+// （capabilities/default.json 已开放 main 窗远程源 IPC）。
 
 /** 左栏展开/收起（窄图标栏形态）。模块级外部存储：NavRail 多处渲染与
  * root.tsx 的拖动带（left 边界跟随）共享同一状态；持久化 localStorage。 */
@@ -54,21 +49,21 @@ function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
-  if (!mounted) return <div className="h-8 w-8" />;
+  if (!mounted) return <div className="h-7 w-7" />;
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="h-8 w-8"
+    <button
+      type="button"
+      className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
       onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
       aria-label="切换主题"
+      title="切换主题"
     >
       {resolvedTheme === "dark" ? (
-        <Sun className="h-4 w-4" />
+        <Sun className="size-3.5" />
       ) : (
-        <Moon className="h-4 w-4" />
+        <Moon className="size-3.5" />
       )}
-    </Button>
+    </button>
   );
 }
 
@@ -93,171 +88,6 @@ function pollForNewBuild(oldCommit: string, timeoutMs = 5 * 60 * 1000) {
     setTimeout(tick, 3000);
   };
   setTimeout(tick, 3000);
-}
-
-/** Headline for a hard failure on the last real LLM call (from bin/llm's
- * marker). Shown in the chip itself so it is visible on every page. */
-const LAST_CALL_LABEL: Record<string, string> = {
-  credit: "余额耗尽",
-  auth: "密钥被拒",
-  rate: "请求被限流",
-  other: "上次调用失败",
-};
-const LAST_CALL_HINT: Record<string, string> = {
-  openrouter: "https://openrouter.ai/settings/credits",
-  anthropic: "https://console.anthropic.com/settings/billing",
-  openai: "https://platform.openai.com/settings/organization/billing",
-};
-
-const HEALTH_DOT: Record<string, string> = {
-  ok: "bg-primary",
-  degraded: "bg-resin",
-  erroring: "bg-clay",
-  unknown: "bg-muted-foreground/40",
-};
-
-/** LLM provider health: passive signals from the mind logs (failure-marker
- * steps, thought cadence), plus an on-demand real probe call. */
-export function LlmHealthChip({ compact }: { compact?: boolean }) {
-  const controlsEnabled = useControlsEnabled();
-  const [open, setOpen] = useState(false);
-  const [probing, setProbing] = useState(false);
-  const [probe, setProbe] = useState<LlmProbeResult | null>(null);
-
-  const { data: health } = useQuery({
-    queryKey: ["llm-health"],
-    queryFn: fetchLlmHealth,
-    refetchInterval: 30000,
-  });
-  if (!health || (health.status === "unknown" && !health.last_call)) return null;
-  const last = health.last_call ?? null;
-  const hardFail = !!last && !last.ok && (last.kind === "credit" || last.kind === "auth");
-  const failLabel = last && !last.ok ? LAST_CALL_LABEL[last.kind ?? "other"] : null;
-
-  const runProbe = async () => {
-    setProbing(true);
-    setProbe(null);
-    try {
-      setProbe(await probeLlm());
-    } catch (error) {
-      toast.error((error as Error).message);
-    } finally {
-      setProbing(false);
-    }
-  };
-
-  return (
-    <div className="relative">
-      <button
-        className={`inline-flex h-8 items-center gap-1.5 font-mono text-[11px] leading-none hover:text-foreground ${
-          hardFail
-            ? `rounded bg-clay/15 font-semibold text-clay ${compact ? "px-1.5" : "px-2"}`
-            : "text-muted-foreground"
-        }`}
-        title={`LLM 供应商：${health.status}${failLabel ? ` — ${failLabel}` : ""}`}
-        onClick={() => setOpen(!open)}
-      >
-        <span className={`inline-block h-2 w-2 rounded-full ${HEALTH_DOT[health.status]}`} />
-        {!compact && (hardFail ? `llm: ${failLabel}` : "llm")}
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-8 left-0 z-50 w-80 space-y-2 rounded-md border bg-popover p-3 text-xs text-popover-foreground shadow-md">
-            <div className="flex items-baseline justify-between">
-              <span className="font-medium">
-                LLM 供应商：<span className="font-mono">{health.status}</span>
-              </span>
-              <span className="text-[10px] text-muted-foreground">
-                最近一小时 {health.failures_1h} 次失败
-              </span>
-            </div>
-            {last && !last.ok && (
-              <div
-                className={`rounded border p-2 ${
-                  hardFail ? "border-clay/40 bg-clay/10" : "border-resin/40 bg-resin/10"
-                }`}
-              >
-                <div className="font-semibold">
-                  最近一次调用失败：{failLabel}
-                  {last.http_code ? `（HTTP ${last.http_code}）` : ""}
-                </div>
-                {last.message && (
-                  <div className="mt-1 break-words text-[11px] text-muted-foreground">{last.message}</div>
-                )}
-                {last.kind === "credit" && (
-                  <div className="mt-1 text-[11px]">
-                    心智仍在持续尝试，但在密钥充值之前，每次思考都会失败。
-                    {last.provider && LAST_CALL_HINT[last.provider] && (
-                      <>
-                        前往{" "}
-                        <a className="underline" href={LAST_CALL_HINT[last.provider]} target="_blank" rel="noreferrer">
-                          {LAST_CALL_HINT[last.provider]}
-                        </a>
-                        {" "}充值，或在服务根目录的 .env 里更新 key 后重启心智。
-                      </>
-                    )}
-                  </div>
-                )}
-                {last.kind === "auth" && (
-                  <div className="mt-1 text-[11px]">请在服务根目录的 .env 里填入有效的 key，然后重启心智。</div>
-                )}
-                {last.ts && <div className="mt-1 text-[10px] text-muted-foreground">最近尝试 {last.ts}</div>}
-              </div>
-            )}
-            {health.identities.map((identity) => (
-              <div key={identity.id} className="rounded border p-2">
-                <div className="flex items-baseline gap-2 font-mono">
-                  <span>{identity.name}</span>
-                  {identity.live && <span className="text-primary">运行中</span>}
-                  <span className="ml-auto text-muted-foreground">
-                    {identity.failures_1h > 0
-                      ? `${identity.failures_1h} 次失败/小时`
-                      : "无失败"}
-                  </span>
-                </div>
-                {identity.cadence && (
-                  <div className="text-muted-foreground">
-                    思考节奏：中位 {identity.cadence.recent_median_s}s
-                    {identity.cadence.baseline_median_s
-                      ? `（基线 ${identity.cadence.baseline_median_s}s）`
-                      : ""}
-                  </div>
-                )}
-                {identity.last_failure && (
-                  <div className="mt-1 text-[10px] text-muted-foreground">
-                    最近：{identity.last_failure.content}
-                  </div>
-                )}
-              </div>
-            ))}
-            {controlsEnabled && (
-              <div className="space-y-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                  disabled={probing}
-                  title="发起一次真实的 LLM 调用（成本几分钱）"
-                  onClick={runProbe}
-                >
-                  <Activity className={`size-3 ${probing ? "animate-pulse" : ""}`} />
-                  {probing ? "探测中…" : "立即探测供应商"}
-                </Button>
-                {probe && (
-                  <div className="font-mono text-[11px]">
-                    {probe.ok
-                      ? `成功 · ${probe.latency_ms}ms${probe.provider ? ` · 经由 ${probe.provider}` : ""}`
-                      : `失败 · ${probe.error}`}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
 }
 
 /** The build stamp doubles as a meta menu: click for server details and —
@@ -375,13 +205,12 @@ function RailItem({
   );
 }
 
-/** 壳内窗体控制钮：最小化 / 最大化 / 关闭（关闭 = 缩入托盘，壳的
- * CloseRequested 处理会拦下销毁）。非壳环境（浏览器）不渲染。
- * 挂载点 = 窗口右上角（root.tsx），不随导航栏。 */
+/** 右上角控件簇：主题切换 +（壳内）最小化 / 最大化 / 关闭（关闭 = 缩入
+ * 托盘，壳的 CloseRequested 处理会拦下销毁）。挂载点 = 窗口右上角
+ * （root.tsx），不随导航栏；浏览器环境只渲染主题钮、窗控三钮自动隐去。 */
 export function ShellControls() {
   const tauri = typeof window !== "undefined" ? (window as { __TAURI__?: any }).__TAURI__ : null;
-  if (!tauri?.window) return null;
-  const w = tauri.window.getCurrentWindow();
+  const w = tauri?.window?.getCurrentWindow?.();
   const btn =
     "grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground";
   return (
@@ -390,27 +219,32 @@ export function ShellControls() {
       onPointerDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
     >
-      <button
-        className={btn}
-        aria-label="最小化"
-        onClick={() => w.minimize().catch(() => {})}
-      >
-        <Minus className="size-3.5" />
-      </button>
-      <button
-        className={btn}
-        aria-label="最大化或还原"
-        onClick={() => w.toggleMaximize().catch(() => {})}
-      >
-        <Square className="size-3" />
-      </button>
-      <button
-        className={`${btn} hover:bg-clay hover:text-white`}
-        aria-label="关闭（缩入托盘）"
-        onClick={() => w.close().catch(() => {})}
-      >
-        <X className="size-3.5" />
-      </button>
+      <ThemeToggle />
+      {w && (
+        <>
+          <button
+            className={btn}
+            aria-label="最小化"
+            onClick={() => w.minimize().catch(() => {})}
+          >
+            <Minus className="size-3.5" />
+          </button>
+          <button
+            className={btn}
+            aria-label="最大化或还原"
+            onClick={() => w.toggleMaximize().catch(() => {})}
+          >
+            <Square className="size-3" />
+          </button>
+          <button
+            className={`${btn} hover:bg-clay hover:text-white`}
+            aria-label="关闭（缩入托盘）"
+            onClick={() => w.close().catch(() => {})}
+          >
+            <X className="size-3.5" />
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -654,13 +488,9 @@ export function NavRail() {
         <div className={collapsed ? "" : "px-1.5"}>
           <CredentialControl compact={collapsed} />
         </div>
-        <div className={collapsed ? "" : "px-1.5"}>
-          <LlmHealthChip compact={collapsed} />
-        </div>
         {config?.git_commit && !collapsed && (
           <div className="px-1.5"><BuildMenu config={config} /></div>
         )}
-        <div className={collapsed ? "" : "px-1.5"}><ThemeToggle /></div>
       </div>
 
       <NewTaskDialog open={taskOpen} onOpenChange={setTaskOpen} />

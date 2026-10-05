@@ -4,6 +4,7 @@ robotd.exe
 *.exe~
 *.test
 *.out
+dist/
 
 # 本地演示/调试状态
 .demo-home/

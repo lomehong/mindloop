@@ -22,4 +22,6 @@ func RightClick(int, int) error { return ErrUnsupported }
 
 func TypeText(string) error { return ErrUnsupported }
 
-func OperatorIdle() (time.Duration, error) { return 0, ErrUnsupported }
+// lastInputAge 非 Windows 降级：robot.go 的 OperatorIdle 包装转调这里，
+// 与 screen_windows.go 保持同一符号契约（包装器无平台分身）。
+func lastInputAge() (time.Duration, error) { return 0, ErrUnsupported }

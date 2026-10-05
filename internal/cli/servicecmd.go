@@ -33,7 +33,7 @@ func (serviceUnavailableExecer) Run(string, ...string) (string, error) {
 }
 
 // serviceName 是 host 模式安全的身份显示名：host 无 *identity.Identity
-//（serviceManager 对 "host" 返回 nil id），生命周期命令的提示行此前
+// （serviceManager 对 "host" 返回 nil id），生命周期命令的提示行此前
 // 直接解引用 id.Name 连环崩（2026-10-04 全系统测试 #9）。
 func serviceName(id *identity.Identity) string {
 	if id == nil {

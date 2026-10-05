@@ -40,8 +40,8 @@ var (
 	procIsWindowVisible     = modUser32.NewProc("IsWindowVisible")
 	procSendInput           = modUser32.NewProc("SendInput")
 	procSetCursorPos        = modUser32.NewProc("SetCursorPos")
-	procGetCursorPos = modUser32.NewProc("GetCursorPos")
-	procGetTickCount = modKernel32.NewProc("GetTickCount")
+	procGetCursorPos        = modUser32.NewProc("GetCursorPos")
+	procGetTickCount        = modKernel32.NewProc("GetTickCount")
 	procIsIconic            = modUser32.NewProc("IsIconic")
 	procShowWindow          = modUser32.NewProc("ShowWindow")
 	procGetLastInputInfo    = modUser32.NewProc("GetLastInputInfo")
@@ -70,16 +70,16 @@ const (
 	inputMouse    = 0
 	inputKeyboard = 1
 
-	mouseeventfLeftdown = 0x0002
-	mouseeventfLeftup   = 0x0004
+	mouseeventfLeftdown  = 0x0002
+	mouseeventfLeftup    = 0x0004
 	mouseeventfRightdown = 0x0008
 	mouseeventfRightup   = 0x0010
 
-	keyeventfKeyup    = 0x0002
-	keyeventfUnicode  = 0x0004
-	vkReturn          = 0x0D
-	vkTab             = 0x09
-	vkMenu            = 0x12
+	keyeventfKeyup   = 0x0002
+	keyeventfUnicode = 0x0004
+	vkReturn         = 0x0D
+	vkTab            = 0x09
+	vkMenu           = 0x12
 
 	// inputUnionBytes 是 INPUT 联合体最大成员 MOUSEINPUT 在 64 位
 	// 上的字节数（dx/dy/mouseData/dwFlags/time + 对齐 + dwExtraInfo）。
@@ -241,7 +241,7 @@ func FocusWindow(substr string) (string, error) {
 // 分叉。查询失败（dwmapi 缺失/老系统）按未遮挡处理，不阻塞动作。
 func windowCloaked(hwnd uintptr) (bool, error) {
 	var cloaked uint32
-	r, _, err := procDwmGetWindowAttribute.Call(hwnd, 14 /* DWMWA_CLOAKED */,
+	r, _, err := procDwmGetWindowAttribute.Call(hwnd, 14, /* DWMWA_CLOAKED */
 		uintptr(unsafe.Pointer(&cloaked)), unsafe.Sizeof(cloaked))
 	if r != 0 {
 		return false, err

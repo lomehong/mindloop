@@ -6,8 +6,8 @@ package robot
 import (
 	"bytes"
 	"fmt"
-	"image/png"
 	"image/jpeg"
+	"image/png"
 )
 
 // FitForVision 把 PNG 控制在 maxBytes 内：达标原样返回（image/png）；

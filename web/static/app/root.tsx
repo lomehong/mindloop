@@ -193,12 +193,11 @@ export default function App() {
             </div>
           ) : (
             <div className="relative flex h-screen min-w-0 bg-background">
-              {/* 壳内：窗口右上角的窗体控制钮（浮在内容卡上方） */}
-              {inShell && (
-                <div className="absolute right-2 top-2 z-[70]">
-                  <ShellControls />
-                </div>
-              )}
+              {/* 窗口右上角控件簇：主题切换 +（壳内）窗控三钮——浮在
+                  内容卡上方、脱离导航栏。浏览器里只剩主题钮。 */}
+              <div className="absolute right-2 top-2 z-[70]">
+                <ShellControls />
+              </div>
               {/* 壳内：顶部拖动带——16px 通栏顶边 + 内容区 44px 留白带
                   （左栏顶排 224×32 自行承担）。缺了它整条窗顶几乎无处可拖。 */}
               {inShell && (

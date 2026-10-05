@@ -106,15 +106,20 @@ async function credentialsPage() {
 }
 
 async function llmPage() {
-  // navbar 的 "llm" 是下拉按钮（LLM 供应商健康气泡），不是路由页。
+  // LLM 健康读数在右侧系统面板（导航栏 llm 气泡已删除）；「详情」展开
+  // 承接原气泡内容（失败详情/思考节奏/即时探测）。
   await gotoPath("/");
-  await page.getByRole("button", { name: "llm" }).first().click();
-  await page.getByText("LLM 供应商：").waitFor({ timeout: 5000 });
+  assert(
+    (await page.getByRole("button", { name: "llm" }).count()) === 0,
+    "导航栏 llm 气泡应已移除"
+  );
+  const panel = page.locator("aside:has-text('LLM 供应商')").first();
+  await panel.waitFor({ timeout: 5000 });
+  await panel.getByRole("button", { name: "详情" }).click();
+  await page.waitForTimeout(300);
   const text = await page.locator("body").innerText();
-  assert(!/sk-[A-Za-z0-9]{16,}/.test(text), "llm 气泡疑似泄露明文凭据");
-  await page.keyboard.press("Escape");
-  await page.mouse.click(10, 300);
-  await shot("G4-llm-dropdown");
+  assert(!/sk-[A-Za-z0-9]{16,}/.test(text), "llm 详情疑似泄露明文凭据");
+  await shot("G4-llm-details");
 }
 
 // —— 身份页：6 tab + 子页段逐页盘点 ——————————————————————
