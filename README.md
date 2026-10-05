@@ -185,6 +185,12 @@ mindloop mind status ada                         # 运行状态 + 最近活动
 mindloop mind history ada -n 10                  # 对话记录
 mindloop mind stop ada                           # 优雅停机
 
+# 显式委托（任务）：提交落盘即事实（不依赖随后启动执行），心智
+# 领取执行；wait 只观察不触发，cancel/retry 幂等带回执
+mindloop task submit ada "排查上周 CI 失败并给出修复建议"
+mindloop task list ada                           # show/wait/cancel/retry <前缀>
+# 自主唤醒上下文携带任务看板（状态投影：状态/短 id/时间，不含任务内容）
+
 # 记忆库：agent 在沙箱里用 $MINDLOOP_EXE mem add 自己写，
 # 人用同一套命令读写——工具同时是它的和人的
 mindloop mem add --identity ada --type fact "操作员偏好简短回复"
@@ -228,8 +234,9 @@ mindloop mcp serve --identity ada    # stdio 传输；客户端 tool 调用 =
 # MCP 服务器也支持 streamable HTTP 传输（2025-03-26+ 规范）：配置
 # {"url": "https://...", "headers": {"Authorization": "Bearer ..."}} 即可。
 
-# 仪表盘：身份/时间线/思考者控制/记忆/对话/recap/用量/配置等
-# 15 个页面。首次使用需先构建前端，见下文「仪表盘：构建与部署」。
+# 仪表盘：轨迹/对话/任务/记忆/运行/感知/设置 7 个页签，
+# 共 20 个页面（桌面 16 + talk 手机面 3 + pet）。首次使用需先
+# 构建前端，见下文「仪表盘：构建与部署」。
 mindloop web                                   # 默认 http://127.0.0.1:8080
 mindloop web --host 0.0.0.0 --token <秘密>      # 局域网暴露必须配 Token
 
@@ -368,9 +375,9 @@ tiers 逐档覆盖）。档案
    （粗层）+ 原文尾窗（细层）。
 8. **[x] 观测面**——用量台账（usage/llm-usage.jsonl）、健康标记
    （llm-health.json，连续错误计数）、`mind chat` 对话视图。
-9. **[x] 仪表盘**——`mindloop web`：身份/时间线/思考者控制/记忆/
-   对话/recap/用量/配置等 15 个页面，写端点方法路由 + 同源守卫 +
-   非回环绑定强制 Token（见 web 包注释）。
+9. **[x] 仪表盘**——`mindloop web`：轨迹/对话/任务/记忆/运行/
+   感知/设置 7 个页签共 20 个页面（含 talk 手机面与 pet），写端点
+   方法路由 + 同源守卫 + 非回环绑定强制 Token（见 web 包注释）。
 10. **[x] 技能与工具扩展面**——Agent Skills 开放标准（SKILL.md
    解析校验、身份/全局两层技能库、系统提示渐进披露）+ MCP 标准
    客户端（mcpServers 配置互通、stdio JSON-RPC、沙箱内经

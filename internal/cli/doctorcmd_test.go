@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lomehong/mindloop/internal/identity"
 )
 
 // writeHomeFile 用 os.Root 把测试写入限制在状态根内（路径无法越出
@@ -111,5 +114,52 @@ func TestDoctorTierLabel(t *testing.T) {
 	}
 	if !strings.Contains(out, "viewer-dist") || !strings.Contains(out, "环境变量指定") {
 		t.Fatalf("viewer 行应报告环境变量指定的来源分级:\n%s", out)
+	}
+}
+
+// TestDoctorSensors：感官体检（第八项）——无 --identity 给提示；
+// 指定身份时列感官清单，不可达观察目标点名警告（配置错误绝不静默：
+// "感知没醒"要能诊断）而不是判失败。
+func TestDoctorSensors(t *testing.T) {
+	home := newTestHome(t)
+	t.Setenv("MINDLOOP_MODEL", "echo")
+	t.Setenv("MINDLOOP_SPONTANEOUS_TOKENS", "1000")
+
+	code, out, _ := runCLI(t, "doctor", "--no-probe")
+	if code != 0 {
+		t.Fatalf("exit = %d:\n%s", code, out)
+	}
+	if !strings.Contains(out, "感知") || !strings.Contains(out, "按身份配置——加 --identity") {
+		t.Fatalf("未指定身份应给提示:\n%s", out)
+	}
+
+	if _, err := identity.Create(context.Background(), "ada"); err != nil {
+		t.Fatal(err)
+	}
+	writeHomeFile(t, home, filepath.Join("identities", "ada", "sensors.json"), `{"version":1,"sensors":[
+		{"id":"web1","type":"web","url":"https://x.example","learning_days":-1},
+		{"id":"missing","type":"file","path":"D:/definitely-not-there-xyz","learning_days":-1}
+	]}`)
+
+	code, out, _ = runCLI(t, "doctor", "--no-probe", "--identity", "ada")
+	if code != 0 {
+		t.Fatalf("exit = %d（警告不该判失败）:\n%s", code, out)
+	}
+	for _, want := range []string{"感知", "web1(web)", "missing（目标不可达"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("感官体检缺 %q:\n%s", want, out)
+		}
+	}
+
+	// 全部禁用：如实报"全部禁用"，不列空清单。
+	writeHomeFile(t, home, filepath.Join("identities", "ada", "sensors.json"), `{"version":1,"sensors":[
+		{"id":"web1","type":"web","url":"https://x.example","enabled":false}
+	]}`)
+	code, out, _ = runCLI(t, "doctor", "--no-probe", "--identity", "ada")
+	if code != 0 {
+		t.Fatalf("exit = %d:\n%s", code, out)
+	}
+	if !strings.Contains(out, "全部禁用") {
+		t.Fatalf("全禁用应如实报出:\n%s", out)
 	}
 }

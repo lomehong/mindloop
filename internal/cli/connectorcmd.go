@@ -235,7 +235,8 @@ func (c *CLI) newConnectorRunCmd() *cobra.Command {
 }
 
 // newConnectorRunAllCmd 拉起全部已配置渠道。渠道清单就是本文件里
-// 的 runs 映射——加渠道时在这里登记（Phase 2：微信客服/钉钉/飞书）。
+// 的 runs 映射——加渠道时在这里登记（Phase 2 名单：微信客服/钉钉/
+// 飞书，均未实施）。
 func (c *CLI) newConnectorRunAllCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run-all <身份名>",

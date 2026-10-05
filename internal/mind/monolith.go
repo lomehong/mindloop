@@ -239,7 +239,7 @@ func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
 	res, err := runner.Run(ctx, runner.Options{
 		Timeline:       m.opts.Timeline,
 		Thinker:        thinker,
-		Task:           m.wakeTask(reason, w),
+		Task:           m.wakeTask(ctx, reason, w),
 		SystemPrompt:   m.systemPrompt(),
 		ContextBudget:  m.opts.ContextBudget,
 		LaunchedBy:     m.Name(),
@@ -443,20 +443,27 @@ func mcpSection(servers []string) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// wakeTask 构造唤醒任务：唤醒原因 + 人生分集（粗层，recap 缓存）
-// + 相关记忆（BM25 检索近期思维流对记忆库的关联）+ 自组合提示
-// （agent 用同一套 CLI 写自己的记忆——工具同时是它的和人的）。
+// wakeTask 构造唤醒任务：唤醒原因 + 任务看板（持久队列投影）+
+// 人生分集（粗层，recap 缓存）+ 相关记忆（BM25 检索近期思维流对
+// 记忆库的关联）+ 自组合提示（agent 用同一套 CLI 写自己的记忆——
+// 工具同时是它的和人的）。
 //
 // 分段预算：唤醒原因与指令受保护（超限不裁剪——最终由 runner
-// 的受保护检查兜底报错），人生分集与相关记忆按各自上限裁剪；
-// 同一账本下小总预算会级联收缩后两者。
-func (m *monolith) wakeTask(reason string, w Wake) string {
+// 的受保护检查兜底报错），任务看板、人生分集与相关记忆按各自
+// 上限裁剪；同一账本下小总预算会级联收缩后三者。
+func (m *monolith) wakeTask(ctx context.Context, reason string, w Wake) string {
 	budget := prompt.NewBudget(m.opts.ContextBudget)
 	head := fmt.Sprintf("你在 %s 被唤醒（原因: %s）。回顾下方的近期思维流，决定并执行下一步。无事可做时，把 FINAL=\"IDLE\" 写进代码块内执行（写在块外不生效）。",
 		traj.NowString(), reason)
 	_ = budget.TakeProtected("wake", head)
 	var b strings.Builder
 	b.WriteString(head)
+	if board := m.taskBoard(ctx); board != "" {
+		if seg := budget.TakeCapped("taskboard", board, taskBoardBytes); seg != "" {
+			b.WriteString("\n\n")
+			b.WriteString(seg)
+		}
+	}
 	if m.opts.EnableRecap {
 		if life, err := recap.RenderAutonomousLife(m.opts.Timeline.Dir, 20); err == nil && life != "" {
 			if seg := budget.TakeCapped("recap", life, summaryCap(m.opts.SummaryBytes)); seg != "" {

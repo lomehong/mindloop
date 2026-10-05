@@ -103,3 +103,60 @@ func TestStatsEmpty(t *testing.T) {
 		t.Fatalf("应引导 init:\n%s", out)
 	}
 }
+
+// TestStatsTasteLine：味觉证据面（舌的投影）进 stats——零信号给提示
+// 行；有证据时撤销归因与漏报匹配成行（漏报带 ⚠）。这钉的是
+// statscmd 的 printTaste 接线：DeriveTaste 有单测，但"stats 输出里
+// 真的有一行"此前无人验证。
+func TestStatsTasteLine(t *testing.T) {
+	newTestHome(t)
+	writeLedger(t, os.Getenv("MINDLOOP_HOME"), []float64{5}, -1)
+
+	// 零信号（学习期常态）：一行提示而不是空白。
+	code, out, errOut := runCLI(t, "stats", "--identity", "ada")
+	if code != 0 {
+		t.Fatalf("exit = %d\nout=%s\nerr=%s", code, out, errOut)
+	}
+	if !strings.Contains(out, "味觉    （窗口内无归因信号") {
+		t.Fatalf("零信号应有提示行:\n%s", out)
+	}
+
+	// 证据面：S0 沉淀 + undo 归因 + operator 提及 → 阈值过紧 1、漏报 1。
+	id, err := identity.Load("ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendStep := func(s traj.Step) {
+		t.Helper()
+		if err := id.Timeline.Append(context.Background(), s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ev := traj.NewStep(traj.TypeEvent)
+	ev.Fields["source"] = "fs1"
+	ev.Fields["subject"] = "D:/work/report-q3.xlsx"
+	ev.Fields["salience"] = "s0"
+	appendStep(ev)
+	taste := traj.NewStep(traj.TypeTaste)
+	taste.Fields["signal"] = "undo"
+	taste.Fields["cause"] = "proposal-redundant"
+	appendStep(taste)
+	msg := traj.NewStep(traj.TypeMessage)
+	msg.Fields["from"] = "operator"
+	msg.Fields["to"] = "ada"
+	msg.Fields["content"] = "report-q3.xlsx 改了你怎么没说？"
+	appendStep(msg)
+
+	code, out, errOut = runCLI(t, "stats", "--identity", "ada")
+	if code != 0 {
+		t.Fatalf("exit = %d\nout=%s\nerr=%s", code, out, errOut)
+	}
+	for _, want := range []string{
+		"味觉    撤销 1（提案多余 1）",
+		"⚠ 漏报匹配 1 次（D:/work/report-q3.xlsx）",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("味觉行缺 %q:\n%s", want, out)
+		}
+	}
+}

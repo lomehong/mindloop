@@ -52,7 +52,10 @@ func (s *GitSensor) runGit(ctx context.Context, dir string, args ...string) (str
 		return "", fmt.Errorf("git 感官目录不可用: %s", dir)
 	}
 	all := append([]string{s.gitPath, "-C", dir}, args...)
-	cmd := &exec.Cmd{Path: s.gitPath, Args: all}
+	// GIT_OPTIONAL_LOCKS=0：后台轮询的 status 抢 .git/index.lock 会让
+	// 用户自己的 git add/commit 偶发失败（全量测试曾复现）——只读观察
+	// 不该拿可选锁。
+	cmd := &exec.Cmd{Path: s.gitPath, Args: all, Env: append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")}
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err

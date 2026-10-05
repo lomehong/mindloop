@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
+	"github.com/lomehong/mindloop/internal/ids"
 	"github.com/lomehong/mindloop/internal/llm"
 	"github.com/lomehong/mindloop/internal/runner"
 	"github.com/lomehong/mindloop/internal/task"
@@ -183,4 +186,100 @@ func settleTask(ctx context.Context, store *task.Store, item task.Task, ev task.
 		}
 	}
 	return task.Task{}, task.ErrTransition
+}
+
+// 任务看板的渲染边界：条数与字节双上限，防止积压把唤醒上下文撑爆
+// （超出留指示，完整列表随时经 task list 取回）。
+const (
+	taskBoardBytes   = 2048
+	taskBoardOpenMax = 12
+	taskBoardDoneMax = 3
+)
+
+// taskBoard 渲染任务队列的状态投影（roadmap §2.4"计划即轨迹"的落地
+// 形态）：未结在前（提交序=FIFO 优先级）、最近结束少量在后，只列
+// 状态/id/时间——自主上下文不得重放聊天或任务内容（未授权要求不得
+// 回流为执行线索），内容只在领取后的执行上下文里出现。
+// 无任务返回空串——空看板不进唤醒上下文。读失败静默返回空：看板是
+// 增味不是事实源，而主路径的 Claim 已校验过投影可读性。
+func (m *monolith) taskBoard(ctx context.Context) string {
+	all, err := m.taskStore().List(ctx)
+	if err != nil || len(all) == 0 {
+		return ""
+	}
+	var open, done []task.Task
+	for _, t := range all {
+		if terminalState(t.State) {
+			done = append(done, t)
+		} else {
+			open = append(open, t)
+		}
+	}
+	var b strings.Builder
+	b.WriteString("任务看板（任务队列的状态投影；详情用 \"$MINDLOOP_EXE\" task list）：")
+	for i, t := range open {
+		if i >= taskBoardOpenMax {
+			fmt.Fprintf(&b, "\n- …另有 %d 条未结", len(open)-i)
+			break
+		}
+		b.WriteString("\n- ")
+		b.WriteString(taskBoardLine(t, false))
+	}
+	if len(done) > 0 {
+		// UpdatedAt 同源同格式（轨迹步骤时间戳），字典序即时间序。
+		sort.Slice(done, func(i, j int) bool { return done[i].UpdatedAt > done[j].UpdatedAt })
+		if len(done) > taskBoardDoneMax {
+			done = done[:taskBoardDoneMax]
+		}
+		b.WriteString("\n最近结束：")
+		for _, t := range done {
+			b.WriteString("\n- ")
+			b.WriteString(taskBoardLine(t, true))
+		}
+	}
+	return b.String()
+}
+
+// terminalState 是看板对"已结束"的定义（与 task 包的终态集合一致）。
+func terminalState(s task.State) bool {
+	switch s {
+	case task.Succeeded, task.Failed, task.Canceled, task.Interrupted, task.BudgetExceeded:
+		return true
+	}
+	return false
+}
+
+// taskBoardLine 渲染单条：状态、短 id、相对时间；重试过的标注 attempt。
+func taskBoardLine(t task.Task, ended bool) string {
+	ts := t.CreatedAt
+	if ended {
+		ts = t.UpdatedAt
+	}
+	line := fmt.Sprintf("[%s] %s", t.State, ids.Short(t.ID, 8))
+	if t.Attempt > 1 {
+		line += fmt.Sprintf(" attempt %d", t.Attempt)
+	}
+	if age := ageText(ts); age != "" {
+		line += "（" + age + "）"
+	}
+	return line
+}
+
+// ageText 把轨迹时间戳折算成人话相对时间。
+func ageText(ts string) string {
+	t, err := time.Parse(time.RFC3339Nano, ts)
+	if err != nil {
+		return ""
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "刚刚"
+	case d < time.Hour:
+		return fmt.Sprintf("%d 分钟前", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%d 小时前", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%d 天前", int(d.Hours()/24))
+	}
 }

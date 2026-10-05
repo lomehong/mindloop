@@ -10,8 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/mind"
 	"github.com/lomehong/mindloop/internal/traj"
 )
 
@@ -109,6 +111,67 @@ func TestHandleIdentitiesWithOne(t *testing.T) {
 	}
 	if sc, ok := first["step_count"].(float64); !ok || sc < 1 {
 		t.Fatalf("step_count = %v，应至少为 1（头行）", first["step_count"])
+	}
+}
+
+// TestHandleIdentitiesLiveViaRunLock：live 判据必须落在心智轨迹目录——
+// run/dispatcher.lock 与 trajectory.jsonl 都在 Timeline.Dir 里，身份根
+// 目录下没有它们。回归：summarizeIdentity 曾误传 id.Dir，心智活着时
+// /api/identities 却报 live=false（工作台「已停止」与右栏「运行中」
+// 互相矛盾）。
+func TestHandleIdentitiesLiveViaRunLock(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MINDLOOP_HOME", dir)
+	id, err := identity.Create(context.Background(), "ada")
+	if err != nil {
+		t.Fatalf("identity.Create: %v", err)
+	}
+	// 刚建出的轨迹 mtime 落在 liveWindow 内——回拨两分钟，让 live 只剩
+	// 「运行锁属主存活」这一条证据，锁路径就成了唯一的判别面。
+	tlFile := filepath.Join(id.Timeline.Dir, "trajectory.jsonl")
+	old := time.Now().Add(-2 * time.Minute)
+	if err := os.Chtimes(tlFile, old, old); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+	ts, _ := newTestServer(t, identity.Home(), "")
+
+	// fetchLive 拉一次列表并返回 (live, dispatcher.running)。
+	fetchLive := func() (bool, bool) {
+		t.Helper()
+		resp, err := http.Get(ts.URL + "/api/identities")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var list []map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+			t.Fatal(err)
+		}
+		if len(list) != 1 {
+			t.Fatalf("期望 1 个身份，得到 %d", len(list))
+		}
+		disp, _ := list[0]["dispatcher"].(map[string]any)
+		live, _ := list[0]["live"].(bool)
+		running, _ := disp["running"].(bool)
+		return live, running
+	}
+
+	if live, running := fetchLive(); live || running {
+		t.Fatalf("无锁且轨迹已出窗时 live=%v running=%v，应为 false", live, running)
+	}
+	release, owned, err := traj.TryDirLock(context.Background(), mind.RunLockDir(id.Timeline.Dir))
+	if err != nil || !owned {
+		t.Fatalf("TryDirLock: owned=%v err=%v", owned, err)
+	}
+	defer release()
+	if live, running := fetchLive(); !live || !running {
+		t.Fatalf("轨迹目录持锁时 live=%v running=%v，应为 true——live 判据读的目录不对", live, running)
+	}
+	if err := release(); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	if live, running := fetchLive(); live || running {
+		t.Fatalf("释放后 live=%v running=%v，应为 false", live, running)
 	}
 }
 

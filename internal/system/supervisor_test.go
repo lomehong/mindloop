@@ -60,6 +60,48 @@ func statusOf(st []ChildStatus, name ChildName) (ChildStatus, bool) {
 	return ChildStatus{}, false
 }
 
+// TestBackoffDelayCurve：退避曲线纯函数——1s 起指数翻倍、60s 封顶；
+// 非法输入（0/负）按首次处理。集成测试只断言"重启 ≥2 次"，翻倍节奏
+// 与封顶值由此钉死（2026-10-04 测试 #6：全部退化 1s 的回归曾发生）。
+func TestBackoffDelayCurve(t *testing.T) {
+	cases := []struct {
+		fails int
+		want  time.Duration
+	}{
+		{1, time.Second}, {2, 2 * time.Second}, {3, 4 * time.Second},
+		{4, 8 * time.Second}, {5, 16 * time.Second}, {6, 32 * time.Second},
+		{7, backoffCap}, {8, backoffCap}, {100, backoffCap},
+		{0, time.Second}, {-5, time.Second},
+	}
+	for _, c := range cases {
+		if got := backoffDelay(c.fails); got != c.want {
+			t.Fatalf("backoffDelay(%d) = %v，应为 %v", c.fails, got, c.want)
+		}
+	}
+}
+
+// TestSupervisorStableRunClearsFails：稳定运行 ≥ stableAfter 清零连败
+// ——退避从 1s 重新起步（否则早期偶发连败让后续每次重试都等到封顶）。
+// 直接驱动 reap 的稳态分支，不真起进程。
+func TestSupervisorStableRunClearsFails(t *testing.T) {
+	home := t.TempDir()
+	sup := NewSupervisor(home, os.Args[0], nil, nil)
+	name := MindChild("t")
+	sup.fails[name] = 5
+	sup.children[name] = &childProc{name: name, lastOK: time.Now().Add(-stableAfter - time.Minute)}
+	sup.reap()
+	if got := sup.fails[name]; got != 0 {
+		t.Fatalf("稳定运行后连败应清零，得 %d", got)
+	}
+	// 未达稳定期：连败保持（不清零是常态，清零是奖赏）。
+	sup.fails[name] = 3
+	sup.children[name].lastOK = time.Now()
+	sup.reap()
+	if got := sup.fails[name]; got != 3 {
+		t.Fatalf("未达稳定期的连败不该被清零，得 %d", got)
+	}
+}
+
 func TestSupervisorRestartsExitedChild(t *testing.T) {
 	t.Setenv("MINDLOOP_SYS_TEST_CHILD", "die")
 	home := t.TempDir()

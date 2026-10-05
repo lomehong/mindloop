@@ -415,7 +415,9 @@ func (s *Server) summarizeIdentity(id *identity.Identity, root string) IdentityI
 	info.ThinkersTotal = len(thinkers)
 	// 运行中的 thinker 数需要调度器内存态，仪表盘侧不可知——
 	// 活跃数以 live 近似：心智在跑则认为其 thinker 全部活跃。
-	if info.Live = isIdentityLive(dir); info.Live {
+	// live 判据必须看心智轨迹目录（run/dispatcher.lock 与
+	// trajectory.jsonl 都在那里），身份根目录下没有这两样东西。
+	if info.Live = isIdentityLive(id.Timeline.Dir); info.Live {
 		info.ThinkersActive = len(thinkers)
 	}
 	info.Dispatcher = dispatcherInfo{Running: info.Live}

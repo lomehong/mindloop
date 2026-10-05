@@ -53,7 +53,7 @@ func TestRelatedMemoriesExposeIDAndSource(t *testing.T) {
 	}
 
 	// 唤醒提示把记忆段定位为"线索"（不是已验证事实）。
-	prompt := m.wakeTask("test-wake", Wake{})
+	prompt := m.wakeTask(ctx, "test-wake", Wake{})
 	if !strings.Contains(prompt, "线索") {
 		t.Fatalf("唤醒提示应标注记忆为线索而非事实: %q", prompt)
 	}

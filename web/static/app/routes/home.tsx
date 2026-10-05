@@ -227,6 +227,7 @@ function KillAllButton() {
         className="text-clay hover:bg-clay/10 hover:text-clay"
         onClick={() => mutation.mutate(true)}
       >
+        <Square className="size-3" />
         全部停止
       </Button>
       <ConfirmDialog
@@ -438,13 +439,18 @@ function Readouts({
   );
 }
 
-function activityLine(identity: Identity): string {
+function activityLine(identity: Identity, activity?: IdentityActivity): string {
   const rel = identity.last_activity_ts
     ? formatRelativeTime(identity.last_activity_ts)
     : null;
+  // 忙碌数优先取 activity 的实数（identities 的 thinkers_active 是
+  // 「live 即全部活跃」的近似）；activity 静默失败时退回近似值。
+  const busyCount = activity
+    ? activity.busy_thinkers.length
+    : identity.thinkers_active;
   const busy =
     identity.thinkers_total > 0
-      ? `思考者 ${identity.thinkers_active}/${identity.thinkers_total} 忙碌`
+      ? `思考者 ${busyCount}/${identity.thinkers_total} 忙碌`
       : null;
   if (rel && rel !== "—") return `${rel}有活动${busy ? ` · ${busy}` : ""}`;
   return busy ?? "尚无活动记录";
@@ -649,7 +655,7 @@ function IdentityCard({
         </span>
       </div>
       <div className="-mt-1 text-[12px] text-muted-foreground">
-        {activityLine(identity)}
+        {activityLine(identity, slot.activity)}
       </div>
       <RingSpark days={ring} big />
       <div className="-mt-1 font-mono text-[10px] tracking-[0.08em] text-faint">
@@ -708,7 +714,7 @@ function IdentityRow({
       </Link>
       <StatusChip live={identity.live} />
       <span className="hidden min-w-0 flex-1 truncate text-[12px] text-muted-foreground lg:block">
-        {activityLine(identity)}
+        {activityLine(identity, slot.activity)}
       </span>
       <div className="hidden w-24 shrink-0 md:block">
         <RingSpark days={ring} />

@@ -136,3 +136,42 @@ func TestUndoEmptyRunReported(t *testing.T) {
 		t.Fatalf("零变更应如实说明: code=%d out=%s", code, out)
 	}
 }
+
+// TestUndoBecauseLandsTasteStep：--because 把撤销归因落成味觉步骤
+// （审批决定文件是瞬态的，归因落轨迹才是持久证据）；非法归因当场
+// 用法错误（退出码 2）且不执行恢复。
+func TestUndoBecauseLandsTasteStep(t *testing.T) {
+	newTestHome(t)
+	tlID, _, _ := setupUndoFixture(t)
+
+	code, _, errOut := runCLI(t, "undo", tlID, "run-01", "--yes", "--because", "随便填")
+	if code != 2 {
+		t.Fatalf("非法 --because 应退出码 2: %d err=%s", code, errOut)
+	}
+
+	code, out, errOut := runCLI(t, "undo", tlID, "run-01", "--yes", "--because", "proposal-redundant")
+	if code != 0 {
+		t.Fatalf("exit = %d out=%s err=%s", code, out, errOut)
+	}
+	tl, err := traj.Load(tlID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	steps, err := tl.Tail(50, []string{traj.TypeTaste})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("应落 1 条味觉步骤，得 %d", len(steps))
+	}
+	s := steps[0]
+	if sig, _ := s.Field("signal"); sig != "undo" {
+		t.Fatalf("signal = %q", sig)
+	}
+	if run, _ := s.Field("run"); run != "run-01" {
+		t.Fatalf("run = %q", run)
+	}
+	if cause, _ := s.Field("cause"); cause != "proposal-redundant" {
+		t.Fatalf("cause = %q", cause)
+	}
+}

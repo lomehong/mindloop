@@ -256,6 +256,74 @@ func TestSensorRunnerQuietDowngrade(t *testing.T) {
 	}
 }
 
+// TestSensorRunnerAbsenceDetection：心跳缺席（expect_every）——窗口内
+// 零事件由框架代发 absence 异常（"没有消息"本身被感知）：kind=absence、
+// S2、reason=absence-detected；同窗口只发一次（lastAbs 闸）；quiet 内
+// 降级 S1 并带 quiet-held 留痕。
+func TestSensorRunnerAbsenceDetection(t *testing.T) {
+	h := newSensorHarness(t, `{"version":1,"sensors":[
+		{"id":"self1","type":"self","expect_every":"1h"}
+	]}`, 0)
+	rs := backdateLastSeen(t, h, "self1", 2*time.Hour)
+	h.runner.absenceCheck(rs)
+
+	steps := h.stepsOf(traj.TypeEvent)
+	if len(steps) != 1 {
+		t.Fatalf("缺席应落 1 条 event，得 %d", len(steps))
+	}
+	s := steps[0]
+	if kind, _ := s.Field("kind"); kind != string(sensor.KindAbsence) {
+		t.Fatalf("kind = %q", kind)
+	}
+	if sal, _ := s.Field("salience"); sal != string(sensor.S2) {
+		t.Fatalf("缺席应 S2，得 %q", sal)
+	}
+	if reason, _ := s.Field("reason"); reason != "absence-detected" {
+		t.Fatalf("reason = %q", reason)
+	}
+	if digest, _ := s.Field("digest"); !strings.Contains(digest, "心跳缺席") {
+		t.Fatalf("digest 应含心跳缺席: %q", digest)
+	}
+
+	// lastAbs 闸：同窗口内再次检查不重复告警。
+	h.runner.absenceCheck(rs)
+	if n := len(h.stepsOf(traj.TypeEvent)); n != 1 {
+		t.Fatalf("同窗口缺席重复告警：%d 条", n)
+	}
+
+	// quiet 窗口内：降级 S1，reason 带 quiet-held 留痕。
+	h2 := newSensorHarness(t, `{"version":1,"sensors":[
+		{"id":"self2","type":"self","expect_every":"1h",
+		 "quiet":{"start":"00:00","end":"23:59"}}
+	]}`, 0)
+	rs2 := backdateLastSeen(t, h2, "self2", 2*time.Hour)
+	h2.runner.absenceCheck(rs2)
+	steps2 := h2.stepsOf(traj.TypeEvent)
+	if len(steps2) != 1 {
+		t.Fatalf("quiet 缺席应落 1 条 event，得 %d", len(steps2))
+	}
+	if sal, _ := steps2[0].Field("salience"); sal != string(sensor.S1) {
+		t.Fatalf("quiet 内缺席应降级 S1，得 %q", sal)
+	}
+	if reason, _ := steps2[0].Field("reason"); reason != "quiet-held:absence-detected" {
+		t.Fatalf("reason = %q", reason)
+	}
+}
+
+// backdateLastSeen 把感官的最近事件时刻拨到 ago 之前（缺席检测的定向
+// 夹具），返回运行中的感官句柄。
+func backdateLastSeen(t *testing.T, h *sensorHarness, id string, ago time.Duration) *runningSensor {
+	t.Helper()
+	h.runner.mu.Lock()
+	defer h.runner.mu.Unlock()
+	rs := h.runner.running[id]
+	if rs == nil {
+		t.Fatalf("感官 %s 未在运行", id)
+	}
+	rs.lastSeen = time.Now().Add(-ago)
+	return rs
+}
+
 // --- dispatcher 集成：订阅面只收 s2+，per-source 分槽 ---
 
 func TestDispatcherEventSalienceRouting(t *testing.T) {

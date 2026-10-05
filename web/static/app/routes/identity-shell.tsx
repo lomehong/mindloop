@@ -96,7 +96,7 @@ function SubSeg({
   rest: string;
 }) {
   return (
-    <div className="flex gap-0.5 rounded-lg bg-muted p-0.5">
+    <div className="flex shrink-0 gap-0.5 rounded-lg bg-muted p-0.5">
       {items.map((item) => {
         const on = rest === item.path;
         return (
@@ -105,7 +105,7 @@ function SubSeg({
             to={`${base}${item.path}`}
             aria-current={on ? "page" : undefined}
             className={cn(
-              "rounded-md px-2.5 py-1 text-xs transition-colors",
+              "whitespace-nowrap rounded-md px-2.5 py-1 text-xs transition-colors",
               on
                 ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
@@ -139,8 +139,17 @@ export default function IdentityShell() {
   return (
     <>
       <div className="sticky top-0 z-40 -mx-5 -mt-4 mb-4 border-b border-border/70 bg-card/95 px-5 backdrop-blur sm:-mx-6 sm:px-6">
-        <div className="pt-3">
+        {/* 搜索在 masthead 行（而非 tab 行）：1280 宽下 7 tab + 视图段 +
+            搜索同挤一行会把 tab 压成竖排两字——搜索上移后两行各得其所。 */}
+        <div className="flex items-center gap-3 pt-3">
           <Masthead identityId={identityId} />
+          {SEARCH_SECTIONS.includes(section) && (
+            <MindlogSearch
+              identityId={identityId}
+              windowStart={0}
+              onJump={defaultJump}
+            />
+          )}
         </div>
         <div className="mt-3 flex items-center gap-0.5 border-b border-border/70">
           {TABS.map((tab) => {
@@ -151,7 +160,7 @@ export default function IdentityShell() {
                 to={`${base}${tab.path}`}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative px-3 pb-2.5 pt-2 text-[13px] transition-colors",
+                  "relative shrink-0 whitespace-nowrap px-3 pb-2.5 pt-2 text-[13px] transition-colors",
                   active
                     ? "text-foreground after:absolute after:inset-x-3 after:-bottom-px after:h-[2px] after:rounded-t-[2px] after:bg-primary"
                     : "text-muted-foreground hover:text-foreground"
@@ -163,13 +172,6 @@ export default function IdentityShell() {
           })}
           <span className="flex-1" />
           {seg && <SubSeg base={base} items={seg} rest={rest} />}
-          {SEARCH_SECTIONS.includes(section) && (
-            <MindlogSearch
-              identityId={identityId}
-              windowStart={0}
-              onJump={defaultJump}
-            />
-          )}
         </div>
       </div>
       <Outlet />

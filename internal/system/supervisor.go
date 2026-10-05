@@ -223,10 +223,7 @@ func (s *Supervisor) reap() {
 		// 指数退避才真正翻倍（1s→2s→…→60s 封顶）。
 		s.fails[name]++
 		s.restarts[name]++
-		delay := time.Duration(1<<uint(min64(int64(s.fails[name]-1), 6))) * time.Second // 1s 起翻倍
-		if delay > backoffCap {
-			delay = backoffCap
-		}
+		delay := backoffDelay(s.fails[name])
 		if s.logger != nil {
 			s.logger("system: %s 退出（%s），%v 后第 %d 次重启", name, exit, delay, s.restarts[name])
 		}
@@ -417,6 +414,20 @@ func min64(a, b int64) int64 {
 		return a
 	}
 	return b
+}
+
+// backoffDelay 折算第 fails 次连败后的重启延迟：1s 起指数翻倍、
+// backoffCap(60s) 封顶。纯函数——退避曲线此前只有集成测试断言
+// "重启 ≥2 次"，曲线本身（翻倍节奏与封顶）无人验证。
+func backoffDelay(fails int) time.Duration {
+	if fails < 1 {
+		fails = 1
+	}
+	delay := time.Duration(1<<uint(min64(int64(fails-1), 6))) * time.Second
+	if delay > backoffCap {
+		return backoffCap
+	}
+	return delay
 }
 
 func pidOf(c *childProc) int {

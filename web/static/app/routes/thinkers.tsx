@@ -323,7 +323,7 @@ function StatusPanel({ identityId }: { identityId: string }) {
         {dispatcherRunning ? (
           <Badge className={STATE_STYLES.active}>
             <span className="size-[5px] animate-pulse rounded-full bg-primary" />
-            running (PID {status.dispatcher.pid})
+            运行中{status.dispatcher.pid != null && ` (PID ${status.dispatcher.pid})`}
           </Badge>
         ) : (
           <Badge className={STATE_STYLES.stopped}>

@@ -6,8 +6,8 @@ package web
 // 与 connections 页的 env/headers 同一红线。
 //
 // 渠道清单是静态注册表（channelWecom 视图 + applyWecom 写入）：
-// 加渠道（微信客服/钉钉/飞书）时在此登记，前端表单按 channel 名
-// 泛化渲染。
+// 加渠道（Phase 2 名单：微信客服/钉钉/飞书，均未实施）时在此登记，
+// 前端表单按 channel 名泛化渲染。
 
 import (
 	"encoding/json"

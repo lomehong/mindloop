@@ -22,7 +22,7 @@ func TestWakeTaskCapsRecapSection(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := NewMonolith(MonolithOptions{Timeline: tl, EnableRecap: true, SummaryBytes: 200}).(*monolith)
-	task := m.wakeTask("periodic check", Wake{Kind: WakeScheduled})
+	task := m.wakeTask(context.Background(), "periodic check", Wake{Kind: WakeScheduled})
 	if !strings.Contains(task, "人生分集") {
 		t.Fatalf("唤醒任务应含人生分集段: %.80q", task)
 	}
@@ -46,7 +46,7 @@ func TestWakeTaskCapsMemorySection(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := NewMonolith(MonolithOptions{Timeline: tl, MemDir: memDir, MemoryBytes: 100}).(*monolith)
-	task := m.wakeTask("scheduled check", Wake{Kind: WakeScheduled})
+	task := m.wakeTask(context.Background(), "scheduled check", Wake{Kind: WakeScheduled})
 
 	start := strings.Index(task, "相关记忆")
 	if start < 0 {
