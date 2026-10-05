@@ -1,1 +1,0 @@
-import"./jsx-runtime-DzDIy0L9.js";function a(t){if(t===null)return null;if(t<90)return`${Math.round(t)}s`;if(t<5400)return`${Math.round(t/60)}m`;const r=Math.floor(t/3600),u=Math.round(t%3600/60);return`${r}h${String(u).padStart(2,"0")}m`}export{a as f};
