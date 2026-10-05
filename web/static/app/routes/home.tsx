@@ -254,8 +254,9 @@ interface SignalRow {
   to: string;
 }
 
-/** 单具身份的四类信号，顺序即文档顺序：待审批 → 预算 → 熔断 → 停滞。 */
-function signalsFor(
+/** 单具身份的四类信号，顺序即文档顺序：待审批 → 预算 → 熔断 → 停滞。
+ * 导出去给回归单测盯着链接去处（待审批必须落在桌面任务 tab）。 */
+export function signalsFor(
   identity: Identity,
   usage: Usage | undefined,
   approvals: PendingApproval[] | undefined,
@@ -278,7 +279,7 @@ function signalsFor(
     push(
       "approval",
       `${approvals.length} 条脚本待审批 · ${wait}`,
-      `/talk/${encodeURIComponent(identity.id)}/tasks`
+      `${base}/tasks`
     );
   }
 

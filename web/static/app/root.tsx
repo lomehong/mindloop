@@ -3,15 +3,14 @@ import {
   QueryClient,
   QueryClientProvider,
 } from "@tanstack/react-query";
-import { ChevronLeft } from "lucide-react";
 import { ThemeProvider } from "next-themes";
 import { NuqsAdapter } from "nuqs/adapters/react-router/v7";
 import { useEffect } from "react";
 import {
   isRouteErrorResponse,
-  Link,
   Links,
   Meta,
+  Navigate,
   Outlet,
   Scripts,
   ScrollRestoration,
@@ -24,6 +23,7 @@ import { NavRail, ShellControls, ShellDragArea, useRailCollapsed } from "~/compo
 import { StatusDock } from "~/components/status-dock";
 import { SystemPanel } from "~/components/system-panel";
 import { AuthError, HttpError } from "~/lib/api";
+import { desktopPathFromTalk } from "~/lib/talk-redirect";
 
 import type { Route } from "./+types/root";
 import "./app.css";
@@ -163,34 +163,15 @@ export default function App() {
           {petMode ? (
             <main className="flex flex-1 flex-col">{canvas}</main>
           ) : talkMode ? (
-            <div className="relative flex h-screen flex-col bg-background">
-              {/* 壳内：talk 页无导航栏，窗体栏自绘于此——拖动区铺满顶部，
-                  落地页左侧给「← 工作台」出口（PWA 无此出口需求，只壳内
-                  渲染），右侧窗控三钮。浏览器/PWA 全部不渲染、不位移。 */}
-              {inShell && (
-                <>
-                  <ShellDragArea className="absolute inset-x-0 top-0 z-[65] h-9" />
-                  {/^\/talk\/?$/.test(location.pathname) && (
-                    <Link
-                      to="/"
-                      aria-label="返回工作台"
-                      className="absolute left-2 top-2 z-[70] flex h-7 items-center gap-0.5 rounded-md pl-1 pr-2 text-xs text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                    >
-                      <ChevronLeft className="size-3.5" />
-                      工作台
-                    </Link>
-                  )}
-                  <div className="absolute right-2 top-2 z-[70]">
-                    <ShellControls />
-                  </div>
-                </>
-              )}
-              <main
-                className={`flex min-h-0 flex-1 flex-col${inShell ? " pt-9" : ""}`}
-              >
-                {canvas}
-              </main>
-            </div>
+            inShell ? (
+              /* 手机面不属于桌面壳：任何壳内入口（旧链接/书签）误入
+                 /talk* 一律导回对应桌面路由，别把人甩出主流程。 */
+              <Navigate to={desktopPathFromTalk(location.pathname)} replace />
+            ) : (
+              <div className="relative flex h-screen flex-col bg-background">
+                <main className="flex min-h-0 flex-1 flex-col">{canvas}</main>
+              </div>
+            )
           ) : (
             <div className="relative flex h-screen min-w-0 bg-background">
               {/* 窗口右上角控件簇：主题切换 +（壳内）窗控三钮——浮在
