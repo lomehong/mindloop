@@ -116,8 +116,8 @@ describe("usage page admission", () => {
       })
     );
     renderUsage();
-    expect(await screen.findByText("预算与准入")).toBeDefined();
-    expect(screen.getByText(/1,234 \/ 5,000/)).toBeDefined();
+    expect(await screen.findByText("今日水位")).toBeDefined();
+    expect(screen.getByText(/1\.2k \/ 5k/)).toBeDefined();
     expect(screen.getByText(/冷却中/)).toBeDefined();
     expect(screen.getByText(/2 次调用未返回用量/)).toBeDefined();
   });
@@ -135,7 +135,7 @@ describe("usage page admission", () => {
     );
     renderUsage();
     expect(await screen.findByText("未设置")).toBeDefined();
-    expect(screen.getByText("正常")).toBeDefined();
+    expect(screen.getByText(/当前：正常/)).toBeDefined();
     expect(screen.queryByText(/次调用未返回用量/)).toBeNull();
   });
 
@@ -157,7 +157,7 @@ describe("usage page admission", () => {
   it("admission 缺失（旧数据）不崩溃", async () => {
     fetchUsage.mockResolvedValue(usage());
     renderUsage();
-    expect(await screen.findByText("预算与准入")).toBeDefined();
+    expect(await screen.findByText("今日水位")).toBeDefined();
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
   });
 });

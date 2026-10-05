@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useParams } from "react-router";
 import { toast } from "sonner";
 
-import { IdentityTabs } from "~/components/identity-tabs";
 import { QueryErrorBanner } from "~/components/query-error-banner";
 import {
   StartStopButtons,
@@ -19,7 +18,7 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "~/components/ui/empty";
-import { LoadingDots } from "~/components/ui/loading-dots";
+import { Skeleton } from "~/components/ui/loading-skeleton";
 import {
   Table,
   TableBody,
@@ -56,16 +55,23 @@ export function meta() {
   return [{ title: "mindloop · 思考者" }];
 }
 
+// 状态芯片统一（§7 C）：运行=叶绿(primary)呼吸 / 空闲·停止=灰 / 排空=树脂警。
 const STATE_STYLES: Record<ThinkerState, string> = {
-  stopped: "bg-muted text-muted-foreground",
-  idle: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
-  active: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
+  stopped:
+    "rounded-full border-line bg-secondary font-mono text-[10.5px] font-normal text-muted-foreground",
+  idle: "rounded-full border-line bg-secondary font-mono text-[10.5px] font-normal text-muted-foreground",
+  active:
+    "rounded-full border-primary/30 bg-primary/12 font-mono text-[10.5px] font-normal text-foreground",
   running:
-    "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300",
+    "rounded-full border-primary/30 bg-primary/12 font-mono text-[10.5px] font-normal text-foreground",
   draining:
-    "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-  disabled: "border border-dashed bg-transparent text-muted-foreground",
+    "rounded-full border-resin/40 bg-resin/8 font-mono text-[10.5px] font-normal text-resin",
+  disabled:
+    "rounded-full border-dashed border-line-strong bg-transparent font-mono text-[10.5px] font-normal text-muted-foreground",
 };
+
+const WARN_CHIP =
+  "rounded-full border-resin/40 bg-resin/8 font-mono text-[10px] font-normal text-resin";
 
 const STATE_LABELS: Record<string, string> = {
   stopped: "已停止",
@@ -126,7 +132,7 @@ function VersionCell({
         {sync.status === "outdated" && (
           <>
             <Badge
-              className="bg-amber-100 text-[10px] text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+              className={WARN_CHIP}
               title={`与内置副本不一致的文件：${sync.changed_files.join(", ")}`}
             >
               有更新
@@ -302,8 +308,9 @@ function StatusPanel({ identityId }: { identityId: string }) {
 
   if (!status) {
     return (
-      <div className="flex justify-center py-10">
-        <LoadingDots />
+      <div className="mb-6 space-y-3">
+        <Skeleton className="h-12 w-full rounded-xl" />
+        <Skeleton className="h-24 w-full rounded-xl" />
       </div>
     );
   }
@@ -315,10 +322,14 @@ function StatusPanel({ identityId }: { identityId: string }) {
         <span className="text-sm font-medium">调度器</span>
         {dispatcherRunning ? (
           <Badge className={STATE_STYLES.active}>
+            <span className="size-[5px] animate-pulse rounded-full bg-primary" />
             running (PID {status.dispatcher.pid})
           </Badge>
         ) : (
-          <Badge className={STATE_STYLES.stopped}>已停止</Badge>
+          <Badge className={STATE_STYLES.stopped}>
+            <span className="size-[5px] rounded-full bg-faint" />
+            已停止
+          </Badge>
         )}
         <span className="font-mono text-xs text-muted-foreground">
           {status.active_thinkers}/{status.thinkers_total} 个思考者活跃
@@ -379,9 +390,7 @@ function StatusPanel({ identityId }: { identityId: string }) {
                 </Badge>
               )}
               {entry.status === "outdated" && (
-                <Badge className="bg-amber-100 text-[10px] text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                  有更新
-                </Badge>
+                <Badge className={WARN_CHIP}>有更新</Badge>
               )}
               {entry.status === "not_installed" && (
                 <Badge variant="outline" className="text-[10px]">
@@ -441,8 +450,9 @@ function LogView({
 
   if (!log) {
     return (
-      <div className="flex justify-center py-10">
-        <LoadingDots />
+      <div className="space-y-2 pt-1">
+        <Skeleton className="h-3 w-40" />
+        <Skeleton className="h-40 w-full rounded-xl" />
       </div>
     );
   }
@@ -483,8 +493,10 @@ function DispatchView({
 
   if (!events) {
     return (
-      <div className="flex justify-center py-10">
-        <LoadingDots />
+      <div className="space-y-1.5 pt-1">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Skeleton key={i} className="h-4 w-full" />
+        ))}
       </div>
     );
   }
@@ -503,7 +515,7 @@ function DispatchView({
           key={idx}
           className={cn(
             "flex items-center gap-2 border-b px-3 py-1 font-mono text-[11px] last:border-b-0",
-            event.kind === "dispatch" && "bg-blue-50/50 dark:bg-blue-950/20"
+            event.kind === "dispatch" && "bg-moss/[0.06]"
           )}
         >
           {event.kind === "step" && (
@@ -519,7 +531,7 @@ function DispatchView({
           )}
           {event.kind === "dispatch" && (
             <>
-              <span className="font-medium text-blue-700 dark:text-blue-300">
+              <span className="font-medium text-moss">
                 dispatch → {event.thinker}
               </span>
               {event.active != null && (
@@ -561,7 +573,6 @@ export default function ThinkersPage() {
   if (isError) {
     return (
       <div className="mx-auto w-full max-w-7xl">
-        <IdentityTabs identityId={identityId} live={live} active="thinkers" />
         <QueryErrorBanner error={error} onRetry={() => void refetch()} />
       </div>
     );
@@ -569,8 +580,12 @@ export default function ThinkersPage() {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center py-20">
-        <LoadingDots />
+      <div className="mx-auto w-full max-w-7xl">
+        <div className="mb-6 space-y-3">
+          <Skeleton className="h-12 w-full rounded-xl" />
+          <Skeleton className="h-24 w-full rounded-xl" />
+        </div>
+        <Skeleton className="h-8 w-64" />
       </div>
     );
   }
@@ -581,7 +596,6 @@ export default function ThinkersPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl">
-      <IdentityTabs identityId={identityId} live={live} active="thinkers" />
       <StatusPanel identityId={identityId} />
       {!logs || logs.length === 0 ? (
         <Empty>

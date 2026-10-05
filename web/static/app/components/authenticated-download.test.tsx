@@ -86,7 +86,7 @@ it("首页导出全部通过认证获取文件，只下载对象 URL", async () 
 
 it("导出构建下载按任务 ID 请求，不信任服务返回的外部下载地址", async () => {
   mount(<ConfigPage />, "/i/ada/config");
-  fireEvent.click(await screen.findByText(/ada\.tgz/));
+  fireEvent.click(await screen.findByRole("button", { name: "下载" }));
   await waitFor(() => expect(downloaded).toHaveLength(1));
   expect(downloaded[0]).toEqual({ href: "blob:authenticated-file", filename: "ada.tgz" });
   expect(requests).toContain("/api/export-jobs/job-1/download");

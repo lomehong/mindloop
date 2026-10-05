@@ -4,8 +4,6 @@ import { useState } from "react";
 import { useParams } from "react-router";
 import { toast } from "sonner";
 
-import { IdentityTabs } from "~/components/identity-tabs";
-import { Badge } from "~/components/ui/badge";
 import {
   Empty,
   EmptyDescription,
@@ -13,10 +11,12 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "~/components/ui/empty";
-import { LoadingDots } from "~/components/ui/loading-dots";
+import { QueryErrorBanner } from "~/components/query-error-banner";
+import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
+import { Skeleton } from "~/components/ui/loading-skeleton";
 import {
   fetchConnections,
-  fetchIdentityStatus,
   updateWecomChannel,
 } from "~/lib/api";
 import { STATUS_BACKGROUND_POLL_MS } from "~/lib/polling";
@@ -31,16 +31,34 @@ const SOURCE_LABEL: Record<string, string> = {
   global: "全局",
 };
 
+/** 归属/元信息胶囊（mockup .mbadge）。 */
+const MBADGE =
+  "rounded-full border border-line-strong px-1.5 py-px font-mono text-[9.5px] font-normal leading-[1.6] text-muted-foreground";
+/** 状态胶囊（mockup .pill / .pill.on）。 */
+const PILL =
+  "inline-flex items-center gap-1.5 rounded-full border border-line-strong px-2 py-px font-mono text-[10.5px] text-muted-foreground";
+const PILL_ON =
+  "inline-flex items-center gap-1.5 rounded-full border border-primary/35 bg-primary/10 px-2 py-px font-mono text-[10.5px] text-primary";
+
+/** 章标题（mockup .sec-label）。 */
+function SecLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mb-2 flex items-center gap-1.5 font-mono text-[10.5px] tracking-[0.14em] text-faint">
+      {children}
+    </div>
+  );
+}
+
 export default function ConnectionsPage() {
   const { identityId = "" } = useParams();
 
-  const { data: status } = useQuery({
-    queryKey: ["status", identityId],
-    queryFn: () => fetchIdentityStatus(identityId),
-    refetchInterval: STATUS_BACKGROUND_POLL_MS,
-  });
-
-  const { data: view, isLoading } = useQuery({
+  const {
+    data: view,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["connections", identityId],
     queryFn: () => fetchConnections(identityId),
     refetchInterval: STATUS_BACKGROUND_POLL_MS,
@@ -74,35 +92,43 @@ export default function ConnectionsPage() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  if (isError) {
+    return (
+      <div className="mx-auto w-full max-w-7xl">
+        <div className="mx-auto w-full max-w-4xl pb-10">
+          <QueryErrorBanner error={error} onRetry={() => void refetch()} />
+        </div>
+      </div>
+    );
+  }
+
   if (isLoading || !view) {
     return (
-      <div className="flex justify-center py-20">
-        <LoadingDots />
+      <div className="mx-auto w-full max-w-7xl">
+        <div className="mx-auto w-full max-w-4xl space-y-4 pb-10">
+          <Skeleton className="h-7 w-44" />
+          <Skeleton className="h-20 w-full rounded-xl" />
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-40 w-full rounded-xl" />
+        </div>
       </div>
     );
   }
 
   return (
     <div className="mx-auto w-full max-w-7xl">
-      <IdentityTabs
-        identityId={identityId}
-        live={status?.live ?? false}
-        active="connections"
-        name={view.identity?.name}
-      />
-      <div className="mx-auto w-full max-w-4xl space-y-6 pb-10">
-        <div className="flex items-center gap-3">
-          <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
+      <div className="mx-auto w-full max-w-4xl space-y-4 pb-10">
+        <div className="flex flex-wrap items-baseline gap-3">
+          <h1 className="font-note text-[22px] font-semibold tracking-[0.01em]">
             外部连接
-          </h2>
-          <span className="text-[11px] text-muted-foreground">
-            MCP 服务器（工具）来自 mcp.json；env/headers 只显示键名，值不回显。配置编辑走
-            CLI（mindloop mcp add/remove）。
+          </h1>
+          <span className="text-[13px] text-muted-foreground">
+            MCP 服务器 · 配置文件 · 外部渠道
           </span>
         </div>
 
         {view.mcp_config_error && (
-          <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+          <div className="rounded-lg border border-clay/45 bg-clay/[0.06] px-3 py-2 text-xs text-clay">
             <div className="font-medium">
               mcp.json 解析失败——MCP 当前不生效。
             </div>
@@ -110,10 +136,8 @@ export default function ConnectionsPage() {
           </div>
         )}
 
-        <section className="space-y-3">
-          <h3 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            MCP 服务器
-          </h3>
+        <section>
+          <SecLabel>MCP 服务器</SecLabel>
           {view.mcp_servers.length === 0 ? (
             <Empty>
               <EmptyHeader>
@@ -134,80 +158,62 @@ export default function ConnectionsPage() {
               </EmptyHeader>
             </Empty>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {view.mcp_servers.map((server) => (
-                <div key={server.name} className="rounded-lg border p-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-sm font-medium">
+                <div
+                  key={server.name}
+                  className="rounded-xl border border-line bg-card px-4 py-3"
+                >
+                  <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-[13px] font-semibold">
                       {server.name}
                     </span>
-                    <Badge variant="outline" className="text-[10px]">
-                      {server.transport}
-                    </Badge>
-                    <Badge variant="outline" className="text-[10px]">
+                    <span className={MBADGE}>{server.transport}</span>
+                    <span className={MBADGE}>
                       {SOURCE_LABEL[server.source] ?? server.source}
-                    </Badge>
+                    </span>
                   </div>
-                  <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
-                    {server.transport === "http"
-                      ? server.url
-                      : [server.command, ...(server.args ?? [])]
-                          .filter(Boolean)
-                          .join(" ")}
-                  </p>
-                  {(server.env_keys.length > 0 ||
-                    server.header_keys.length > 0) && (
-                    <p className="mt-1 text-[11px] text-muted-foreground">
-                      {server.env_keys.length > 0 && (
-                        <span>环境变量：{server.env_keys.join(", ")}</span>
-                      )}
-                      {server.env_keys.length > 0 &&
-                        server.header_keys.length > 0 && <span> · </span>}
-                      {server.header_keys.length > 0 && (
-                        <span>请求头：{server.header_keys.join(", ")}</span>
-                      )}
-                      <span className="text-muted-foreground/70">
-                        （值不回显）
-                      </span>
-                    </p>
-                  )}
+                  <div className="break-all font-mono text-[11.5px] leading-[1.75] text-muted-foreground">
+                    <div>
+                      {server.transport === "http"
+                        ? server.url
+                        : [server.command, ...(server.args ?? [])]
+                            .filter(Boolean)
+                            .join(" ")}
+                    </div>
+                    <div>
+                      环境变量：{server.env_keys.join(", ") || "—"} · 请求头：
+                      {server.header_keys.join(", ") || "—"}（值不回显）
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </section>
 
-        <section className="space-y-2">
-          <h3 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            配置文件
-          </h3>
-          <div className="space-y-2">
+        <section>
+          <SecLabel>配置文件</SecLabel>
+          <div>
             {view.mcp_files.map((file) => (
               <div
                 key={file.path}
-                className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2"
+                className="flex flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-line px-0.5 py-2.5 first:border-t-0"
               >
-                <Badge variant="outline" className="text-[10px]">
-                  {file.label}
-                </Badge>
-                <span className="break-all font-mono text-[11px] text-muted-foreground">
+                <span className={MBADGE}>{file.label}</span>
+                <span className="min-w-0 flex-1 break-all font-mono text-[11px] text-muted-foreground">
                   {file.path}
                 </span>
-                <Badge
-                  variant={file.exists ? "secondary" : "outline"}
-                  className="ml-auto text-[10px]"
-                >
+                <span className={file.exists ? PILL_ON : PILL}>
                   {file.exists ? "已创建" : "未创建"}
-                </Badge>
+                </span>
               </div>
             ))}
           </div>
         </section>
 
-        <section className="space-y-2">
-          <h3 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            外部渠道（bridge）
-          </h3>
+        <section>
+          <SecLabel>外部渠道（bridge）</SecLabel>
           {view.channels.map((channel) => (
             <ChannelCard
               key={channel.channel}
@@ -252,74 +258,68 @@ function ChannelCard(props: {
 }) {
   const { channel } = props;
   return (
-    <div className="space-y-3 rounded-lg border p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-medium">{channel.label}</span>
-        <Badge
-          variant={channel.ready ? "secondary" : "outline"}
-          className="text-[10px]"
-        >
+    <div className="rounded-xl border border-line bg-card px-4 pt-3.5 pb-3">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <span className="text-[13.5px] font-semibold">{channel.label}</span>
+        <span className={channel.ready ? PILL_ON : PILL}>
           {channel.ready ? "配置就绪" : "配置未齐"}
-        </Badge>
-        {channel.cursor_exists && (
-          <Badge variant="outline" className="text-[10px]">
-            bridge 曾运行
-          </Badge>
-        )}
-        <span className="font-mono text-[10px] text-muted-foreground">
+        </span>
+        {channel.cursor_exists && <span className={PILL}>bridge 曾运行</span>}
+        <span className="font-mono text-[10.5px] text-faint">
           {channel.channel}
         </span>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-3">
-        <label className="space-y-1">
-          <span className="text-[11px] text-muted-foreground">
+      <div className="flex flex-col gap-2.5">
+        <label className="grid grid-cols-1 items-center gap-x-3 gap-y-1 md:grid-cols-[200px_1fr]">
+          <span className="font-mono text-[11.5px] text-muted-foreground">
             BotID（当前：{channel.bot_id || "未配置"}）
           </span>
-          <input
+          <Input
             value={props.botId}
             onChange={(event) => props.setBotId(event.target.value)}
             placeholder="ww1234567890"
-            className="w-full rounded-md border bg-transparent px-2 py-1.5 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+            className="h-8 max-w-[260px] font-mono text-xs"
           />
         </label>
-        <label className="space-y-1">
-          <span className="text-[11px] text-muted-foreground">
+        <label className="grid grid-cols-1 items-center gap-x-3 gap-y-1 md:grid-cols-[200px_1fr]">
+          <span className="font-mono text-[11.5px] text-muted-foreground">
             Secret（{channel.secret_set ? "已配置，留空保持不变" : "未配置"}
             ）
           </span>
-          <input
+          <Input
             type="password"
             value={props.secret}
             onChange={(event) => props.setSecret(event.target.value)}
             placeholder={channel.secret_set ? "••••••••" : "长连接专用 Secret"}
-            className="w-full rounded-md border bg-transparent px-2 py-1.5 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+            className="h-8 max-w-[260px] font-mono text-xs"
           />
         </label>
-        <label className="space-y-1">
-          <span className="text-[11px] text-muted-foreground">
+        <label className="grid grid-cols-1 items-center gap-x-3 gap-y-1 md:grid-cols-[200px_1fr]">
+          <span className="font-mono text-[11.5px] text-muted-foreground">
             白名单 userid（逗号分隔；当前：
             {channel.allow?.length > 0 ? channel.allow.join("、") : "无"}）
           </span>
-          <input
+          <Input
             value={props.allowText}
             onChange={(event) => props.setAllowText(event.target.value)}
             placeholder="zhangsan,lisi"
-            className="w-full rounded-md border bg-transparent px-2 py-1.5 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+            className="h-8 max-w-[260px] font-mono text-xs"
           />
         </label>
       </div>
 
-      <div className="flex items-center gap-3">
-        <button
+      <div className="flex flex-wrap items-center gap-3 pt-3">
+        <Button
           type="button"
+          size="sm"
+          className="h-7 px-2.5 text-[12px]"
           onClick={props.onSave}
           disabled={props.saving}
-          className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
         >
           {props.saving ? "保存中…" : "保存渠道配置"}
-        </button>
-        <p className="text-[11px] text-muted-foreground">{channel.note}</p>
+        </Button>
+        <p className="text-[12px] text-muted-foreground">{channel.note}</p>
       </div>
     </div>
   );

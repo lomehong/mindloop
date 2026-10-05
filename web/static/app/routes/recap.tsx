@@ -4,9 +4,9 @@ import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 
-import { IdentityTabs } from "~/components/identity-tabs";
 import { useControlsEnabled } from "~/components/thinker-controls";
 import { ConfirmDialog } from "~/components/confirm-dialog";
+import { QueryErrorBanner } from "~/components/query-error-banner";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import {
@@ -15,12 +15,9 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "~/components/ui/empty";
-import { LoadingDots } from "~/components/ui/loading-dots";
-import { fetchIdentityStatus, fetchRecap, refreshRecap } from "~/lib/api";
-import {
-  RECAP_POLL_MS,
-  STATUS_BACKGROUND_POLL_MS,
-} from "~/lib/polling";
+import { Skeleton } from "~/components/ui/loading-skeleton";
+import { fetchRecap, refreshRecap } from "~/lib/api";
+import { RECAP_POLL_MS } from "~/lib/polling";
 import type { RecapStepRef } from "~/lib/types";
 
 export function meta() {
@@ -38,7 +35,7 @@ function StepRef({
   return (
     <span className="inline-flex items-baseline gap-1">
       <Link
-        to={`/i/${encodeURIComponent(identityId)}/mindlog?step=${encodeURIComponent(refItem.step)}`}
+        to={`/i/${encodeURIComponent(identityId)}/log?step=${encodeURIComponent(refItem.step)}`}
         className="rounded bg-muted px-1 font-mono text-[11px] text-primary hover:underline"
         title="在思维日志中打开"
       >
@@ -112,39 +109,49 @@ export default function RecapPage() {
   const { identityId = "" } = useParams();
   const controlsEnabled = useControlsEnabled();
 
-  const { data: status } = useQuery({
-    queryKey: ["status", identityId],
-    queryFn: () => fetchIdentityStatus(identityId),
-    refetchInterval: STATUS_BACKGROUND_POLL_MS,
-  });
-
-  const { data: recap, isLoading } = useQuery({
+  const {
+    data: recap,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["recap", identityId],
     queryFn: () => fetchRecap(identityId),
     refetchInterval: RECAP_POLL_MS,
   });
 
-  if (isLoading || !recap) {
+  if (isError) {
     return (
-      <div className="flex justify-center py-20">
-        <LoadingDots />
+      <div className="mx-auto w-full max-w-7xl">
+        <div className="mx-auto w-full max-w-4xl pb-10">
+          <QueryErrorBanner error={error} onRetry={() => void refetch()} />
+        </div>
       </div>
     );
   }
 
-  const header = (
-    <IdentityTabs
-      identityId={identityId}
-      live={status?.live ?? false}
-      active="recap"
-      name={recap.identity?.name}
-    />
-  );
+  if (isLoading || !recap) {
+    return (
+      <div className="mx-auto w-full max-w-4xl space-y-6">
+        <Skeleton className="h-4 w-64" />
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-5/6" />
+        </div>
+        <div className="space-y-2">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-20 w-full rounded-lg" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (!recap.available) {
     return (
       <div className="mx-auto w-full max-w-7xl">
-        {header}
         <Empty>
           <EmptyHeader>
             <EmptyTitle>暂无摘要</EmptyTitle>
@@ -158,8 +165,9 @@ export default function RecapPage() {
             <RefreshButtons identityId={identityId} refreshing={false} showRebuild={false} />
           )}
           {recap.refreshing && (
-            <div className="mt-4 flex justify-center">
-              <LoadingDots />
+            <div className="mt-4 space-y-2">
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-4 w-1/2" />
             </div>
           )}
         </Empty>
@@ -172,7 +180,6 @@ export default function RecapPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl">
-      {header}
       <div className="mx-auto w-full max-w-4xl space-y-8 pb-10">
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs text-muted-foreground">
@@ -195,7 +202,9 @@ export default function RecapPage() {
           <h2 className="mb-2 flex items-center gap-1.5 font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
             <Sparkles className="size-3" /> 主线
           </h2>
-          <p className="whitespace-pre-line text-sm leading-relaxed">{themes.arc}</p>
+          <p className="whitespace-pre-line font-note text-sm leading-relaxed">
+            {themes.arc}
+          </p>
         </section>
 
         <section>
@@ -211,7 +220,9 @@ export default function RecapPage() {
                     情节 {theme.episodes.join(", ")}
                   </span>
                 </div>
-                <p className="mb-2 text-sm text-muted-foreground">{theme.description}</p>
+                <p className="mb-2 font-note text-sm text-muted-foreground">
+                  {theme.description}
+                </p>
                 <div className="flex flex-col gap-1">
                   {theme.key_steps?.map((refItem) => (
                     <StepRef key={refItem.step} identityId={identityId} refItem={refItem} />
@@ -243,7 +254,7 @@ export default function RecapPage() {
                     {episode.first_ts} → {episode.last_ts} · {episode.n_steps} 步
                   </span>
                 </div>
-                <p className="mb-2 text-sm">{episode.summary}</p>
+                <p className="mb-2 font-note text-sm">{episode.summary}</p>
                 <div className="flex flex-col gap-1">
                   {episode.notable_steps?.map((refItem) => (
                     <StepRef key={refItem.step} identityId={identityId} refItem={refItem} />

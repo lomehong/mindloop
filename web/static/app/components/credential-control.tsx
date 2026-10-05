@@ -14,7 +14,7 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { authRequired, setWebToken, subscribeAuth } from "~/lib/api";
 
-export function CredentialControl() {
+export function CredentialControl({ compact }: { compact?: boolean }) {
   const required = useSyncExternalStore(subscribeAuth, authRequired, () => false);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -30,10 +30,17 @@ export function CredentialControl() {
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
-      {required && <span role="alert" className="text-xs text-destructive">请更新访问凭据</span>}
-      <Button variant="ghost" size="sm" aria-label="访问凭据" onClick={() => { setDraft(""); setOpen(true); }}>
+      {required && !compact && <span role="alert" className="text-xs text-destructive">请更新访问凭据</span>}
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-label="访问凭据"
+        title={required ? "请更新访问凭据" : "访问凭据"}
+        className={required ? "text-destructive" : ""}
+        onClick={() => { setDraft(""); setOpen(true); }}
+      >
         <KeyRound className="size-3" />
-        访问凭据
+        {!compact && "访问凭据"}
       </Button>
       <AlertDialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) setDraft(""); }}>
         <AlertDialogContent>

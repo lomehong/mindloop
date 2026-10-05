@@ -17,15 +17,15 @@ export function fmtDuration(seconds: number | null): string | null {
 }
 
 const BADGE_STYLE: Record<ActivityState, string> = {
-  working: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
-  stalled: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
+  working: "border border-primary/35 bg-primary/10 text-primary",
+  stalled: "border border-resin/40 bg-resin/10 text-resin",
   idle: "bg-muted text-muted-foreground",
   asleep: "bg-muted text-muted-foreground",
 };
 
 const DOT_STYLE: Record<ActivityState, string> = {
-  working: "bg-green-500",
-  stalled: "bg-amber-500",
+  working: "bg-primary",
+  stalled: "bg-resin",
   idle: "bg-muted-foreground/40",
   asleep: "bg-muted-foreground/40",
 };
@@ -87,7 +87,7 @@ export function ActivityBadge({
   if (!activity) return live ? <LiveBadge /> : null;
 
   return (
-    <Link to={`/i/${encodeURIComponent(identityId)}/health`}>
+    <Link to={`/i/${encodeURIComponent(identityId)}/run/health`}>
       <Badge
         className={cn(
           "cursor-pointer gap-1.5 font-normal",
@@ -97,7 +97,7 @@ export function ActivityBadge({
       >
         <span className="relative flex h-2 w-2">
           {activity.state === "working" && (
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
           )}
           <span
             className={cn(

@@ -1,0 +1,1 @@
+const _=2e3,S=5e3,L=2e3,s=5e3,T=1e3,P=1500,E=3e4,O=1e4,A=1e4,M=5e3,a=6e4,c=700,o=2e3,t=3e3,n=3e4,e=3e4,I=3e5,R=6e4,C=12e4;export{o as C,P as J,t as P,M as R,S,s as T,E as U,c as a,a as b,A as c,O as d,n as e,e as f,I as g,R as h,C as i,T as j,L as k,_ as l};

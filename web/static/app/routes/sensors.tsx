@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ear, Eye, Hand, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Eye, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useParams } from "react-router";
 import { toast } from "sonner";
 
 import { ConfirmDialog } from "~/components/confirm-dialog";
-import { IdentityTabs } from "~/components/identity-tabs";
-import { Badge } from "~/components/ui/badge";
+import { QueryErrorBanner } from "~/components/query-error-banner";
+import { Readout, Ro } from "~/components/readout";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import {
@@ -17,7 +17,7 @@ import {
   EmptyTitle,
 } from "~/components/ui/empty";
 import { Input } from "~/components/ui/input";
-import { LoadingDots } from "~/components/ui/loading-dots";
+import { Skeleton } from "~/components/ui/loading-skeleton";
 import {
   Select,
   SelectContent,
@@ -27,7 +27,6 @@ import {
 } from "~/components/ui/select";
 import {
   addSensor,
-  fetchIdentityStatus,
   fetchSensors,
   fetchTaste,
   removeSensor,
@@ -41,24 +40,58 @@ export function meta() {
   return [{ title: "mindloop · 感知" }];
 }
 
-/** 类型徽标配色。 */
-function typeVariant(
-  type: string
-): "default" | "secondary" | "outline" {
-  switch (type) {
-    case "file":
-      return "default";
-    case "git":
-      return "secondary";
-    case "web":
-      return "outline";
-    default:
-      return "secondary";
-  }
+const TYPE_LABELS: Record<string, string> = {
+  file: "文件目录",
+  git: "git 仓库",
+  web: "网页/RSS",
+  webhook: "webhook",
+  self: "内感受",
+};
+
+const MBADGE =
+  "rounded-full border border-line-strong px-1.5 py-px font-mono text-[9.5px] text-muted-foreground";
+const PILL_NEUTRAL =
+  "rounded-full border border-line-strong px-2 py-px font-mono text-[10.5px] text-muted-foreground";
+const PILL_WARN =
+  "rounded-full border border-resin/40 bg-resin/[0.08] px-2 py-px font-mono text-[10.5px] text-resin";
+const PILL_ON =
+  "rounded-full border border-primary/35 bg-primary/[0.10] px-2 py-px font-mono text-[10.5px] text-primary";
+const CODE =
+  "mx-0.5 rounded bg-muted px-1 py-px font-mono text-[11px] text-foreground";
+const HINT = "text-[12px] leading-relaxed text-muted-foreground";
+
+/** 五感区块卡：色点 + mono 节标题（+ 注记）。 */
+function SenseCard({
+  dot,
+  label,
+  note,
+  children,
+}: {
+  dot: string;
+  label: string;
+  note?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mb-3.5 rounded-xl border border-line bg-card px-4 pb-3 pt-3.5">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <span className="flex items-center gap-1.5 font-mono text-[10.5px] tracking-[0.14em] text-muted-foreground">
+          <span className={cn("size-[7px] rounded-full", dot)} />
+          {label}
+        </span>
+        {note && (
+          <span className="font-mono text-[10.5px] tracking-normal text-faint">
+            {note}
+          </span>
+        )}
+      </div>
+      {children}
+    </div>
+  );
 }
 
-/** 感官卡片的公共渲染（列表 + 启停 + 移除）。 */
-function SensorCard({
+/** 感官行（d-row）：启停 + id + 类型徽标 + 状态 pill + 目标/规则细节行。 */
+function SensorRow({
   sensor,
   onToggle,
   onRemove,
@@ -74,68 +107,57 @@ function SensorCard({
   const rules = sensor.salience?.rules ?? [];
   const learningOff = (sensor.learning_days ?? 0) < 0;
   return (
-    <div
-      className={cn("rounded-lg border p-3", !enabled && "opacity-60")}
-    >
+    <div className="rounded-lg px-1.5 py-2 hover:bg-secondary">
       <div className="flex flex-wrap items-center gap-2">
         <Checkbox
           checked={enabled}
           disabled={pending}
           aria-label={`${enabled ? "停用" : "启用"} ${sensor.id}`}
-          onCheckedChange={(checked) =>
-            onToggle(sensor.id, checked === true)
-          }
+          onCheckedChange={(checked) => onToggle(sensor.id, checked === true)}
         />
-        <span className="font-mono text-sm font-medium">{sensor.id}</span>
-        <Badge variant={typeVariant(sensor.type)}>{sensor.type}</Badge>
-        {!enabled && <Badge variant="outline">已停用</Badge>}
-        {!learningOff && <Badge variant="outline">观察期</Badge>}
-        <span className="ml-auto" />
+        <span className="font-mono text-[12.5px]">{sensor.id}</span>
+        <span className={MBADGE}>
+          {TYPE_LABELS[sensor.type] ?? sensor.type}
+        </span>
+        {!enabled && <span className={PILL_NEUTRAL}>已停用</span>}
+        {!learningOff && <span className={PILL_WARN}>观察期</span>}
+        <span className="flex-1" />
         <Button
           variant="ghost"
           size="sm"
+          className="h-6 px-2 text-[11px] text-muted-foreground hover:text-clay"
           disabled={pending}
+          aria-label={`移除 ${sensor.id}`}
           onClick={() => onRemove(sensor)}
         >
           <Trash2 className="size-3" />
           移除
         </Button>
       </div>
-      <div className="mt-1 break-all font-mono text-xs text-muted-foreground">
-        {target}
+      <div className={cn("mt-1 space-y-0.5 pl-[26px]", !enabled && "opacity-50")}>
+        {target && (
+          <div className="break-all font-mono text-[11.5px] text-muted-foreground">
+            {target}
+          </div>
+        )}
+        {((sensor.keywords?.length ?? 0) > 0 || rules.length > 0) && (
+          <div className="text-[12px] text-muted-foreground">
+            {(sensor.keywords?.length ?? 0) > 0 &&
+              `议程关键词：${sensor.keywords?.join("、")}`}
+            {rules.length > 0 && (
+              <>
+                {(sensor.keywords?.length ?? 0) > 0 && " · "}
+                规则{" "}
+                {rules
+                  .map(
+                    (r) => `${r.name}→${r.salience}${r.min ? `(≥${r.min})` : ""}`
+                  )
+                  .join("；")}
+              </>
+            )}
+          </div>
+        )}
       </div>
-      {(sensor.keywords?.length ?? 0) > 0 && (
-        <div className="mt-1 text-xs text-muted-foreground">
-          议程关键词：{sensor.keywords?.join("、")}
-        </div>
-      )}
-      {rules.length > 0 && (
-        <div className="mt-1 text-xs text-muted-foreground">
-          规则：
-          {rules
-            .map(
-              (r) => `${r.name}→${r.salience}${r.min ? `(≥${r.min})` : ""}`
-            )
-            .join("；")}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SectionHead({
-  icon,
-  title,
-  hint,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  hint: string;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="flex items-center gap-1.5 font-medium">{icon}{title}</span>
-      <span className="text-[11px] text-muted-foreground">{hint}</span>
     </div>
   );
 }
@@ -155,13 +177,13 @@ export default function SensorsPage() {
   const [newKeywords, setNewKeywords] = useState("");
   const [newWakeWords, setNewWakeWords] = useState("");
 
-  const { data: status } = useQuery({
-    queryKey: ["status", identityId],
-    queryFn: () => fetchIdentityStatus(identityId),
-    refetchInterval: STATUS_BACKGROUND_POLL_MS,
-  });
-
-  const { data: view, isLoading } = useQuery({
+  const {
+    data: view,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["sensors", identityId],
     queryFn: () => fetchSensors(identityId),
     refetchInterval: STATUS_BACKGROUND_POLL_MS,
@@ -236,10 +258,22 @@ export default function SensorsPage() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  if (isError) {
+    return (
+      <div className="mx-auto w-full max-w-7xl">
+        <QueryErrorBanner error={error} onRetry={() => void refetch()} />
+      </div>
+    );
+  }
+
   if (isLoading || !view) {
     return (
-      <div className="flex justify-center py-20">
-        <LoadingDots />
+      <div className="mx-auto w-full max-w-7xl">
+        <div className="mx-auto w-full max-w-4xl space-y-3.5 pb-10">
+          <Skeleton className="h-7 w-56" />
+          <Skeleton className="h-40 w-full rounded-xl" />
+          <Skeleton className="h-24 w-full rounded-xl" />
+        </div>
       </div>
     );
   }
@@ -253,27 +287,25 @@ export default function SensorsPage() {
   const commonToggle = (id: string, enabled: boolean) =>
     toggle.mutate({ id, enabled });
   const commonRemove = (s: SensorView) => setSensorToRemove(s);
+  const tasteEmpty =
+    !taste ||
+    (taste.Undoes ?? 0) + (taste.Approves ?? 0) + (taste.Denies ?? 0) + (taste.MissedReports ?? 0) ===
+      0;
 
   return (
-    <div className="mx-auto w-full max-w-4xl">
-      <IdentityTabs
-        identityId={identityId}
-        live={status?.live ?? false}
-        active="sensors"
-      />
-      <div className="mx-auto w-full max-w-4xl space-y-6 pb-10">
-        <div className="flex items-center gap-3">
-          <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            感知（五感 · sensors.json）
-          </h2>
-          <span className="text-[11px] text-muted-foreground">
-            眼睛里有事：观察到的变化按显著性分级——多数安静沉淀，命中
-            规则的才叫醒。改这里即刻生效。
+    <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-4xl pb-10">
+        <div className="mb-4 flex flex-wrap items-baseline gap-3">
+          <h1 className="font-note text-[22px] font-semibold tracking-[0.01em]">
+            感知
+          </h1>
+          <span className="text-[13px] text-muted-foreground">
+            五感 · sensors.json · 改这里即刻生效
           </span>
           <Button
             variant="outline"
             size="sm"
-            className="ml-auto"
+            className="ml-auto self-center"
             onClick={invalidate}
           >
             <RefreshCw className="size-3" />
@@ -281,64 +313,59 @@ export default function SensorsPage() {
           </Button>
         </div>
 
-        {/* ── 眼 · 状态观察 ── */}
-        <div className="space-y-3">
-          <SectionHead
-            icon={<Eye className="size-4" />}
-            title="眼 · 观察"
-            hint="盯住目录、仓库、网页——变化按显著性分级沉淀或叫醒"
-          />
-          <div className="rounded-lg border p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Select value={newType} onValueChange={(v) => setNewType(v)}>
-                <SelectTrigger className="w-[92px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="file">文件目录</SelectItem>
-                  <SelectItem value="git">git 仓库</SelectItem>
-                  <SelectItem value="web">网页/RSS</SelectItem>
-                  <SelectItem value="webhook">webhook（耳）</SelectItem>
-                </SelectContent>
-              </Select>
-              <Input
-                className="w-64"
-                placeholder={
-                  newType === "web" || newType === "webhook"
-                    ? "https://example.com"
-                    : "要观察的目录"
-                }
-                value={newTarget}
-                onChange={(e) => setNewTarget(e.target.value)}
-              />
-              <Input
-                className="w-44"
-                placeholder="关键词（逗号分隔，可空）"
-                value={newKeywords}
-                onChange={(e) => setNewKeywords(e.target.value)}
-              />
-              <Input
-                className="w-52"
-                placeholder="叫醒关键词（可空）"
-                value={newWakeWords}
-                onChange={(e) => setNewWakeWords(e.target.value)}
-              />
-              <Button
-                size="sm"
-                disabled={!newTarget.trim() || add.isPending}
-                onClick={() => add.mutate()}
-              >
-                <Plus className="size-3" />
-                接入
-              </Button>
-            </div>
-            <div className="mt-2 text-[11px] text-muted-foreground">
-              新感官有 3 天观察期（只沉淀不叫醒）；"叫醒关键词"命中的
-              变化会叫醒心智。
-            </div>
+        {/* ── 眼 · 观察 ── */}
+        <SenseCard
+          dot="bg-lake"
+          label="眼 · 观察"
+          note="盯住目录、仓库、网页——变化按显著性分级沉淀或叫醒"
+        >
+          <div className="flex flex-wrap items-center gap-2 pb-1">
+            <Select value={newType} onValueChange={(v) => setNewType(v)}>
+              <SelectTrigger className="w-[118px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="file">文件目录</SelectItem>
+                <SelectItem value="git">git 仓库</SelectItem>
+                <SelectItem value="web">网页/RSS</SelectItem>
+                <SelectItem value="webhook">webhook（耳）</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              className="w-64"
+              placeholder={
+                newType === "web" || newType === "webhook"
+                  ? "https://example.com"
+                  : "要观察的目录"
+              }
+              value={newTarget}
+              onChange={(e) => setNewTarget(e.target.value)}
+            />
+            <Input
+              className="w-44"
+              placeholder="关键词（逗号分隔，可空）"
+              value={newKeywords}
+              onChange={(e) => setNewKeywords(e.target.value)}
+            />
+            <Input
+              className="w-52"
+              placeholder="叫醒关键词（可空）"
+              value={newWakeWords}
+              onChange={(e) => setNewWakeWords(e.target.value)}
+            />
+            <Button
+              size="sm"
+              disabled={!newTarget.trim() || add.isPending}
+              onClick={() => add.mutate()}
+            >
+              接入
+            </Button>
+          </div>
+          <div className={cn(HINT, "pb-1")}>
+            新感官有 3 天观察期（只沉淀不叫醒）；「叫醒关键词」命中的变化会叫醒心智。
           </div>
           {eyes.length === 0 ? (
-            <Empty>
+            <Empty className="border-0">
               <EmptyHeader>
                 <EmptyMedia variant="icon">
                   <Eye className="size-5" />
@@ -353,135 +380,188 @@ export default function SensorsPage() {
               </EmptyHeader>
             </Empty>
           ) : (
-            eyes.map((sensor) => (
-              <SensorCard
-                key={sensor.id}
-                sensor={sensor}
-                onToggle={commonToggle}
-                onRemove={commonRemove}
-                pending={toggle.isPending || remove.isPending}
-              />
-            ))
+            <div className="divide-y divide-line border-t border-line">
+              {eyes.map((sensor) => (
+                <SensorRow
+                  key={sensor.id}
+                  sensor={sensor}
+                  onToggle={commonToggle}
+                  onRemove={commonRemove}
+                  pending={toggle.isPending || remove.isPending}
+                />
+              ))}
+            </div>
           )}
-        </div>
+        </SenseCard>
 
-        {/* ── 耳 · 消息流 ── */}
-        <div className="space-y-3">
-          <SectionHead
-            icon={<Ear className="size-4" />}
-            title="耳 · 听闻"
-            hint="外部系统说话，它在线听——webhook 推送即事件"
-          />
+        {/* ── 耳 · 听闻 ── */}
+        <SenseCard
+          dot="bg-plum"
+          label="耳 · 听闻"
+          note="外部系统说话，它在线听——webhook 推送即事件"
+        >
           {ears.length === 0 ? (
-            <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-              未配置。用上方表单选 "webhook（耳）" 接入——生成 HMAC
+            <div className={HINT}>
+              未配置。用上方表单选「webhook（耳）」接入——生成 HMAC
               密钥后，外部系统 POST 到
-              <code className="mx-1 rounded bg-muted px-1">
+              <code className={CODE}>
                 /hook/{identityId}/&lt;感官id&gt;
               </code>
               即成为它的耳朵。
             </div>
           ) : (
-            ears.map((sensor) => (
-              <SensorCard
-                key={sensor.id}
-                sensor={sensor}
-                onToggle={commonToggle}
-                onRemove={commonRemove}
-                pending={toggle.isPending || remove.isPending}
-              />
-            ))
+            <div className="divide-y divide-line border-t border-line">
+              {ears.map((sensor) => (
+                <SensorRow
+                  key={sensor.id}
+                  sensor={sensor}
+                  onToggle={commonToggle}
+                  onRemove={commonRemove}
+                  pending={toggle.isPending || remove.isPending}
+                />
+              ))}
+            </div>
           )}
-        </div>
+        </SenseCard>
 
         {/* ── 鼻 · 嗅探 ── */}
-        <div className="space-y-3">
-          <SectionHead
-            icon={<span className="text-sm">👃</span>}
-            title="鼻 · 嗅探"
-            hint="自动机制：速率突增 / 首次出现 / 阈值越界 / 缺席 / 内感受"
-          />
-          <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-            常驻自动运行，无需配置：事件流的模式偏移会以
-            <code className="mx-1 rounded bg-muted px-1">anomaly</code>
-            事件留痕并按显著性叫醒；配置了
-            <code className="mx-1 rounded bg-muted px-1">expect_every</code>
-            的感官"该来的没来"会被报告；内感受（预算水位 / 模型熔断）
-            直达通知。
-            {selfs.length > 0 && (
-              <span className="ml-1 text-foreground">
-                内感受已开启：{selfs.map((s) => s.id).join("、")}。
+        <SenseCard
+          dot="bg-moss"
+          label="鼻 · 嗅探"
+          note="自动机制，无表单"
+        >
+          <div className="flex flex-wrap items-center gap-1.5">
+            {["速率突增", "首次出现", "阈值越界", "缺席"].map((chip) => (
+              <span
+                key={chip}
+                className="rounded-full border border-line-strong px-2.5 py-[2.5px] font-mono text-[10.5px] text-muted-foreground"
+              >
+                {chip}
+              </span>
+            ))}
+            {selfs.length > 0 ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/[0.09] px-2.5 py-[2.5px] font-mono text-[10.5px] text-foreground">
+                <span className="size-[5px] rounded-full bg-primary" />
+                内感受已开启 · 预算水位 / 模型熔断直达通知
+              </span>
+            ) : (
+              <span className="rounded-full border border-dashed border-line-strong px-2.5 py-[2.5px] font-mono text-[10.5px] text-muted-foreground">
+                内感受未开启
               </span>
             )}
           </div>
-        </div>
-
-        {/* ── 舌 · 味觉 ── */}
-        <div className="space-y-3">
-          <SectionHead
-            icon={<span className="text-sm">👅</span>}
-            title="舌 · 品评"
-            hint="你的归因反馈是它校准的证据面（近 7 天）"
-          />
-          <div className="rounded-lg border p-3 text-xs">
-            {taste ? (
-              (taste.Undoes ?? 0) + (taste.Approves ?? 0) + (taste.Denies ?? 0) + (taste.MissedReports ?? 0) === 0 ? (
-                <span className="text-muted-foreground">
-                  窗口内还没有味觉信号——撤销时用
-                  <code className="mx-1 rounded bg-muted px-1">undo --because 提案多余</code>
-                  类归因、审批决议都会成为它的校准证据。
-                </span>
-              ) : (
-                <span>
-                  撤销 {taste.Undoes ?? 0}（提案多余{" "}
-                  {taste.UndoThresholdTight ?? 0}）｜批准{" "}
-                  {taste.Approves ?? 0}｜拒绝 {taste.Denies ?? 0}
-                  {(taste.MissedReports ?? 0) > 0 && (
-                    <span className="text-amber-600 dark:text-amber-400">
-                      {" "}
-                      ｜⚠ 漏报匹配 {taste.MissedReports} 次
-                      （{taste.MissedSubjects?.join("、")}）
-                    </span>
-                  )}
-                </span>
-              )
-            ) : (
-              <LoadingDots />
+          <div className={cn(HINT, "mt-2")}>
+            常驻自动运行：事件流的模式偏移会以
+            <code className={CODE}>anomaly</code>
+            事件留痕并按显著性叫醒；配置了
+            <code className={CODE}>expect_every</code>
+            的感官「该来的没来」会被报告。
+            {selfs.length > 0 && (
+              <span className="text-foreground">
+                {" "}
+                内感受：{selfs.map((s) => s.id).join("、")}。
+              </span>
             )}
           </div>
-        </div>
+        </SenseCard>
+
+        {/* ── 舌 · 品评 ── */}
+        <SenseCard
+          dot="bg-resin"
+          label="舌 · 品评"
+          note="你的归因反馈是它校准的证据面（近 7 天）"
+        >
+          {taste ? (
+            <>
+              <Readout>
+                <Ro
+                  label="撤销"
+                  value={String(taste.Undoes ?? 0)}
+                  unit={
+                    (taste.UndoThresholdTight ?? 0) > 0
+                      ? `提案多余 ${taste.UndoThresholdTight}`
+                      : undefined
+                  }
+                />
+                <Ro label="批准" value={String(taste.Approves ?? 0)} />
+                <Ro label="拒绝" value={String(taste.Denies ?? 0)} />
+                <Ro
+                  label="漏报匹配"
+                  value={String(taste.MissedReports ?? 0)}
+                  className={
+                    (taste.MissedReports ?? 0) > 0 ? "text-clay" : undefined
+                  }
+                />
+              </Readout>
+              <div className={cn(HINT, "mt-2.5")}>
+                {(taste.MissedReports ?? 0) > 0 && (
+                  <span className="text-clay">
+                    ⚠ 漏报匹配 {taste.MissedReports} 次（
+                    {taste.MissedSubjects?.join("、")}）；{" "}
+                  </span>
+                )}
+                {tasteEmpty
+                  ? "窗口内还没有味觉信号——撤销时用"
+                  : "撤销时用"}
+                <code className={CODE}>undo --because 提案多余</code>
+                类归因、审批决议都会成为它的校准证据。
+              </div>
+            </>
+          ) : (
+            <Skeleton className="h-16 w-full rounded-xl" />
+          )}
+        </SenseCard>
 
         {/* ── 身 · 触达 ── */}
-        <div className="space-y-3">
-          <SectionHead
-            icon={<Hand className="size-4" />}
-            title="身 · 触达"
-            hint="动作闭环（robotd MCP 服务器）——动作必须自带回读验证"
-          />
-          {view?.robotd?.configured ? (
-            <div className="rounded-lg border p-3 text-xs space-y-1">
-              <div>
-                已接入（mcp.json）。模式：
-                <span className={view.robotd.mode === "action" ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
-                  {view.robotd.mode === "action" ? "动作已授权" : "观察模式（只许看不许动）"}
+        <SenseCard
+          dot="bg-clay"
+          label="身 · 触达"
+          note="动作闭环 · 动作必须自带回读验证"
+        >
+          {view.robotd?.configured ? (
+            <div className="space-y-1.5 text-[12px] leading-relaxed">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-muted-foreground">
+                  已接入（mcp.json）· 模式：
+                </span>
+                <span
+                  className={cn(
+                    view.robotd.mode === "action" ? PILL_ON : PILL_WARN
+                  )}
+                >
+                  {view.robotd.mode === "action"
+                    ? "动作已授权"
+                    : "观察模式（只许看不许动）"}
                 </span>
               </div>
               {view.robotd.mode === "action" && (
-                <div className="text-muted-foreground">
-                  窗口白名单：{view.robotd.allow?.join("、")}——动作只在这些标题的窗口上进行；密码/凭据画面在任何模式下都拒绝。
+                <div className="flex flex-wrap items-center gap-1 text-muted-foreground">
+                  窗口白名单：
+                  {view.robotd.allow?.map((w) => (
+                    <span
+                      key={w}
+                      className="rounded-md bg-secondary px-2 py-[2.5px] font-mono text-[11px]"
+                    >
+                      {w}
+                    </span>
+                  ))}
+                  ——动作只在这些标题的窗口上进行；密码/凭据画面在任何模式下都拒绝。
                 </div>
               )}
               <div className="text-muted-foreground">
-                心智用法：截屏 <code>look</code>（下一轮思考即所见）；动作{" "}
-                <code>mcp call robotd screen_click / screen_type</code>（每次动作强制回读截图作为证据）。
+                心智用法：截屏 <code className={CODE}>look</code>
+                （下一轮思考即所见）；动作
+                <code className={CODE}>mcp call robotd screen_click / screen_type</code>
+                （每次动作强制回读截图作为证据）。
               </div>
             </div>
           ) : (
-            <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground space-y-1">
+            <div className="space-y-1.5 text-[12px] leading-relaxed text-muted-foreground">
               <div>
-                未接入。接入命令（在项目目录执行，白名单按需给出；不给 = 只许看不许动）：
+                未接入。接入命令（在项目目录执行，白名单按需给出；不给 =
+                只许看不许动）：
               </div>
-              <div className="font-mono break-all bg-muted rounded px-2 py-1">
+              <div className="break-all rounded-md bg-muted px-2 py-1 font-mono text-[11px]">
                 mindloop mcp add robotd --identity {identityId} -- &lt;mindloop.exe 绝对路径&gt; robotd --window-allow 记事本
               </div>
               <div>
@@ -490,7 +570,7 @@ export default function SensorsPage() {
               </div>
             </div>
           )}
-        </div>
+        </SenseCard>
       </div>
 
       <ConfirmDialog

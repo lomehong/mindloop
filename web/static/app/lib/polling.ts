@@ -35,3 +35,18 @@ export const RECAP_POLL_MS = 5000;
 export const CHAT_FAST_POLL_WINDOW_MS = 60_000;
 export const CHAT_FAST_POLL_MS = 700;
 export const CHAT_IDLE_POLL_MS = STATUS_ACTIVE_POLL_MS;
+
+// ---- 桌面宠物（/pet，components/pet/）----
+// 宠物常驻桌面的节奏取舍：实时变化（忙闲/步骤/流式回复）全走
+// replies/stream SSE，轮询只兜底缓变信号，宁慢勿吵。
+// SSE 断线重连起步间隔（指数退避，封顶 30s）。
+export const PET_SSE_RETRY_MS = 3_000;
+export const PET_SSE_RETRY_MAX_MS = 30_000;
+// activity（dozing/stalled 兜底，SSE 已覆盖实时忙闲）——30s。
+export const PET_ACTIVITY_POLL_MS = 30_000;
+// usage 的 admission（预算水位，日内缓变）——5min。
+export const PET_USAGE_POLL_MS = 300_000;
+// llm-health（熔断/错误面）——60s。
+export const PET_HEALTH_POLL_MS = 60_000;
+// approvals（审批待办）——2min。
+export const PET_APPROVALS_POLL_MS = 120_000;

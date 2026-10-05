@@ -13,10 +13,9 @@ import { Info, RotateCcw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
-import { LoadingDots } from "~/components/ui/loading-dots";
+import { Skeleton } from "~/components/ui/loading-skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -91,6 +90,11 @@ const MODEL_OPTIONS: { group: string; models: string[] }[] = [
 const CUSTOM = "__custom__";
 const OPENROUTER_DATALIST_ID = "openrouter-model-ids";
 
+/* 行控件样式（mockup .slot / .sl2 / .pill / .sel2）。 */
+const SL2 = "font-mono text-[11.5px] text-muted-foreground";
+const PILL =
+  "inline-flex items-center gap-1.5 rounded-full border border-line-strong px-2 py-px font-mono text-[10.5px] text-muted-foreground";
+
 /** 档案视图 → PUT 输入（与 provider-profiles.tsx 的同名助手对齐：
  * 两处都只提交身份级档案，全局档案不回写）。 */
 function viewToInput(p: LlmProviderProfileView): LlmProviderProfileInput {
@@ -157,15 +161,14 @@ function TierRow({
   const currentModel = binding?.profile === profileId ? binding.model : "";
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2 last:border-b-0">
-      <div className="flex w-52 items-center gap-1.5">
-        <span className="text-xs font-medium">{knob.label}</span>
-        <span className="font-mono text-[10px] text-muted-foreground">
-          {knob.envKey}
+    <div className="grid grid-cols-1 items-center gap-x-3 gap-y-2 border-t border-line px-0.5 py-2.5 md:grid-cols-[190px_1fr_auto]">
+      <div className="flex items-center gap-1.5">
+        <span className={SL2}>
+          {knob.label} · {knob.envKey}
         </span>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Info className="size-3 shrink-0 cursor-help text-muted-foreground" />
+            <Info className="size-3 shrink-0 cursor-help text-faint" />
           </TooltipTrigger>
           <TooltipContent className="max-w-xs text-xs">
             <b>{knob.label}</b>——{knob.tip}
@@ -173,7 +176,7 @@ function TierRow({
         </Tooltip>
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
         <select
           aria-label={`${knob.label} 档案选择`}
           disabled={!controlsEnabled || savePending}
@@ -182,7 +185,7 @@ function TierRow({
             setProfileDraft(event.target.value);
             setCustomOpen(false);
           }}
-          className="h-8 rounded-md border bg-transparent px-2 font-mono text-xs"
+          className="h-8 rounded-lg border border-line bg-secondary px-2 font-mono text-xs disabled:opacity-50"
         >
           <option value="">（不绑定）</option>
           {profiles.map((p) => (
@@ -217,13 +220,14 @@ function TierRow({
               list={OPENROUTER_DATALIST_ID}
               className="h-8 w-56 font-mono text-xs"
             />
-            <Button type="submit" size="sm" disabled={savePending}>
+            <Button type="submit" size="sm" className="h-7 px-2.5 text-[12px]" disabled={savePending}>
               保存
             </Button>
             <Button
               type="button"
               variant="ghost"
               size="sm"
+              className="h-7 px-2.5 text-[12px]"
               onClick={() => {
                 setCustomOpen(false);
                 setCustomDraft("");
@@ -248,7 +252,7 @@ function TierRow({
                 onBind(knob.tier, { profile: profile.id, model: value });
               }
             }}
-            className="h-8 min-w-56 rounded-md border bg-transparent px-2 font-mono text-xs"
+            className="h-8 min-w-56 rounded-lg border border-line bg-secondary px-2 font-mono text-xs disabled:opacity-50"
           >
             <option value="" disabled>
               {profile ? "选择模型…" : "绑定档案后可选模型"}
@@ -267,27 +271,27 @@ function TierRow({
         )}
 
         {fallback && (
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[10.5px] text-faint">
             档案未列模型清单——显示常用建议
           </span>
         )}
         {!binding && inherited && (
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[10.5px] text-faint">
             继承全局绑定：{inherited.profile} / {inherited.model}
           </span>
         )}
+      </div>
 
+      <div className="flex flex-wrap items-center justify-end gap-1.5">
         {resolved?.error ? (
-          <span className="text-xs text-destructive">
-            配置错误：{resolved.error}
-          </span>
+          <span className="text-[11px] text-clay">配置错误：{resolved.error}</span>
         ) : resolved?.source === "env" ? (
           <>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Badge variant="destructive" className="text-[10px]">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-clay/50 px-2 py-px font-mono text-[10.5px] text-clay">
                   env 覆盖中
-                </Badge>
+                </span>
               </TooltipTrigger>
               <TooltipContent className="max-w-xs text-xs">
                 显式环境变量 {knob.envKey} 优先于 providers.json 绑定——
@@ -296,7 +300,7 @@ function TierRow({
                   : "由进程环境或服务根 .env 提供，请在对应处移除。"}
               </TooltipContent>
             </Tooltip>
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className="font-mono text-[10.5px] text-faint">
               生效 {resolved.model}
             </span>
             {identityEnvEntry && (
@@ -320,15 +324,13 @@ function TierRow({
           </>
         ) : resolved?.source === "providers.json" ? (
           <>
-            <Badge variant="outline" className="text-[10px]">
-              providers.json
-            </Badge>
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className={PILL}>providers.json</span>
+            <span className="font-mono text-[10.5px] text-faint">
               生效 {resolved.model}
             </span>
           </>
         ) : (
-          <span className="text-[10px] text-muted-foreground">未配置</span>
+          <span className="text-[10.5px] text-faint">未配置</span>
         )}
 
         {binding && (
@@ -337,6 +339,7 @@ function TierRow({
               <Button
                 variant="ghost"
                 size="sm"
+                className="h-7 px-2 text-[12px] text-muted-foreground"
                 aria-label={`清除绑定 ${knob.label}`}
                 disabled={savePending}
                 onClick={() => onClear(knob.tier)}
@@ -424,10 +427,9 @@ export function ModelConfigSection({
 
   if (!view) {
     return (
-      <section className="mb-8">
-        <div className="flex justify-center py-10">
-          <LoadingDots />
-        </div>
+      <section className="rounded-xl border border-line bg-card px-4 pt-3.5 pb-2.5">
+        <Skeleton className="h-5 w-28" />
+        <Skeleton className="mt-2 h-24 w-full" />
       </section>
     );
   }
@@ -437,31 +439,27 @@ export function ModelConfigSection({
     ? "OpenRouter 目录不可达——自定义输入仍可用。"
     : catalog
       ? `自定义输入带 OpenRouter 公共目录 ${catalog.count} 个模型的自动补全。`
-      : null;
+      : "";
 
   return (
-    <section className="mb-8">
-      <div className="mb-2 flex items-baseline gap-3">
-        <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          模型档位
-        </h2>
-        <span className="text-[11px] text-muted-foreground">
-          档位绑定写入身份 providers.json（候选来自「提供商档案」的模型清单）；
-          显式环境变量（MINDLOOP_MODEL 等）优先。运行中的思考者保留启动时的配置——修改后需重启思考者。
-          {catalogNote ? ` ${catalogNote}` : ""}
-        </span>
-      </div>
+    <section className="rounded-xl border border-line bg-card px-4 pt-3.5 pb-2.5">
+      <h2 className="text-[14.5px] font-semibold">模型档位</h2>
+      <p className="mb-2 text-[12px] leading-[1.65] text-faint">
+        档位绑定写入身份 providers.json（候选来自「提供商档案」的模型清单）；
+        显式环境变量（MINDLOOP_MODEL 等）优先。运行中的思考者保留启动时的配置——修改后需重启思考者。
+        {catalogNote ? ` ${catalogNote}` : ""}
+      </p>
 
       {view.error && (
         <p
           role="alert"
-          className="mb-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+          className="mb-2 rounded-lg border border-clay/45 bg-clay/[0.06] px-3 py-2 text-xs text-clay"
         >
           无法读取现有配置：{view.error}
         </p>
       )}
 
-      <div className="rounded-lg border">
+      <div>
         {TIER_KNOBS.map((knob) => (
           <TierRow
             key={knob.tier}

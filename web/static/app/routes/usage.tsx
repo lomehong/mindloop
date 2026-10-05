@@ -4,33 +4,23 @@ import { useMemo, useState } from "react";
 import { useParams } from "react-router";
 import { toast } from "sonner";
 
-import { IdentityTabs } from "~/components/identity-tabs";
 import { QueryErrorBanner } from "~/components/query-error-banner";
 import { ConfirmDialog } from "~/components/confirm-dialog";
+import { Readout, Ro } from "~/components/readout";
 import { useControlsEnabled } from "~/components/thinker-controls";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 import {
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
 } from "~/components/ui/empty";
-import { LoadingDots } from "~/components/ui/loading-dots";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "~/components/ui/table";
-import { fetchIdentityStatus, fetchUsage, refreshUsage } from "~/lib/api";
+import { Skeleton } from "~/components/ui/loading-skeleton";
+import { fetchUsage, refreshUsage } from "~/lib/api";
 import { formatBytes, formatClock, formatCount, formatRelativeTime } from "~/lib/format";
 import {
   JOB_PROGRESS_POLL_MS,
-  STATUS_BACKGROUND_POLL_MS,
   USAGE_IDLE_POLL_MS,
 } from "~/lib/polling";
 import type { UsageAdmission, UsageDay } from "~/lib/types";
@@ -39,9 +29,11 @@ export function meta() {
   return [{ title: "mindloop · 用量" }];
 }
 
-/** Round a y-axis max up to 1/2/2.5/5 x 10^k. */
+/** Round a y-axis max up to 1/2/2.5/5 x 10^k（全零→0：只画基线；
+ * 小计数→4：刻度 1/2/3/4 都是整数）。 */
 function niceMax(v: number): number {
-  if (v <= 0) return 1;
+  if (v <= 0) return 0;
+  if (v <= 4) return 4;
   const mag = 10 ** Math.floor(Math.log10(v));
   for (const m of [1, 2, 2.5, 5, 10]) if (v <= m * mag) return m * mag;
   return 10 * mag;
@@ -58,9 +50,11 @@ interface Series {
   color: string;
 }
 
-const INPUT = "var(--chart-2)";
-const OUTPUT = "var(--chart-1)";
-const THIRD = "var(--muted-foreground)";
+// 分类学配色（ui-language.md §2）：输入=苔(思考)、输出=湖(观察)、思考=梅(心智之言)。
+const MOSS = "var(--moss)";
+const LAKE = "var(--lake)";
+const PLUM = "var(--plum)";
+const RESIN = "var(--resin)";
 
 const W = 640;
 const H = 220;
@@ -71,8 +65,8 @@ const MB = 24;
 const PW = W - ML - MR;
 const PH = H - MT - MB;
 
-/** Per-day bars (stacked or grouped) with a hover tooltip that lists every
- * series for the day plus an optional total. Plain SVG; no chart library. */
+/** 14 天年轮图：格纸底 + 堆叠/分组柱，悬停列出当天每个系列。
+ * 纯 SVG，无图表库。 */
 function BarChart({
   days,
   series,
@@ -163,10 +157,13 @@ function BarChart({
 
   return (
     <div className="relative">
-      <div className="mb-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+      <div className="mb-1 flex flex-wrap gap-x-3.5 gap-y-1 font-mono text-[10.5px] text-muted-foreground">
         {series.map((s) => (
           <span key={s.key} className="inline-flex items-center gap-1.5">
-            <i className="inline-block size-2.5 rounded-sm" style={{ background: s.color }} />
+            <i
+              className="inline-block size-2 rounded-[2px]"
+              style={{ background: s.color }}
+            />
             {s.label}
           </span>
         ))}
@@ -178,24 +175,41 @@ function BarChart({
         onMouseLeave={() => setHover(null)}
         role="img"
       >
-        {[0.25, 0.5, 0.75, 1].map((f) => {
-          const y = MT + (1 - f) * PH;
-          return (
-            <g key={f}>
-              <line x1={ML} y1={y} x2={W - MR} y2={y} className="stroke-border" strokeWidth={1} />
-              <text
-                x={ML - 6}
-                y={y + 4}
-                textAnchor="end"
-                className="fill-muted-foreground"
-                fontSize={11}
-              >
-                {formatCount(ymax * f)}
-              </text>
-            </g>
-          );
-        })}
-        <line x1={ML} y1={H - MB} x2={W - MR} y2={H - MB} className="stroke-border" />
+        {ymax > 0 &&
+          [0.25, 0.5, 0.75, 1].map((f) => {
+            const y = MT + (1 - f) * PH;
+            const label = ymax * f;
+            return (
+              <g key={f}>
+                <line
+                  x1={ML}
+                  y1={y}
+                  x2={W - MR}
+                  y2={y}
+                  style={{ stroke: "var(--grid)" }}
+                  strokeWidth={1}
+                />
+                {Number.isInteger(label) && label >= 1 && (
+                  <text
+                    x={ML - 6}
+                    y={y + 4}
+                    textAnchor="end"
+                    className="fill-faint font-mono"
+                    fontSize={10}
+                  >
+                    {formatCount(label)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        <line
+          x1={ML}
+          y1={H - MB}
+          x2={W - MR}
+          y2={H - MB}
+          style={{ stroke: "var(--line-strong)" }}
+        />
         {days.map(([day], i) =>
           // Regular ticks every labelEvery days; the last day gets one too
           // unless it would sit right next to a regular tick.
@@ -205,8 +219,8 @@ function BarChart({
               x={ML + i * slot + slot / 2}
               y={H - MB + 15}
               textAnchor="middle"
-              className="fill-muted-foreground"
-              fontSize={11}
+              className="fill-faint font-mono"
+              fontSize={10}
             >
               {day.slice(5)}
             </text>
@@ -225,7 +239,7 @@ function BarChart({
       </svg>
       {hovered && hover && (
         <div
-          className="pointer-events-none absolute z-10 rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md"
+          className="pointer-events-none absolute z-10 rounded-lg border border-line bg-card px-2.5 py-1.5 font-mono text-[10.5px] shadow-md"
           style={{
             left: `${(tipLeft / W) * 100}%`,
             top: Math.max(0, hover.y - 8),
@@ -240,7 +254,7 @@ function BarChart({
             </div>
           ))}
           {totalLabel && (
-            <div className="mt-0.5 flex justify-between gap-4 border-t pt-0.5">
+            <div className="mt-0.5 flex justify-between gap-4 border-t border-line pt-0.5">
               <span className="text-muted-foreground">{totalLabel}</span>
               <span className="tabular-nums font-medium">
                 {series.reduce((a, s) => a + (hovered[1][s.key] ?? 0), 0).toLocaleString()}
@@ -255,86 +269,30 @@ function BarChart({
 
 // --- page ------------------------------------------------------------------
 
-function Tile({ value, label }: { value: string; label: string }) {
-  return (
-    <div className="min-w-32 rounded-lg border bg-card px-4 py-3">
-      <div className="text-2xl tabular-nums">{value}</div>
-      <div className="text-xs text-muted-foreground">{label}</div>
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-sm">{children}</div>
-    </div>
-  );
-}
-
-/** 每日预算与熔断状态：未设置/未知都必须如实显示——零值不伪装成
- * "未设置"，未知用量不伪装成零成本。admission 缺省（旧数据）显示
- * 破折号而不是错误。 */
-function AdmissionCard({
-  admission,
-  unknownCalls,
+/** 图卡：标题 + mono 注记 + 内容（年轮图的容器）。 */
+function ChartCard({
+  title,
+  note,
+  children,
 }: {
-  admission?: UsageAdmission;
-  unknownCalls: number;
+  title: string;
+  note?: string;
+  children: React.ReactNode;
 }) {
-  const budget = !admission ? (
-    "—"
-  ) : admission.daily_limit > 0 ? (
-    <span className="tabular-nums">
-      {admission.used_today.toLocaleString()} / {admission.daily_limit.toLocaleString()}
-      <span className="text-muted-foreground"> tokens 今日</span>
-    </span>
-  ) : (
-    "未设置"
-  );
-  const circuit = (() => {
-    if (!admission) return { text: "—", hint: null as string | null };
-    if (admission.cooling_until) {
-      return {
-        text: `冷却中 · 至 ${formatClock(admission.cooling_until)}`,
-        hint: `连续 ${admission.consecutive_errors} 次失败；mindloop llm resume 可显式恢复`,
-      };
-    }
-    if (admission.consecutive_errors >= admission.circuit_threshold) {
-      return {
-        text: "等待探测",
-        hint: `连续 ${admission.consecutive_errors} 次失败；下一次调用为探测`,
-      };
-    }
-    return { text: "正常", hint: null as string | null };
-  })();
-
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm">预算与准入</CardTitle>
-        <CardDescription>
-          每日预算来自 MINDLOOP_DAILY_TOKENS（UTC 日界重置）；连续 3 次模型调用失败后进入 5
-          分钟冷却，冷却结束后仅放行一次探测。未知用量是供应商未返回 token
-          计数的调用——它们不计入 token 总量，而不是零成本。
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4 sm:grid-cols-3">
-        <Field label="每日预算">{budget}</Field>
-        <Field label="熔断">
-          {circuit.text}
-          {circuit.hint && <div className="text-xs text-muted-foreground">{circuit.hint}</div>}
-        </Field>
-        <Field label="未知用量">
-          {unknownCalls > 0
-            ? `${unknownCalls.toLocaleString()} 次调用未返回用量（不计入 token）`
-            : "全部调用有用量记录"}
-        </Field>
-      </CardContent>
-    </Card>
+    <div className="mb-4 rounded-xl border border-line bg-card px-4 pb-3 pt-4">
+      <div className="mb-0.5 flex flex-wrap items-baseline gap-2.5">
+        <h2 className="text-[14.5px] font-semibold">{title}</h2>
+        {note && (
+          <span className="font-mono text-[10.5px] text-faint">{note}</span>
+        )}
+      </div>
+      {children}
+    </div>
   );
 }
+
+const HINT = "px-0.5 text-[12px] leading-relaxed text-muted-foreground";
 
 function RefreshButtons({
   identityId,
@@ -397,15 +355,66 @@ function RefreshButtons({
   );
 }
 
+/** 预算水位：今日用量 / 日预算（MINDLOOP_DAILY_TOKENS）。未设置不伪装成
+ * 零预算——明说"不设闸"；未知用量如实列出，不冒充零成本。 */
+function BudgetMeter({
+  admission,
+  unknownCalls,
+}: {
+  admission?: UsageAdmission;
+  unknownCalls: number;
+}) {
+  const limited = !!admission && admission.daily_limit > 0;
+  const pct = limited
+    ? Math.min(100, (admission.used_today / admission.daily_limit) * 100)
+    : 0;
+  const metaLeft = !admission
+    ? "—"
+    : limited
+      ? `${admission.used_today.toLocaleString()} / ${admission.daily_limit.toLocaleString()} tokens 今日`
+      : "未设置预算 —— 心智不设闸，全部调用落台账";
+  const metaRight = !admission ? "—" : limited ? `${pct.toFixed(0)}%` : "0 / ∞";
+
+  const circuit = !admission
+    ? "—"
+    : admission.cooling_until
+      ? `冷却中 · 至 ${formatClock(admission.cooling_until)}（连续 ${admission.consecutive_errors} 次失败；mindloop llm resume 可显式恢复）`
+      : admission.consecutive_errors >= admission.circuit_threshold
+        ? `等待探测（连续 ${admission.consecutive_errors} 次失败；下一次调用为探测）`
+        : "正常";
+
+  return (
+    <ChartCard
+      title="今日水位"
+      note="MINDLOOP_DAILY_TOKENS · UTC 日界重置"
+    >
+      <div className="px-0.5 pb-1 pt-3">
+        <div className="h-[7px] overflow-hidden rounded-full bg-secondary">
+          <div
+            className="h-full rounded-full bg-primary"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <div className="flex justify-between pt-1 font-mono text-[10.5px] text-faint">
+          <span>{metaLeft}</span>
+          <span className="tabular-nums">{metaRight}</span>
+        </div>
+      </div>
+      <div className={HINT}>
+        连续 3 次模型调用失败后进入 5 分钟冷却，冷却结束仅放行一次探测（当前：
+        {circuit}）。未知用量 = 供应商未返回 token 计数的调用，它们不计入总量
+        {unknownCalls > 0
+          ? `（当前 ${unknownCalls.toLocaleString()} 次调用未返回用量）`
+          : ""}
+        。
+      </div>
+    </ChartCard>
+  );
+}
+
 export default function UsagePage() {
   const { identityId = "" } = useParams();
   const controlsEnabled = useControlsEnabled();
-
-  const { data: status } = useQuery({
-    queryKey: ["status", identityId],
-    queryFn: () => fetchIdentityStatus(identityId),
-    refetchInterval: STATUS_BACKGROUND_POLL_MS,
-  });
 
   const {
     data: usage,
@@ -424,7 +433,6 @@ export default function UsagePage() {
   if (isError) {
     return (
       <div className="mx-auto w-full max-w-7xl">
-        <IdentityTabs identityId={identityId} live={false} active="usage" />
         <QueryErrorBanner error={error} onRetry={() => void refetch()} />
       </div>
     );
@@ -432,25 +440,19 @@ export default function UsagePage() {
 
   if (isLoading || !usage) {
     return (
-      <div className="flex justify-center py-20">
-        <LoadingDots />
+      <div className="mx-auto w-full max-w-7xl">
+        <div className="mx-auto w-full max-w-4xl space-y-3.5 pb-10">
+          <Skeleton className="h-7 w-52" />
+          <Skeleton className="h-20 w-full rounded-xl" />
+          <Skeleton className="h-56 w-full rounded-xl" />
+        </div>
       </div>
     );
   }
 
-  const header = (
-    <IdentityTabs
-      identityId={identityId}
-      live={status?.live ?? false}
-      active="usage"
-      name={usage.identity?.name}
-    />
-  );
-
   if (!usage.available) {
     return (
       <div className="mx-auto w-full max-w-7xl">
-        {header}
         <Empty>
           <EmptyHeader>
             <EmptyTitle>暂无用量数据</EmptyTitle>
@@ -467,11 +469,6 @@ export default function UsagePage() {
               label="统计用量"
               showRecount={false}
             />
-          )}
-          {usage.refreshing && (
-            <div className="mt-4 flex justify-center">
-              <LoadingDots />
-            </div>
           )}
         </Empty>
       </div>
@@ -494,19 +491,56 @@ export default function UsagePage() {
   const last7 = days.slice(-7).map(([, v]) => v);
   const n7 = Math.max(1, last7.length);
   const tok7 = last7.reduce((a, v) => a + v.in + v.out + v.think, 0) / n7;
-  const msg7 = last7.reduce((a, v) => a + v.in_msg + v.out_msg, 0) / n7;
   const calls7 = last7.reduce((a, v) => a + v.calls, 0) / n7;
   const models = Object.entries(usage.by_model ?? {}).sort((a, b) => b[1].in - a[1].in);
   const ledgerSince = usage.ledger?.since ?? null;
+  // 年轮图取近 14 天（ui-language.md §C）。
+  const chartDays = days.slice(-14);
   const firstDay = days[0]?.[0];
   const ledgerCoversAll = ledgerSince !== null && ledgerSince === firstDay;
+  const rangeNote =
+    chartDays.length > 0
+      ? `${chartDays[0][0].slice(5)} — ${chartDays[chartDays.length - 1][0].slice(5)}`
+      : undefined;
+  const admission = usage.admission;
+  const budgetValue = !admission
+    ? { text: "—", unset: true }
+    : admission.daily_limit > 0
+      ? {
+          text: `${formatCount(admission.used_today)} / ${formatCount(admission.daily_limit)}`,
+          unset: false,
+        }
+      : { text: "未设置", unset: true };
+
+  const tokenHint =
+    ledgerSince === null
+      ? "思维日志 reasoning 步骤上标记的输入/输出/思考 token。目前只统计了代理运行：LLM 用量台账（每次模型调用一行）还没有数据，快速回复与其他思考者的调用暂时缺席。"
+      : ledgerCoversAll
+        ? "每次模型调用的输入/输出/思考 token（用量台账）：代理运行、快速回复与其他思考者的调用全部覆盖。"
+        : `输入/输出/思考 token。${ledgerSince} 起为每次模型调用（用量台账）；此前只有代理运行（token 标在 reasoning 步骤上），那几天的快速回复与其他思考者调用缺席。`;
 
   return (
     <div className="mx-auto w-full max-w-7xl">
-      {header}
-      <div className="space-y-5 pb-10">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs text-muted-foreground">
+      <div className="mx-auto w-full max-w-4xl pb-10">
+        <div className="mb-1.5 flex flex-wrap items-baseline gap-3">
+          <h1 className="font-note text-[22px] font-semibold tracking-[0.01em]">
+            用量
+          </h1>
+          <span className="text-[13px] text-muted-foreground">
+            预算 · 台账 · 模型调用
+          </span>
+          {controlsEnabled && (
+            <div className="ml-auto self-center">
+              <RefreshButtons
+                identityId={identityId}
+                refreshing={usage.refreshing}
+                label="刷新"
+              />
+            </div>
+          )}
+        </div>
+        <div className="mb-4 flex flex-wrap items-center gap-2 font-mono text-[10.5px] text-faint">
+          <span>
             {usage.rows?.toLocaleString()} 行日志 · 统计于{" "}
             {usage.generated ? formatRelativeTime(usage.generated) : "—"} · 按 UTC 天分组
           </span>
@@ -515,130 +549,123 @@ export default function UsagePage() {
               {formatBytes(usage.pending_bytes)} 待统计
             </Badge>
           )}
-          {controlsEnabled && (
-            <div className="ml-auto">
-              <RefreshButtons identityId={identityId} refreshing={usage.refreshing} label="刷新" />
+        </div>
+
+        <div className="mb-4">
+          <Readout>
+            <Ro
+              label="TOKEN 总量"
+              value={formatCount(totals.in + totals.out + totals.think)}
+            />
+            <Ro label="日均 · 近 7 天" value={formatCount(tok7)} />
+            <Ro label="日均模型调用" value={calls7.toFixed(0)} />
+            <Ro label="日志覆盖" value={String(days.length)} unit="天" />
+            <Ro
+              label="今日预算"
+              value={budgetValue.text}
+              className={budgetValue.unset ? "text-faint" : undefined}
+            />
+          </Readout>
+        </div>
+
+        <ChartCard
+          title="每日 Token"
+          note={rangeNote ? `${rangeNote} · 输入/输出/思考 分列` : undefined}
+        >
+          <BarChart
+            days={chartDays}
+            stacked
+            totalLabel="合计"
+            series={[
+              { key: "in", label: "输入", color: MOSS },
+              { key: "out", label: "输出", color: LAKE },
+              { key: "think", label: "思考", color: PLUM },
+            ]}
+          />
+          <div className={HINT}>{tokenHint}</div>
+        </ChartCard>
+
+        <BudgetMeter
+          admission={admission}
+          unknownCalls={totals.unknown_calls ?? 0}
+        />
+
+        <ChartCard title="模型台账">
+          {models.length === 0 ? (
+            <p className="py-4 text-sm text-muted-foreground">还没有用量记录。</p>
+          ) : (
+            <div className="mt-2 overflow-hidden rounded-xl border border-line">
+              <table className="w-full text-left text-[13px]">
+                <thead>
+                  <tr className="border-b border-line font-mono text-[10.5px] tracking-[0.1em] text-faint">
+                    <th className="px-4 py-2 font-normal">模型</th>
+                    <th className="px-4 py-2 text-right font-normal">调用</th>
+                    <th className="px-4 py-2 text-right font-normal">输入</th>
+                    <th className="px-4 py-2 text-right font-normal">输出</th>
+                    <th className="px-4 py-2 text-right font-normal">思考</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {models.map(([model, v]) => (
+                    <tr
+                      key={model}
+                      className="border-b border-line last:border-b-0 hover:bg-muted"
+                    >
+                      <td className="px-4 py-2 font-mono text-[12.5px]">
+                        {model}
+                      </td>
+                      <td className="px-4 py-2 text-right font-mono tabular-nums">
+                        {v.calls.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-2 text-right font-mono tabular-nums">
+                        {formatCount(v.in)}
+                      </td>
+                      <td className="px-4 py-2 text-right font-mono tabular-nums">
+                        {formatCount(v.out)}
+                      </td>
+                      <td className="px-4 py-2 text-right font-mono tabular-nums">
+                        {formatCount(v.think)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
-        </div>
-
-        <div className="flex flex-wrap gap-3">
-          <Tile value={formatCount(totals.in + totals.out + totals.think)} label="token 总量" />
-          <Tile value={formatCount(tok7)} label="日均 token（近 7 天）" />
-          <Tile value={msg7.toFixed(0)} label="日均消息（近 7 天）" />
-          <Tile value={calls7.toFixed(0)} label="日均模型调用（近 7 天）" />
-          <Tile value={String(days.length)} label="日志覆盖天数" />
-        </div>
-
-        <AdmissionCard admission={usage.admission} unknownCalls={totals.unknown_calls ?? 0} />
+          <div className={HINT}>
+            覆盖范围与 token 图相同。台账日期的模型来自每次调用记录；日志日期的模型来自该运行的头行（"?" = 没有 run id 的步骤）。
+          </div>
+        </ChartCard>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">每日 Token</CardTitle>
-              <CardDescription>
-                {ledgerSince === null
-                  ? "思维日志 reasoning 步骤上标记的输入/输出/思考 token。目前只统计了代理运行：LLM 用量台账（每次模型调用一行）还没有数据，快速回复与其他思考者的调用暂时缺席。"
-                  : ledgerCoversAll
-                    ? "每次模型调用的输入/输出/思考 token（用量台账）：代理运行、快速回复与其他思考者的调用全部覆盖。"
-                    : `输入/输出/思考 token。${ledgerSince} 起为每次模型调用（用量台账）；此前只有代理运行（token 标在 reasoning 步骤上），那几天的快速回复与其他思考者调用缺席。`}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <BarChart
-                days={days}
-                stacked
-                totalLabel="合计"
-                series={[
-                  { key: "in", label: "输入", color: INPUT },
-                  { key: "out", label: "输出", color: OUTPUT },
-                  { key: "think", label: "思考", color: THIRD },
-                ]}
-              />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">每日消息</CardTitle>
-              <CardDescription>
-                收到的消息 = 其他人发给该身份的消息；发出的消息 = 它自己发出的消息。
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <BarChart
-                days={days}
-                stacked={false}
-                totalLabel="合计"
-                series={[
-                  { key: "in_msg", label: "收到", color: INPUT },
-                  { key: "out_msg", label: "发出", color: OUTPUT },
-                ]}
-              />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">每日活动</CardTitle>
-              <CardDescription>
-                模型调用（覆盖范围与 token 图相同）、启动的代理运行与 reasoning 步骤。
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <BarChart
-                days={days}
-                stacked={false}
-                series={[
-                  { key: "calls", label: "模型调用", color: INPUT },
-                  { key: "runs", label: "启动的运行", color: OUTPUT },
-                  { key: "reasoning", label: "reasoning 步骤", color: THIRD },
-                ]}
-              />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">各模型的 Token</CardTitle>
-              <CardDescription>
-                覆盖范围与 token 图相同。台账日期的模型来自每次调用记录；日志日期的模型来自该运行的头行（"?" = 没有 run id 的步骤）。
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {models.length === 0 ? (
-                <p className="text-sm text-muted-foreground">还没有用量记录。</p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>模型</TableHead>
-                      <TableHead className="text-right">调用</TableHead>
-                      <TableHead className="text-right">输入</TableHead>
-                      <TableHead className="text-right">输出</TableHead>
-                      <TableHead className="text-right">思考</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {models.map(([model, v]) => (
-                      <TableRow key={model}>
-                        <TableCell className="font-mono text-xs">{model}</TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {v.calls.toLocaleString()}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {v.in.toLocaleString()}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {v.out.toLocaleString()}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {v.think.toLocaleString()}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
+          <ChartCard title="每日消息">
+            <BarChart
+              days={chartDays}
+              stacked={false}
+              totalLabel="合计"
+              series={[
+                { key: "in_msg", label: "收到", color: LAKE },
+                { key: "out_msg", label: "发出", color: PLUM },
+              ]}
+            />
+            <div className={HINT}>
+              收到的消息 = 其他人发给该身份的消息；发出的消息 = 它自己发出的消息。
+            </div>
+          </ChartCard>
+          <ChartCard title="每日活动">
+            <BarChart
+              days={chartDays}
+              stacked={false}
+              series={[
+                { key: "calls", label: "模型调用", color: LAKE },
+                { key: "runs", label: "启动的运行", color: RESIN },
+                { key: "reasoning", label: "reasoning 步骤", color: MOSS },
+              ]}
+            />
+            <div className={HINT}>
+              模型调用（覆盖范围与 token 图相同）、启动的代理运行与 reasoning 步骤。
+            </div>
+          </ChartCard>
         </div>
       </div>
     </div>

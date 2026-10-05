@@ -142,11 +142,11 @@ export default function TalkHome() {
             >
               <span className="relative flex h-2.5 w-2.5 shrink-0">
                 {identity.live && (
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
                 )}
                 <span
                   className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
-                    identity.live ? "bg-green-500" : "bg-muted-foreground/30"
+                    identity.live ? "bg-primary" : "bg-muted-foreground/30"
                   }`}
                 />
               </span>

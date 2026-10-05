@@ -77,7 +77,7 @@ function CopyLinkButton() {
       onClick={copy}
     >
       {copied ? (
-        <Check className="h-4 w-4 text-green-500" />
+        <Check className="h-4 w-4 text-primary" />
       ) : (
         <Link className="h-4 w-4" />
       )}
@@ -103,7 +103,7 @@ function SubstepLink({ stepId }: { stepId: string }) {
       onClick={copy}
     >
       {copied ? (
-        <Check className="h-3.5 w-3.5 text-green-500" />
+        <Check className="h-3.5 w-3.5 text-primary" />
       ) : (
         <Link className="h-3.5 w-3.5" />
       )}
@@ -220,7 +220,7 @@ function RelatedRunRow({
     >
       <CornerDownRight className="h-3 w-3 shrink-0 text-muted-foreground" />
       <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{label}</span>
-      <Play className="h-3 w-3 shrink-0 text-blue-500" />
+      <Play className="h-3 w-3 shrink-0 text-resin" />
       {block.run.launched_by && (
         <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
           {block.run.launched_by}

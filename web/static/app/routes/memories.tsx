@@ -5,7 +5,7 @@ import { useParams } from "react-router";
 import { toast } from "sonner";
 
 import { ConfirmDialog } from "~/components/confirm-dialog";
-import { IdentityTabs } from "~/components/identity-tabs";
+import { QueryErrorBanner } from "~/components/query-error-banner";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import {
@@ -14,7 +14,7 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "~/components/ui/empty";
-import { LoadingDots } from "~/components/ui/loading-dots";
+import { Skeleton } from "~/components/ui/loading-skeleton";
 import { Input } from "~/components/ui/input";
 import { Markdown } from "~/components/ui/markdown";
 import { Textarea } from "~/components/ui/textarea";
@@ -48,6 +48,17 @@ function readableSlug(slug: string) {
 function memoryDate(created: string | null, mtime: number) {
   if (created) return formatDateTime(created);
   return new Date(mtime * 1000).toLocaleDateString();
+}
+
+/** 列表行的紧凑日期：MM-DD，跨年才带年份（详情页仍用完整日期）。 */
+function memoryDateShort(created: string | null, mtime: number) {
+  const full = memoryDate(created, mtime);
+  const match = full.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return full;
+  const [, year, month, day] = match;
+  return year === String(new Date().getFullYear())
+    ? `${month}-${day}`
+    : `${year}-${month}-${day}`;
 }
 
 function memoryBody(content: string) {
@@ -93,7 +104,13 @@ export default function MemoriesPage() {
   });
   const live = status?.live ?? false;
 
-  const { data: memories, isLoading } = useQuery({
+  const {
+    data: memories,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["memories", identityId],
     queryFn: () => fetchMemories(identityId),
     refetchInterval: pollWhileLive(live),
@@ -160,17 +177,36 @@ export default function MemoriesPage() {
     setReviseTarget(active);
   };
 
+  if (isError) {
+    return (
+      <div className="mx-auto w-full max-w-7xl">
+        <QueryErrorBanner error={error} onRetry={() => void refetch()} />
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
-      <div className="flex justify-center py-20">
-        <LoadingDots />
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 lg:flex-row">
+        <div className="shrink-0 space-y-2 lg:w-80">
+          <Skeleton className="h-9 w-full" />
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-16 w-full" />
+          ))}
+        </div>
+        <div className="min-w-0 flex-1 space-y-3 lg:pl-6">
+          <Skeleton className="h-4 w-52" />
+          <Skeleton className="h-6 w-72" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-5/6" />
+          <Skeleton className="h-4 w-2/3" />
+        </div>
       </div>
     );
   }
 
   return (
     <div className="mx-auto w-full max-w-7xl">
-      <IdentityTabs identityId={identityId} live={live} active="memories" />
       {!memories || memories.length === 0 ? (
         <Empty>
           <EmptyHeader>
@@ -181,8 +217,8 @@ export default function MemoriesPage() {
           </EmptyHeader>
         </Empty>
       ) : (
-        <div className="flex flex-col gap-4 lg:flex-row">
-          <aside className="min-w-0 shrink-0 lg:w-80">
+        <div className="flex flex-col gap-4 lg:flex-row lg:gap-0">
+          <aside className="min-w-0 shrink-0 lg:w-80 lg:border-r lg:border-line lg:pr-4">
             <div className="mb-2 flex gap-2">
               <div className="relative min-w-0 flex-1">
                 <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -210,12 +246,12 @@ export default function MemoriesPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="mb-1 text-xs text-muted-foreground">
+            <div className="mb-1 px-1 font-mono text-[10.5px] tracking-wide text-faint">
               {filtered.length === memories.length
                 ? `${memories.length} 条记忆`
                 : `${filtered.length} / ${memories.length} 条记忆`}
             </div>
-            <div className="max-h-[42vh] overflow-y-auto rounded-lg border lg:max-h-[calc(100vh-13rem)]">
+            <div className="max-h-[42vh] divide-y divide-line overflow-y-auto border-y border-line lg:max-h-[calc(100vh-13rem)]">
               {filtered.length === 0 ? (
                 <div className="px-4 py-8 text-center text-sm text-muted-foreground">
                   没有记忆符合这些筛选条件。
@@ -227,36 +263,37 @@ export default function MemoriesPage() {
                     type="button"
                     onClick={() => setSelected(mem.name)}
                     className={cn(
-                      "block w-full border-b px-3 py-2.5 text-left last:border-b-0 hover:bg-accent",
-                      mem.name === active && "bg-accent",
-                      !isActive(mem.status) && "opacity-60"
+                      "block w-full px-3 py-2.5 text-left hover:bg-secondary",
+                      mem.name === active &&
+                        "bg-primary/[0.07] shadow-[inset_2px_0_0_var(--primary)]",
+                      !isActive(mem.status) && "opacity-50"
                     )}
                     title={mem.name}
                   >
                     <span className="mb-1 flex items-center gap-2">
                       <Badge
                         variant="outline"
-                        className="max-w-28 truncate text-[10px]"
+                        className="max-w-28 truncate rounded-full border-line-strong font-mono text-[9.5px] font-normal text-muted-foreground"
                       >
                         {mem.type}
                       </Badge>
                       {statusLabel(mem.status) && (
                         <Badge
                           variant="outline"
-                          className="shrink-0 text-[10px] text-muted-foreground"
+                          className="shrink-0 rounded-full border-clay/35 font-mono text-[9.5px] font-normal text-clay"
                         >
                           {statusLabel(mem.status)}
                         </Badge>
                       )}
-                      <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground">
-                        {memoryDate(mem.created, mem.mtime)}
+                      <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-faint">
+                        {memoryDateShort(mem.created, mem.mtime)}
                       </span>
                     </span>
-                    <span className="line-clamp-2 block text-sm font-medium leading-snug">
+                    <span className="line-clamp-2 block font-note text-[13px] leading-snug">
                       {mem.summary || readableSlug(mem.slug)}
                     </span>
                     {mem.summary && (
-                      <span className="mt-1 block truncate font-mono text-[10px] text-muted-foreground">
+                      <span className="mt-1 block truncate font-mono text-[10px] text-faint">
                         {readableSlug(mem.slug)}
                       </span>
                     )}
@@ -265,7 +302,7 @@ export default function MemoriesPage() {
               )}
             </div>
           </aside>
-          <div className="min-h-72 min-w-0 flex-1 rounded-lg border bg-card p-4 sm:p-6">
+          <div className="min-h-72 min-w-0 flex-1 lg:pl-6">
             {!active ? (
               <div className="flex min-h-60 items-center justify-center text-sm text-muted-foreground">
                 换一个筛选条件以查看记忆。
@@ -273,45 +310,46 @@ export default function MemoriesPage() {
             ) : memory ? (
               <>
                 {activeInfo && (
-                  <div className="mb-5 border-b pb-4">
-                    <div className="mb-2 flex flex-wrap items-center gap-2">
-                      <Badge variant="secondary">{activeInfo.type}</Badge>
+                  <div className="mb-4">
+                    <div className="mb-3 flex flex-wrap items-center gap-2 font-mono text-[11px] text-faint">
+                      <Badge
+                        variant="outline"
+                        className="rounded-full border-line-strong font-mono text-[9.5px] font-normal text-muted-foreground"
+                      >
+                        {activeInfo.type}
+                      </Badge>
                       {statusLabel(activeInfo.status) && (
                         <Badge
                           variant="outline"
-                          className="text-muted-foreground"
+                          className="rounded-full border-clay/35 font-mono text-[9.5px] font-normal text-clay"
                         >
                           {statusLabel(activeInfo.status)}
                         </Badge>
                       )}
-                      <span className="text-xs text-muted-foreground">
-                        {memoryDate(activeInfo.created, activeInfo.mtime)}
-                      </span>
-                      {activeInfo.id && (
-                        <span className="font-mono text-[10px] text-muted-foreground">
-                          {activeInfo.id}
-                        </span>
-                      )}
+                      <span>{memoryDate(activeInfo.created, activeInfo.mtime)}</span>
+                      {activeInfo.id && <span>{activeInfo.id}</span>}
                       {!revising && isActive(activeInfo.status) && activeInfo.id && (
                         <span className="ml-auto flex gap-2">
                           <Button
                             variant="outline"
                             size="sm"
+                            className="h-7 rounded-lg border-line font-mono text-[11px]"
                             onClick={beginRevise}
                           >
-                            <Pencil /> 修订
+                            <Pencil className="size-3" /> 修订
                           </Button>
                           <Button
                             variant="outline"
                             size="sm"
+                            className="h-7 rounded-lg border-clay/40 font-mono text-[11px] text-clay hover:bg-clay/10 hover:text-clay"
                             onClick={() => setConfirmInvalidate(true)}
                           >
-                            <ShieldOff /> 失效
+                            <ShieldOff className="size-3" /> 失效
                           </Button>
                         </span>
                       )}
                     </div>
-                    <h2 className="text-lg font-semibold leading-snug">
+                    <h2 className="font-note text-[19px] font-semibold leading-snug">
                       {activeInfo.summary || readableSlug(activeInfo.slug)}
                     </h2>
                   </div>
@@ -343,11 +381,20 @@ export default function MemoriesPage() {
                     </div>
                   </div>
                 ) : (
-                  <Markdown className="max-w-none">{memoryBody(memory.content)}</Markdown>
+                  <Markdown
+                    className="max-w-[640px] border-0 bg-transparent p-0"
+                    proseClassName="font-note text-[14px] leading-[1.85]"
+                  >
+                    {memoryBody(memory.content)}
+                  </Markdown>
                 )}
               </>
             ) : (
-              <LoadingDots />
+              <div className="space-y-3">
+                <Skeleton className="h-4 w-52" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-5/6" />
+              </div>
             )}
           </div>
         </div>

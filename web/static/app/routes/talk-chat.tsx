@@ -10,6 +10,7 @@ import {
 } from "~/components/chat-bubble";
 import { PushBell } from "~/components/push-bell";
 import { CredentialControl } from "~/components/credential-control";
+import { QueryErrorBanner } from "~/components/query-error-banner";
 import { useControlsEnabled } from "~/components/thinker-controls";
 import { Button } from "~/components/ui/button";
 import { LoadingDots } from "~/components/ui/loading-dots";
@@ -106,6 +107,9 @@ export default function TalkChat() {
     retry,
     isSending,
     isLoading,
+    isError,
+    error,
+    refetch,
     streamLiveRef,
   } = useChat({
     identityId,
@@ -296,7 +300,7 @@ export default function TalkChat() {
           <span
             className={cn(
               "inline-block h-2 w-2 rounded-full",
-              chat?.live ? "bg-green-500" : "bg-muted-foreground/30"
+              chat?.live ? "bg-primary" : "bg-muted-foreground/30"
             )}
             title={chat?.live ? "在线" : "空闲"}
           />
@@ -316,7 +320,7 @@ export default function TalkChat() {
       </header>
 
       {!dispatcherRunning && (
-        <div className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        <div className="border-b border-resin/40 bg-resin/10 px-4 py-2 text-xs text-resin">
           {identityName} 正在睡眠（思考者已停止）——消息会等它醒来后再被看到。
         </div>
       )}
@@ -334,6 +338,10 @@ export default function TalkChat() {
         {isLoading ? (
           <div className="flex justify-center py-10">
             <LoadingDots />
+          </div>
+        ) : isError ? (
+          <div className="py-4">
+            <QueryErrorBanner error={error} onRetry={() => void refetch()} />
           </div>
         ) : messages.length === 0 && visiblePending.length === 0 ? (
           <div className="py-10 text-center text-sm text-muted-foreground">

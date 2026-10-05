@@ -57,7 +57,7 @@ function NodeRow({
         <Link
           to={
             depth === 0
-              ? `/i/${encodeURIComponent(identityId)}/mindlog`
+              ? `/i/${encodeURIComponent(identityId)}/log`
               : `/i/${encodeURIComponent(identityId)}/t/${encodeURIComponent(node.traj_id)}`
           }
           className="flex min-w-0 flex-1 items-center gap-1 hover:underline"
@@ -67,9 +67,9 @@ function NodeRow({
             {depth === 0 ? "主轨迹" : node.slug.slice(0, 8)}
           </span>
           {node.has_final ? (
-            <Check className="h-2.5 w-2.5 shrink-0 text-green-600 dark:text-green-400" />
+            <Check className="h-2.5 w-2.5 shrink-0 text-primary" />
           ) : (
-            <CircleDot className="h-2.5 w-2.5 shrink-0 text-amber-500" />
+            <CircleDot className="h-2.5 w-2.5 shrink-0 text-resin" />
           )}
           <span className="shrink-0 tabular-nums text-muted-foreground">
             {node.step_count}
@@ -128,7 +128,7 @@ export function ForkTree({
 
   return (
     <div>
-      <h3 className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+      <h3 className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-faint">
         分叉树
       </h3>
       <NodeRow

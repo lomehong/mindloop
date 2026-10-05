@@ -63,7 +63,7 @@ export function FollowPin({
     <div className="fixed bottom-4 right-4 z-40">
       {pinned ? (
         <div className="flex items-center gap-1.5 rounded-full border bg-background/90 px-3 py-1.5 font-mono text-[11px] text-muted-foreground shadow-md backdrop-blur">
-          <ArrowDownToLine className="h-3 w-3 text-green-500" />
+          <ArrowDownToLine className="h-3 w-3 text-primary" />
           跟随中
         </div>
       ) : (
@@ -72,7 +72,7 @@ export function FollowPin({
           onClick={resume}
           className="flex items-center gap-1.5 rounded-full border bg-background/90 px-3 py-1.5 font-mono text-[11px] shadow-md backdrop-blur hover:bg-accent"
         >
-          <Pause className="h-3 w-3 text-amber-500" />
+          <Pause className="h-3 w-3 text-resin" />
           已暂停{missed > 0 && <> — 新增 {missed}</>} · 恢复跟随
         </button>
       )}

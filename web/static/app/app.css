@@ -42,6 +42,31 @@
   font-display: swap;
 }
 
+/* 「写」声部：心智写的字（聊天消息、记忆、摘要、日志叙述）用衬线。 */
+@font-face {
+  font-family: "IBM Plex Serif";
+  src: url("/fonts/IBMPlexSerif-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Serif";
+  src: url("/fonts/IBMPlexSerif-400-italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Serif";
+  src: url("/fonts/IBMPlexSerif-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme {
@@ -55,6 +80,10 @@
   --font-mono:
     "Google Sans Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
+  /* 「写」声部：心智之言用衬线（聊天消息/记忆/摘要/日志叙述），CJK 回退宋体。 */
+  --font-note:
+    "IBM Plex Serif", Georgia, "Songti SC", "Noto Serif CJK SC", "SimSun",
+    serif;
 }
 
 html {
@@ -111,77 +140,126 @@ html.dark {
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  /* 年轮：五色分类学 + 纸感层级（新代码用这些名字，别再用具名色） */
+  --color-moss: var(--moss);
+  --color-lake: var(--lake);
+  --color-plum: var(--plum);
+  --color-resin: var(--resin);
+  --color-clay: var(--clay);
+  --color-faint: var(--faint);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
 }
 
-/* Lab-instrument palette: cool graphite neutrals, one signal azure spent
-   only on interactive states and the "live" accents of the mind. */
+/* 年轮 v0.3 palette（docs/designs/ui-language.md §3）：腐殖土底 +
+   苔毡面板 + 叶绿只给"活着与行动"，五色分类学只给数据；格纸与
+   发线是观测台的纸感。双轨对等——亮暗两套逐项映射。
+   文档口径 → shadcn 变量映射：bg→--background、surface→--card、
+   surface-2→--secondary/--muted、line→--border、line-strong→--input。 */
 :root {
-  --radius: 0.375rem;
-  --background: oklch(0.982 0.003 236);
-  --foreground: oklch(0.24 0.02 264);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.24 0.02 264);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.24 0.02 264);
-  --primary: oklch(0.52 0.105 228);
-  --primary-foreground: oklch(0.98 0.005 228);
-  --secondary: oklch(0.945 0.006 240);
-  --secondary-foreground: oklch(0.3 0.02 264);
-  --muted: oklch(0.952 0.005 240);
-  --muted-foreground: oklch(0.5 0.02 258);
-  --accent: oklch(0.94 0.014 225);
-  --accent-foreground: oklch(0.35 0.06 235);
-  --destructive: oklch(0.577 0.215 27);
-  --border: oklch(0.898 0.008 240);
-  --input: oklch(0.898 0.008 240);
-  --ring: oklch(0.52 0.105 228);
-  --chart-1: oklch(0.58 0.11 228);
-  --chart-2: oklch(0.66 0.12 190);
-  --chart-3: oklch(0.52 0.09 264);
-  --chart-4: oklch(0.72 0.14 75);
-  --chart-5: oklch(0.62 0.18 330);
-  --sidebar: oklch(0.975 0.004 236);
-  --sidebar-foreground: oklch(0.24 0.02 264);
-  --sidebar-primary: oklch(0.52 0.105 228);
-  --sidebar-primary-foreground: oklch(0.98 0.005 228);
-  --sidebar-accent: oklch(0.94 0.014 225);
-  --sidebar-accent-foreground: oklch(0.35 0.06 235);
-  --sidebar-border: oklch(0.898 0.008 240);
-  --sidebar-ring: oklch(0.52 0.105 228);
+  --radius: 0.625rem;
+  /* 年轮令牌（亮色）。新组件直接引用这些名字；shadcn 变量是别名层。 */
+  --bg: #eff0e8;
+  --surface: #fbfcf7;
+  --surface-2: #e8ebe1;
+  --line: rgba(29, 37, 31, 0.13);
+  --line-strong: rgba(29, 37, 31, 0.22);
+  --grid: rgba(29, 37, 31, 0.055);
+  --fg: #20271f;
+  --faint: #8c968b;
+  --moss: #5f9147; /* 分类：思考 */
+  --lake: #3e7c93; /* 分类：观察/外来 */
+  --plum: #7c5f9e; /* 分类：心智之言/结构 */
+  --resin: #a9791e; /* 分类：行动/警示 */
+  --clay: #b34e3a; /* 危险/错误 */
+  --accent-ink: #f4faef;
+
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --card: var(--surface);
+  --card-foreground: var(--fg);
+  --popover: var(--surface);
+  --popover-foreground: var(--fg);
+  --primary: #46853a;
+  --primary-foreground: var(--accent-ink);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--fg);
+  --muted: var(--surface-2);
+  --muted-foreground: #5b675a;
+  --accent: var(--surface-2);
+  --accent-foreground: var(--fg);
+  --destructive: var(--clay);
+  --border: var(--line);
+  --input: var(--line-strong);
+  --ring: #46853a;
+  /* 分类学色（第三方图表卡与存量 chart-* 调用随动） */
+  --chart-1: var(--moss);
+  --chart-2: var(--lake);
+  --chart-3: var(--plum);
+  --chart-4: var(--resin);
+  --chart-5: var(--clay);
+  --sidebar: var(--bg);
+  --sidebar-foreground: var(--fg);
+  --sidebar-primary: #46853a;
+  --sidebar-primary-foreground: var(--accent-ink);
+  --sidebar-accent: color-mix(in oklch, #46853a 13%, transparent);
+  --sidebar-accent-foreground: var(--fg);
+  --sidebar-border: var(--line);
+  --sidebar-ring: #46853a;
+  --shadow: 0 10px 26px rgba(30, 40, 30, 0.1);
 }
 
 .dark {
-  --background: oklch(0.172 0.012 264);
-  --foreground: oklch(0.928 0.006 240);
-  --card: oklch(0.208 0.013 264);
-  --card-foreground: oklch(0.928 0.006 240);
-  --popover: oklch(0.208 0.013 264);
-  --popover-foreground: oklch(0.928 0.006 240);
-  --primary: oklch(0.78 0.1 213);
-  --primary-foreground: oklch(0.17 0.03 250);
-  --secondary: oklch(0.248 0.014 264);
-  --secondary-foreground: oklch(0.928 0.006 240);
-  --muted: oklch(0.248 0.014 264);
-  --muted-foreground: oklch(0.66 0.015 250);
-  --accent: oklch(0.27 0.02 245);
-  --accent-foreground: oklch(0.92 0.01 230);
-  --destructive: oklch(0.637 0.19 25);
-  --border: oklch(0.285 0.014 264);
-  --input: oklch(0.285 0.014 264);
-  --ring: oklch(0.78 0.1 213);
-  --chart-1: oklch(0.72 0.1 213);
-  --chart-2: oklch(0.75 0.11 190);
-  --chart-3: oklch(0.6 0.09 264);
-  --chart-4: oklch(0.78 0.13 75);
-  --chart-5: oklch(0.7 0.16 330);
-  --sidebar: oklch(0.2 0.013 264);
-  --sidebar-foreground: oklch(0.928 0.006 240);
-  --sidebar-primary: oklch(0.78 0.1 213);
-  --sidebar-primary-foreground: oklch(0.17 0.03 250);
-  --sidebar-accent: oklch(0.27 0.02 245);
-  --sidebar-accent-foreground: oklch(0.92 0.01 230);
-  --sidebar-border: oklch(0.285 0.014 264);
-  --sidebar-ring: oklch(0.78 0.1 213);
+  /* 年轮令牌（暗色，默认门面）。 */
+  --bg: #121814;
+  --surface: #171f1a;
+  --surface-2: #1f2922;
+  --line: rgba(230, 236, 225, 0.09);
+  --line-strong: rgba(230, 236, 225, 0.17);
+  --grid: rgba(230, 236, 225, 0.045);
+  --fg: #e6eadf;
+  --faint: #6b7767;
+  --moss: #6fa24e;
+  --lake: #79adc2;
+  --plum: #b79bd1;
+  --resin: #d9a84e;
+  --clay: #d4735e;
+  --accent-ink: #17240e;
+
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --card: var(--surface);
+  --card-foreground: var(--fg);
+  --popover: var(--surface);
+  --popover-foreground: var(--fg);
+  --primary: #8fc166;
+  --primary-foreground: var(--accent-ink);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--fg);
+  --muted: var(--surface-2);
+  --muted-foreground: #99a593;
+  --accent: var(--surface-2);
+  --accent-foreground: var(--fg);
+  --destructive: var(--clay);
+  --border: var(--line);
+  --input: var(--line-strong);
+  --ring: #8fc166;
+  --chart-1: var(--moss);
+  --chart-2: var(--lake);
+  --chart-3: var(--plum);
+  --chart-4: var(--resin);
+  --chart-5: var(--clay);
+  --sidebar: var(--bg);
+  --sidebar-foreground: var(--fg);
+  --sidebar-primary: #8fc166;
+  --sidebar-primary-foreground: var(--accent-ink);
+  --sidebar-accent: color-mix(in oklch, #8fc166 13%, transparent);
+  --sidebar-accent-foreground: var(--fg);
+  --sidebar-border: var(--line);
+  --sidebar-ring: #8fc166;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
 @layer base {
@@ -220,6 +298,19 @@ html.dark {
 ::-webkit-scrollbar-track,
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* 格纸（观测台的纸感来源，§3.3）：只用于泳道画布与图表区底，禁止全局铺。 */
+.paper-grid {
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+
+.paper-lines {
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px);
+  background-size: 100% var(--paper-gap, 34px);
 }
 
 /* New chat bubbles ease in instead of popping. */
@@ -352,8 +443,8 @@ html.dark {
 /* Timeline: a deeplinked (or search-jumped) element pulses so the eye
    finds it on the crowded canvas */
 @keyframes tl-flash {
-  0%, 100% { box-shadow: 0 0 0 2px rgba(103, 232, 249, 0); }
-  30%, 70% { box-shadow: 0 0 0 3px rgba(103, 232, 249, 0.9), 0 0 20px rgba(34, 211, 238, 0.8); }
+  0%, 100% { box-shadow: 0 0 0 2px color-mix(in oklch, var(--primary) 0%, transparent); }
+  30%, 70% { box-shadow: 0 0 0 3px color-mix(in oklch, var(--primary) 90%, transparent), 0 0 20px color-mix(in oklch, var(--primary) 80%, transparent); }
 }
 
 .tl-flash {
@@ -361,29 +452,435 @@ html.dark {
   border-radius: 4px;
 }
 
-/* Mind log v2: presentation canvas with the hype-video edge glow (pink
-   upper left, teal lower right). Dark theme keeps the deep purple-black
-   canvas; light theme gets a pale canvas with softer glows. */
-.ml2-canvas {
-  background:
-    radial-gradient(1100px 480px at -8% -10%, rgba(236, 72, 153, 0.16), transparent 60%),
-    radial-gradient(1000px 560px at 108% 112%, rgba(45, 212, 191, 0.14), transparent 60%),
-    #0b0a10;
+/* 分类学芯片（docs/designs/ui-language.md §2.3/§3.1）：五色只给数据。
+   文字色向 --fg 混出——暗色下变亮、亮色下变深，双主题都不必换类名。 */
+.chip-moss  { background: color-mix(in oklab, var(--moss) 12%, transparent);  color: color-mix(in oklab, var(--moss) 70%, var(--fg)); }
+.chip-lake  { background: color-mix(in oklab, var(--lake) 14%, transparent);  color: color-mix(in oklab, var(--lake) 70%, var(--fg)); }
+.chip-plum  { background: color-mix(in oklab, var(--plum) 13%, transparent);  color: color-mix(in oklab, var(--plum) 68%, var(--fg)); }
+.chip-resin { background: color-mix(in oklab, var(--resin) 14%, transparent); color: color-mix(in oklab, var(--resin) 68%, var(--fg)); }
+.chip-clay  { background: color-mix(in oklab, var(--clay) 13%, transparent);  color: color-mix(in oklab, var(--clay) 72%, var(--fg)); }
+.chip-faint { background: var(--surface-2); color: var(--muted-foreground); }
+
+
+/* ---- 桌面宠物（/pet）：透明窗体内的圆润小生物 ----
+   颜色与节奏全部从 .pet-mood-* 的 CSS 变量派生；结构在
+   components/pet/creature.tsx。眼/嘴/苗的状态机由 mood 变体规则切换。
+   2026-10-04 用户实机体验后拍板：由初版"极简光点"重做为此形态。 */
+
+html.pet-mode,
+html.pet-mode body {
+  background: transparent;
+}
+html.pet-mode {
+  scrollbar-gutter: auto;
 }
 
-html:not(.dark) .ml2-canvas {
-  background:
-    radial-gradient(1100px 480px at -8% -10%, rgba(236, 72, 153, 0.07), transparent 60%),
-    radial-gradient(1000px 560px at 108% 112%, rgba(45, 212, 191, 0.08), transparent 60%),
-    #f7f7fb;
+/* —— 壳内形态：整窗一体不透明底（参考图为整窗工作台，不做浮卡
+   透桌）；圆角卡是底色上浮起的 raised 面板 —— */
+
+.pet {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  user-select: none;
+  font-family: var(--font-sans);
+  /* 心情派生变量（默认 idle：主题蓝慢呼吸）+ 墨色（五官）。 */
+  --pet-color: var(--primary);
+  --pet-breath: 4.6s;
+  --pet-orbit-speed: 7s;
+  --pet-ink: oklch(0.3 0.03 264);
+}
+.pet-mood-working  { --pet-color: oklch(0.68 0.12 195); --pet-breath: 1.8s; --pet-orbit-speed: 2.6s; }
+.pet-mood-speaking { --pet-color: oklch(0.62 0.13 200); --pet-breath: 2.2s; }
+.pet-mood-alert    { --pet-color: oklch(0.58 0.21 27);  --pet-breath: 0.9s; }
+.pet-mood-hungry   { --pet-color: oklch(0.72 0.15 75);  --pet-breath: 2.8s; }
+.pet-mood-sick     { --pet-color: oklch(0.55 0.08 300); --pet-breath: 6s; }
+.pet-mood-stalled  { --pet-color: oklch(0.65 0.12 60);  --pet-breath: 5.5s; }
+.pet-mood-dozing   { --pet-color: oklch(0.55 0.03 240); --pet-breath: 7.5s; }
+.pet-mood-offline  { --pet-color: oklch(0.55 0.01 240); --pet-breath: 0s; }
+html.dark .pet-mood-working  { --pet-color: oklch(0.82 0.12 195); }
+html.dark .pet-mood-speaking { --pet-color: oklch(0.86 0.11 200); }
+html.dark .pet-mood-alert    { --pet-color: oklch(0.68 0.2 27); }
+html.dark .pet-mood-hungry   { --pet-color: oklch(0.8 0.14 80); }
+html.dark .pet-mood-dozing   { --pet-color: oklch(0.6 0.03 250); }
+html.dark .pet-mood-offline  { --pet-color: oklch(0.5 0.01 250); }
+
+.pet-stage {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 10px;
+}
+.pet-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: grab; /* 拖本体移动（空白区是点击穿透的） */
+}
+.pet-body:active { cursor: grabbing; }
+.pet-creature-wrap {
+  display: block;
+  animation: pet-hop 9s ease-in-out infinite;
+}
+@keyframes pet-hop {
+  0%, 91%, 100% { transform: translateY(0); }
+  94%           { transform: translateY(-3px); }
+  97%           { transform: translateY(0); }
+}
+.pet-creature-svg {
+  display: block;
+  width: 128px;
+  height: 128px;
+  overflow: visible;
+  cursor: pointer;
 }
 
-/* New live cards slide in at the top of the stream */
-@keyframes ml2-enter {
-  from { opacity: 0; transform: translateY(-14px); }
-  to { opacity: 1; transform: none; }
+.pet-status {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
 }
 
-.ml2-enter {
-  animation: ml2-enter 450ms cubic-bezier(0.22, 1, 0.36, 1) both;
+/* —— 体态：果冻呼吸（脚底为轴的挤压拉伸）。offline 静止 —— */
+@keyframes pet-breathe {
+  0%, 100% { transform: scale(1, 1); }
+  50%      { transform: scale(1.025, 1.05); }
+}
+.pet-breathe {
+  transform-origin: 60px 96px;
+  transform-box: view-box;
+  animation: pet-breathe var(--pet-breath, 4.6s) ease-in-out infinite;
+}
+.pet-mood-offline .pet-breathe { animation: none; opacity: 0.55; }
+
+/* 心跳：呼吸之上叠加的低幅双搏（4.2s 一次，几乎只是"活着"） */
+@keyframes pet-heartbeat {
+  0%, 86%, 92%, 100% { transform: scale(1); }
+  89%                { transform: scale(1.02); }
+  95%                { transform: scale(1.015); }
+}
+.pet-pulse {
+  transform-origin: 60px 96px;
+  transform-box: view-box;
+  animation: pet-heartbeat 4.2s ease-in-out infinite;
+}
+
+/* 体色随心情渐变（而不是瞬跳） */
+.pet-body-shape, .pet-sprout-stem, .pet-sprout-leaf,
+.pet-mote, .pet-flash { transition: fill 0.6s ease, stroke 0.6s ease; }
+
+.pet-shadow { fill: oklch(0.2 0.02 264); opacity: 0.14; }
+html.dark .pet-shadow { opacity: 0.32; }
+
+/* 身体顶缘高光弧 */
+.pet-rim {
+  fill: none; stroke: #fff; stroke-opacity: 0.3;
+  stroke-width: 2.4; stroke-linecap: round;
+}
+
+/* —— 头顶小苗：摇曳 = 活着；垂头 = 病/盹/滞/离线 —— */
+.pet-sprout {
+  transform-origin: 60px 44px;
+  transform-box: view-box;
+  animation: pet-sway 3.6s ease-in-out infinite;
+}
+@keyframes pet-sway {
+  0%, 100% { transform: rotate(0); }
+  50%      { transform: rotate(-6deg); }
+}
+.pet-mood-sick .pet-sprout,
+.pet-mood-dozing .pet-sprout,
+.pet-mood-stalled .pet-sprout,
+.pet-mood-offline .pet-sprout {
+  animation: none;
+  transform: rotate(40deg);
+}
+.pet-mood-alert .pet-sprout { animation: none; transform: rotate(-5deg); }
+
+/* —— 眼睛：三层结构（目光追随 → 心情变形 → 周期眨眼）——
+   分层原因：眨眼动画的 transform 会覆盖同元素的静态变形，
+   心情眯细/圆睁必须放在独立层才不会被眨眼吃掉。 */
+@keyframes pet-blink {
+  0%, 91%, 100% { transform: scaleY(1); }
+  94%, 97%      { transform: scaleY(0.08); }
+}
+.pet-eyes-look {
+  transform: translate(calc(var(--pet-look-x, 0) * 1.6px), calc(var(--pet-look-y, 0) * 1.6px));
+  transform-box: view-box;
+  transition: transform 0.18s ease-out;
+}
+.pet-eyes-mood { transform-box: fill-box; transform-origin: center; }
+.pet-eyes-open {
+  transform-box: fill-box; transform-origin: center;
+  animation: pet-blink 4.6s ease-in-out infinite;
+}
+.pet-eye { fill: var(--pet-ink); transition: fill 0.6s ease; }
+.pet-eye-glint { fill: #fff; opacity: 0.9; }
+.pet-eye-line {
+  fill: none;
+  stroke: var(--pet-ink);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  transition: stroke 0.6s ease;
+}
+.pet-eyes-closed { display: none; }
+.pet-mood-dozing .pet-eyes-open,
+.pet-mood-sick .pet-eyes-open,
+.pet-mood-offline .pet-eyes-open { display: none; }
+.pet-mood-dozing .pet-eyes-closed,
+.pet-mood-sick .pet-eyes-closed,
+.pet-mood-offline .pet-eyes-closed { display: block; }
+/* 心情变形放在 eyes-mood 层，避免被眨眼动画的 transform 覆盖 */
+.pet-mood-working .pet-eyes-mood { transform: scaleY(0.7); }
+.pet-mood-hungry .pet-eyes-mood  { transform: translateY(1px) scaleY(0.82); }
+.pet-mood-stalled .pet-eyes-mood { transform: scaleY(0.6); }
+.pet-mood-alert .pet-eyes-mood   { transform: scale(1.16); }
+.pet-mood-offline .pet-mouth-smile { display: none; }
+
+/* —— 嘴：微笑（默认）/ 平直（停滞·不适）/ 张合（说话） —— */
+.pet-mouth-smile {
+  fill: none;
+  stroke: var(--pet-ink);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+.pet-mouth-flat {
+  fill: none;
+  stroke: var(--pet-ink);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  display: none;
+}
+.pet-mouth-talk {
+  fill: var(--pet-ink);
+  display: none;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.pet-mood-speaking .pet-mouth-smile { display: none; }
+.pet-mood-speaking .pet-mouth-talk { display: block; animation: pet-talk 0.32s ease-in-out infinite alternate; }
+.pet-mood-stalled .pet-mouth-smile,
+.pet-mood-sick .pet-mouth-smile { display: none; }
+.pet-mood-stalled .pet-mouth-flat,
+.pet-mood-sick .pet-mouth-flat { display: block; }
+@keyframes pet-talk {
+  from { transform: scaleY(0.35); }
+  to   { transform: scaleY(1); }
+}
+
+/* —— 腮红 —— */
+.pet-cheek { fill: oklch(0.72 0.11 15); opacity: 0.4; }
+
+/* —— 说话涟漪：身体外围错相外扩 —— */
+@keyframes pet-ripple {
+  0%   { transform: scale(0.6); opacity: 0.75; }
+  100% { transform: scale(1.45); opacity: 0; }
+}
+.pet-ripple {
+  transform-origin: 60px 70px;
+  transform-box: view-box;
+  animation: pet-ripple 2.2s ease-out infinite;
+}
+.pet-ripple-b { animation-delay: 1.1s; }
+
+/* —— 思考者轨道粒子：一颗 = 一个忙碌思考者 —— */
+@keyframes pet-spin {
+  to { transform: rotate(360deg); }
+}
+.pet-orbit {
+  transform-origin: 60px 66px;
+  transform-box: view-box;
+  animation: pet-spin var(--pet-orbit-speed, 7s) linear infinite;
+}
+.pet-mote { fill: var(--pet-color); }
+
+/* —— 打盹 Zzz —— */
+.pet-zzz {
+  display: none;
+  font-family: var(--font-mono);
+  fill: var(--muted-foreground);
+}
+.pet-mood-dozing .pet-zzz { display: block; }
+.pet-z { opacity: 0; animation: pet-zzz 2.7s ease-in-out infinite; }
+.pet-z.z1 { font-size: 8px; }
+.pet-z.z2 { font-size: 10px; animation-delay: 0.9s; }
+.pet-z.z3 { font-size: 11px; animation-delay: 1.8s; }
+@keyframes pet-zzz {
+  0%   { opacity: 0; transform: translateY(2px); }
+  30%  { opacity: 0.85; }
+  100% { opacity: 0; transform: translateY(-5px); }
+}
+
+/* —— 微反应（约 1.6s，由 reactionSeq 重挂触发） —— */
+@keyframes pet-shake {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-4px); }
+  75%      { transform: translateX(4px); }
+}
+.pet-react-jolt .pet-creature-svg { animation: pet-shake 0.45s ease-in-out 2; }
+
+@keyframes pet-bounce {
+  0%   { transform: none; }
+  35%  { transform: translateY(-6px) scale(1.04, 0.96); }
+  100% { transform: none; }
+}
+.pet-react-bloom .pet-breathe { animation: pet-bounce 1s ease-out; }
+
+@keyframes pet-sprout-wiggle {
+  0%, 100% { transform: rotate(0); }
+  50%      { transform: rotate(-16deg); }
+}
+.pet-react-ripple .pet-sprout { animation: pet-sprout-wiggle 0.5s ease-in-out 2; }
+
+@keyframes pet-flash-ring {
+  0%   { opacity: 0;    transform: scale(0.72); }
+  30%  { opacity: 0.9;  transform: scale(0.9); }
+  100% { opacity: 0;    transform: scale(1.35); }
+}
+.pet-flash {
+  opacity: 0;
+  transform-origin: 60px 68px;
+  transform-box: view-box;
+}
+.pet-react-focus .pet-flash { animation: pet-flash-ring 1.2s ease-out 1; }
+.pet-react-focus .pet-eye { transform: scale(1.15); transform-box: fill-box; transform-origin: center; }
+.pet-react-gaze .pet-eyes-look { transform: translateX(4px); }
+
+/* —— 摸头：开心眯眼（闭眼弧线）+ 小心心漂浮 —— */
+.pet-react-happy .pet-eyes-open { display: none; }
+.pet-react-happy .pet-eyes-closed { display: block; }
+.pet-hearts { display: none; }
+.pet-react-happy .pet-hearts { display: block; }
+.pet-heart {
+  fill: oklch(0.72 0.16 15); opacity: 0;
+  animation: pet-heart-float 1.15s ease-out forwards;
+}
+.pet-heart.h2 { animation-delay: 0.15s; }
+.pet-heart.h3 { animation-delay: 0.3s; }
+@keyframes pet-heart-float {
+  0%   { opacity: 0; transform: translateY(5px) scale(0.6); }
+  25%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-12px) scale(1); }
+}
+
+/* —— 语音气泡：播报或流式回复尾部（带指向本体的小尾巴） —— */
+.pet-bubble {
+  position: relative;
+  max-width: 224px;
+  max-height: 72px;
+  overflow: hidden;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in oklch, var(--background) 88%, transparent);
+  backdrop-filter: blur(6px);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--foreground);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  animation: pet-bubble-in 0.2s ease-out;
+}
+.pet-bubble::after {
+  content: "";
+  position: absolute;
+  left: 18px;
+  bottom: -5px;
+  width: 9px;
+  height: 9px;
+  background: color-mix(in oklch, var(--background) 88%, transparent);
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  transform: rotate(-45deg);
+}
+@keyframes pet-bubble-in {
+  from { opacity: 0; transform: translateY(5px); }
+}
+.pet-bubble-kind {
+  margin-right: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
+.pet-caret { animation: pet-blink-c 1s steps(2) infinite; }
+@keyframes pet-blink-c {
+  50% { opacity: 0; }
+}
+
+/* —— 未读微点：勿扰期间攒了播报 —— */
+.pet-unread-dot {
+  position: absolute;
+  top: 4px;
+  right: calc(50% - 56px);
+  width: 9px;
+  height: 9px;
+  border-radius: 9999px;
+  background: oklch(0.72 0.15 75);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--background) 80%, transparent);
+}
+
+/* —— 快捷菜单：文档流内堆叠（气泡→菜单→生物），永不遮住本体 —— */
+.pet-menu {
+  width: 100%;
+  max-width: 244px;
+  max-height: 120px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in oklch, var(--background) 94%, transparent);
+  backdrop-filter: blur(8px);
+  font-size: 12px;
+  color: var(--foreground);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+}
+.pet-menu-row { display: flex; align-items: center; gap: 6px; }
+.pet-menu-identity { justify-content: space-between; color: var(--muted-foreground); }
+.pet-menu-hint { margin-left: 4px; font-size: 10px; color: var(--muted-foreground); }
+.pet-btn {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--foreground);
+  cursor: pointer;
+  text-align: left;
+}
+.pet-btn:hover:not(:disabled) { background: color-mix(in oklch, var(--foreground) 6%, transparent); }
+.pet-btn:disabled { opacity: 0.45; cursor: default; }
+.pet-btn-solid {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+.pet-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--background) 80%, transparent);
+  font-size: 12px;
+  color: var(--foreground);
+}
+.pet-input:focus { outline: 1px solid var(--primary); }
+.pet-note {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+  word-break: break-all;
 }

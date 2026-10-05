@@ -180,6 +180,9 @@ export function useChat({
   return {
     chat: query.data,
     isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
     messages,
     outcomes,
     /** 尚未被服务端确认的乐观消息（含发送失败待重试的）。 */

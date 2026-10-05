@@ -71,6 +71,17 @@ export class AuthError extends Error {
   }
 }
 
+/** 非 2xx 的 HTTP 错误，带状态码——调用方常需按码分流
+ * （如 404 走空态、其它走错误横幅）。 */
+export class HttpError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "HttpError";
+    this.status = status;
+  }
+}
+
 // API 目标地址的字符白名单：scheme 可选（浏览器内相对路径走页面
 // 自身源），host 限字母数字点方括号（IPv6 字面量带方括号）与可选
 // 端口，路径与查询只允许 RFC 3986 的 unreserved/reserved 字符与
@@ -102,7 +113,7 @@ async function apiRequest(url: string, init: RequestInit = {}): Promise<Response
     if (token === webToken()) setAuthRequired(true);
     throw new AuthError();
   }
-  if (!response.ok) throw new Error(await errorMessage(response));
+  if (!response.ok) throw new HttpError(response.status, await errorMessage(response));
   return response;
 }
 
@@ -239,9 +250,24 @@ export function fetchSubTraj(
   identityId: string,
   trajId: string
 ): Promise<SubTrajectory> {
-  return getJson(
+  // 服务端返回 {mindlog, breadcrumb?, parent?}（breadcrumb 为空时省略键）；
+  // 旧平铺契约继续兼容——统一在这里摊平，页面只面对一种形态。
+  return getJson<
+    SubTrajectory & {
+      mindlog?: Mindlog;
+      breadcrumb?: SubTrajectory["breadcrumb"];
+      parent?: SubTrajectory["parent"];
+    }
+  >(
     `/api/identities/${encodeURIComponent(identityId)}/traj/${encodeURIComponent(trajId)}`
-  );
+  ).then((raw) => {
+    if (!raw.mindlog) return { ...raw, breadcrumb: raw.breadcrumb ?? [] };
+    return {
+      ...raw.mindlog,
+      breadcrumb: raw.breadcrumb ?? [],
+      parent: raw.parent ?? null,
+    };
+  });
 }
 
 export function fetchLogs(identityId: string): Promise<LogInfo[]> {
@@ -692,6 +718,14 @@ export function unsubscribePush(
 
 export function createIdentity(name: string): Promise<{ id: string; name: string }> {
   return postJson("/api/identities", { name });
+}
+
+/** 删除身份（危险操作）：运行中的心智先被优雅停机，随后整个身份目录
+ * （轨迹/记忆/人格/.env 密钥）删除——不可恢复；心智根不在范围内。 */
+export function deleteIdentity(
+  name: string
+): Promise<{ ok: boolean; id: string; name: string; stopped: boolean }> {
+  return sendJson("DELETE", `/api/identities/${encodeURIComponent(name)}`, undefined);
 }
 
 export function killAll(dryRun: boolean): Promise<KillallResult> {

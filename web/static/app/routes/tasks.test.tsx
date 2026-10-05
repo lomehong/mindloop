@@ -117,7 +117,7 @@ describe("tasks page", () => {
     expect(screen.getByText("已完成")).toBeDefined();
     expect(screen.getByText("周报已生成：weekly.md")).toBeDefined();
     const link = screen.getByRole("link", { name: "运行记录" });
-    expect(link.getAttribute("href")).toBe("/i/ada/mindlog");
+    expect(link.getAttribute("href")).toBe("/i/ada/log");
   });
 
   it("空态给出回到对话创建任务的指引", async () => {

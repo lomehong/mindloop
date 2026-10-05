@@ -93,25 +93,37 @@ export function WorkingCard({
   return (
     <div
       className={cn(
-        "rounded-lg border bg-card transition-opacity duration-300",
-        talk ? "max-w-[85%] px-3 py-2" : "px-3 py-2.5",
+        "transition-opacity duration-300",
+        talk
+          ? "max-w-[85%] rounded-lg border bg-card px-3 py-2"
+          : "rounded-[10px] border border-dashed border-line-strong px-3.5 py-2",
         working ? "opacity-100" : "opacity-0"
       )}
       data-working={working ? "true" : "false"}
     >
       <div className="flex items-center gap-2">
-        <span className="relative flex h-2 w-2 shrink-0">
-          {working && (
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
-          )}
-          <span
-            className={cn(
-              "relative inline-flex h-2 w-2 rounded-full",
-              working ? "bg-green-500" : "bg-muted-foreground/40"
+        {talk ? (
+          <span className="relative flex h-2 w-2 shrink-0">
+            {working && (
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
             )}
-          />
+            <span
+              className={cn(
+                "relative inline-flex h-2 w-2 rounded-full",
+                working ? "bg-primary" : "bg-muted-foreground/40"
+              )}
+            />
+          </span>
+        ) : (
+          <span className="flex shrink-0 items-center gap-0.5" aria-hidden>
+            <span className="animate-dot-1 h-1 w-1 rounded-full bg-primary" />
+            <span className="animate-dot-2 h-1 w-1 rounded-full bg-primary" />
+            <span className="animate-dot-3 h-1 w-1 rounded-full bg-primary" />
+          </span>
+        )}
+        <span className={cn("text-sm font-medium", !talk && "font-mono text-xs")}>
+          {name} 正在工作中…
         </span>
-        <span className="text-sm font-medium">{name} 正在工作中…</span>
         {elapsed !== null && (
           <span className="font-mono text-xs tabular-nums text-muted-foreground">
             {formatMmSs(elapsed)}

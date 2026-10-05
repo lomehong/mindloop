@@ -5,7 +5,7 @@ import { useParams } from "react-router";
 import { toast } from "sonner";
 
 import { ConfirmDialog } from "~/components/confirm-dialog";
-import { IdentityTabs } from "~/components/identity-tabs";
+import { QueryErrorBanner } from "~/components/query-error-banner";
 import { useControlsEnabled } from "~/components/thinker-controls";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -17,18 +17,14 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "~/components/ui/empty";
-import { LoadingDots } from "~/components/ui/loading-dots";
+import { Skeleton } from "~/components/ui/loading-skeleton";
 import {
   deleteScheduleEntry,
-  fetchIdentityStatus,
   fetchSchedule,
   runScheduleEntry,
   toggleScheduleEntry,
 } from "~/lib/api";
-import {
-  SCHEDULE_POLL_MS,
-  STATUS_BACKGROUND_POLL_MS,
-} from "~/lib/polling";
+import { SCHEDULE_POLL_MS } from "~/lib/polling";
 import type { ScheduleRunResult } from "~/lib/types";
 import { cn } from "~/lib/utils";
 
@@ -58,13 +54,13 @@ export default function SchedulePage() {
     setRunResults({});
   }, [identityId]);
 
-  const { data: status } = useQuery({
-    queryKey: ["status", identityId],
-    queryFn: () => fetchIdentityStatus(identityId),
-    refetchInterval: STATUS_BACKGROUND_POLL_MS,
-  });
-
-  const { data: view, isLoading } = useQuery({
+  const {
+    data: view,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["schedule", identityId],
     queryFn: () => fetchSchedule(identityId),
     refetchInterval: SCHEDULE_POLL_MS,
@@ -113,36 +109,43 @@ export default function SchedulePage() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  if (isError) {
+    return (
+      <div className="mx-auto w-full max-w-7xl">
+        <div className="mx-auto w-full max-w-4xl pb-10">
+          <QueryErrorBanner error={error} onRetry={() => void refetch()} />
+        </div>
+      </div>
+    );
+  }
+
   if (isLoading || !view) {
     return (
-      <div className="flex justify-center py-20">
-        <LoadingDots />
+      <div className="mx-auto w-full max-w-7xl">
+        <div className="mx-auto w-full max-w-4xl space-y-4 pb-10">
+          <Skeleton className="h-7 w-44" />
+          <Skeleton className="h-28 w-full rounded-xl" />
+          <Skeleton className="h-28 w-full rounded-xl" />
+        </div>
       </div>
     );
   }
 
   return (
     <div className="mx-auto w-full max-w-7xl">
-      <IdentityTabs
-        identityId={identityId}
-        live={status?.live ?? false}
-        active="schedule"
-        name={view.identity?.name}
-      />
-      <div className="mx-auto w-full max-w-4xl space-y-6 pb-10">
-        <div className="flex items-center gap-3">
-          <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            日程（schedule.json）
-          </h2>
-          <span className="text-[11px] text-muted-foreground">
-            到点由心智心跳触发：task 提交一个任务、exec
-            在沙箱执行。条目编辑走 CLI（mindloop schedule add/remove）。
+      <div className="mx-auto w-full max-w-4xl space-y-4 pb-10">
+        <div className="flex flex-wrap items-baseline gap-3">
+          <h1 className="font-note text-[22px] font-semibold tracking-[0.01em]">
+            日程
+          </h1>
+          <span className="text-[13px] text-muted-foreground">
+            schedule.json · 到点由心智心跳触发：task 提交任务、exec 沙箱执行
           </span>
           {controlsEnabled && (
             <Button
               variant="outline"
               size="sm"
-              className="ml-auto"
+              className="ml-auto self-center"
               onClick={invalidate}
             >
               <RefreshCw className="size-3" />
@@ -152,13 +155,13 @@ export default function SchedulePage() {
         </div>
 
         {!view.mind_running && (
-          <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <div className="rounded-lg border border-resin/40 bg-resin/[0.06] px-3 py-2 text-xs text-foreground">
             心智未在运行——日程不会被到点触发；「运行」仍可手动触发一次。
           </div>
         )}
 
         {view.parse_error && (
-          <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+          <div className="rounded-lg border border-clay/45 bg-clay/[0.06] px-3 py-2 text-xs text-clay">
             <div className="font-medium">
               schedule.json 解析失败——清单不可用、写操作会被拒绝。
             </div>
@@ -168,7 +171,7 @@ export default function SchedulePage() {
         )}
 
         {view.warnings.length > 0 && (
-          <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <div className="rounded-lg border border-resin/40 bg-resin/[0.06] px-3 py-2 text-xs text-resin">
             {view.warnings.map((warning, idx) => (
               <div key={idx}>⚠ {warning}</div>
             ))}
@@ -190,110 +193,147 @@ export default function SchedulePage() {
                 <div className="mt-2 break-all rounded-md bg-muted px-3 py-2 text-left font-mono text-[11px]">
                   {`mindloop schedule add ${view.identity.id} '{"id":"daily","at":"21:00","task":"写晚报 {{date}}"}'`}
                 </div>
-                <div className="mt-2 font-mono text-[10px]">{view.file}</div>
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : (
-          <div className="space-y-3">
+          <div className="rounded-xl border border-line bg-card">
             {view.entries.map((entry) => {
               const result = runResults[entry.id];
+              const off = !entry.enabled;
+              const dim = off && "opacity-50";
               return (
                 <div
                   key={entry.id}
-                  className={cn(
-                    "rounded-lg border p-3",
-                    !entry.enabled && "opacity-60"
-                  )}
+                  className="grid grid-cols-1 items-center gap-x-3 gap-y-1.5 border-b border-line px-4 py-3 last:border-b-0 hover:bg-muted/50 md:grid-cols-[16px_170px_1fr_130px_auto]"
                 >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Checkbox
-                      checked={entry.enabled}
-                      disabled={!controlsEnabled || toggle.isPending}
-                      aria-label={`${entry.enabled ? "禁用" : "启用"} ${entry.id}`}
-                      onCheckedChange={(checked) =>
-                        toggle.mutate({
-                          id: entry.id,
-                          enabled: checked === true,
-                        })
-                      }
-                    />
-                    <span className="font-mono text-sm font-medium">
-                      {entry.id}
-                    </span>
-                    <Badge variant="outline" className="text-[10px]">
+                  <Checkbox
+                    checked={entry.enabled}
+                    disabled={!controlsEnabled || toggle.isPending}
+                    aria-label={`${entry.enabled ? "禁用" : "启用"} ${entry.id}`}
+                    onCheckedChange={(checked) =>
+                      toggle.mutate({
+                        id: entry.id,
+                        enabled: checked === true,
+                      })
+                    }
+                  />
+                  <div className={cn("flex items-center gap-2", dim)}>
+                    <span className="font-mono text-[13px]">{entry.id}</span>
+                    <Badge
+                      variant="outline"
+                      className="rounded-full border-line-strong px-1.5 py-px font-mono text-[9.5px] font-normal text-muted-foreground"
+                    >
                       {KIND_LABEL[entry.kind] ?? entry.kind}
                     </Badge>
-                    <div className="ml-auto flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        title={`手动运行 ${entry.id}`}
-                        aria-label={`手动运行 ${entry.id}`}
-                        disabled={!controlsEnabled || run.isPending}
-                        onClick={() => run.mutate(entry.id)}
-                      >
-                        <Play className="size-3" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        title={`删除 ${entry.id}`}
-                        aria-label={`删除 ${entry.id}`}
-                        disabled={!controlsEnabled || remove.isPending}
-                        onClick={() => setEntryToRemove(entry.id)}
-                      >
-                        <Trash2 className="size-3" />
-                      </Button>
+                  </div>
+                  <div
+                    className={cn(
+                      "text-[12.5px] leading-relaxed text-muted-foreground",
+                      dim
+                    )}
+                  >
+                    触发{" "}
+                    <span className="font-mono text-[11px] text-foreground">
+                      {entry.trigger}
+                    </span>
+                    <span className="mx-1.5">→</span>
+                    动作{" "}
+                    <span className="font-mono text-[11px] text-foreground">
+                      {entry.action}
+                    </span>
+                  </div>
+                  <div
+                    className={cn(
+                      "font-mono text-[10.5px] leading-[1.7] text-faint",
+                      dim
+                    )}
+                  >
+                    <div>
+                      下次{" "}
+                      {entry.next_run ?? (entry.enabled ? "—" : "已禁用")}
+                    </div>
+                    <div>
+                      上次 {entry.last_run ?? "—"}
+                      {entry.last_exit_code !== undefined &&
+                        entry.last_exit_code !== 0 && (
+                          <span className="text-clay">
+                            {" "}
+                            · exit {entry.last_exit_code}
+                          </span>
+                        )}
                     </div>
                   </div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                    <span className="font-mono">{entry.trigger}</span>
-                    <span className="font-mono">{entry.action}</span>
-                  </div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                    {entry.next_run && <span>下次：{entry.next_run}</span>}
-                    {entry.last_run && <span>上次：{entry.last_run}</span>}
-                    {entry.last_note && <span>{entry.last_note}</span>}
-                    {entry.last_exit_code !== undefined &&
-                      entry.last_exit_code !== 0 && (
-                        <span className="text-destructive">
-                          exit {entry.last_exit_code}
-                        </span>
-                      )}
-                  </div>
-                  {entry.last_error && (
-                    <p className="mt-1 text-xs text-destructive">
-                      {entry.last_error}
-                    </p>
-                  )}
-                  {result && (
-                    <p
-                      className={cn(
-                        "mt-1 text-xs",
-                        result.ok
-                          ? "text-emerald-600 dark:text-emerald-400"
-                          : "text-destructive"
-                      )}
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 px-2 text-[11px]"
+                      title={`手动运行 ${entry.id}`}
+                      aria-label={`手动运行 ${entry.id}`}
+                      disabled={!controlsEnabled || run.isPending}
+                      onClick={() => run.mutate(entry.id)}
                     >
-                      {result.kind === "task"
-                        ? `已提交：${result.note ?? "任务"}${
-                            result.task_key
-                              ? `（幂等键 ${result.task_key}）`
-                              : ""
-                          }`
-                        : result.ok
-                          ? `执行完成：exit ${result.exit_code ?? 0} · ${
-                              result.duration_ms ?? 0
-                            }ms`
-                          : `执行失败：${result.error ?? "未知错误"}${
-                              result.detail ? ` — ${result.detail}` : ""
-                            }`}
-                    </p>
+                      <Play className="size-3" />
+                      手动运行
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[11px] text-muted-foreground hover:text-clay"
+                      title={`删除 ${entry.id}`}
+                      aria-label={`删除 ${entry.id}`}
+                      disabled={!controlsEnabled || remove.isPending}
+                      onClick={() => setEntryToRemove(entry.id)}
+                    >
+                      <Trash2 className="size-3" />
+                      删除
+                    </Button>
+                  </div>
+                  {(entry.last_note || entry.last_error || result) && (
+                    <div className="col-span-full space-y-0.5 pl-7 font-mono text-[10.5px] md:pl-[calc(16px+12px)]">
+                      {entry.last_note && (
+                        <div className="text-faint">{entry.last_note}</div>
+                      )}
+                      {entry.last_error && (
+                        <div className="text-clay">{entry.last_error}</div>
+                      )}
+                      {result && (
+                        <div
+                          className={cn(
+                            result.ok ? "text-primary" : "text-clay"
+                          )}
+                        >
+                          {result.kind === "task"
+                            ? `已提交：${result.note ?? "任务"}${
+                                result.task_key
+                                  ? `（幂等键 ${result.task_key}）`
+                                  : ""
+                              }`
+                            : result.ok
+                              ? `执行完成：exit ${result.exit_code ?? 0} · ${
+                                  result.duration_ms ?? 0
+                                }ms`
+                              : `执行失败：${result.error ?? "未知错误"}${
+                                  result.detail ? ` — ${result.detail}` : ""
+                                }`}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {view.entries.length > 0 && (
+          <div className="px-1 text-[12px] leading-relaxed text-muted-foreground">
+            条目编辑走 CLI：
+            <span className="font-mono text-[11.5px] text-foreground">
+              {`mindloop schedule add ${view.identity.id} '{...}'`}
+            </span>{" "}
+            · 手动运行不影响下次触发时间。
           </div>
         )}
       </div>

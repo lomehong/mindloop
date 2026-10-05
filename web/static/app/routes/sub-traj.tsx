@@ -4,6 +4,7 @@ import { Fragment, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 
 import { ForkTree } from "~/components/fork-tree";
+import { QueryErrorBanner } from "~/components/query-error-banner";
 import { assembleStream, StreamItems } from "~/components/stream";
 import { TimelineBar } from "~/components/timeline-bar";
 import { Button } from "~/components/ui/button";
@@ -13,14 +14,39 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "~/components/ui/empty";
-import { LoadingDots } from "~/components/ui/loading-dots";
-import { fetchIdentityStatus, fetchSubTraj, pollWhileLive } from "~/lib/api";
+import { Skeleton } from "~/components/ui/loading-skeleton";
+import {
+  fetchIdentityStatus,
+  fetchSubTraj,
+  HttpError,
+  pollWhileLive,
+} from "~/lib/api";
 import { LiveBadge } from "~/components/live-badge";
 import { TrajContext } from "~/lib/traj-context";
-import { scrollToStep } from "~/routes/identity";
+import { scrollToStep } from "~/routes/log";
 
 export function meta() {
   return [{ title: "mindloop · 子轨迹" }];
+}
+
+function SubTrajSkeleton() {
+  return (
+    <div className="flex gap-4">
+      <Skeleton className="hidden h-64 w-52 md:block" />
+      <div className="min-w-0 flex-1 space-y-2 rounded-xl border border-line p-3">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="flex items-center gap-3">
+            <Skeleton className="h-3 w-12" />
+            <Skeleton className="h-3 w-3 rounded-sm" />
+            <Skeleton
+              className="h-3"
+              style={{ width: `${30 + ((i * 19) % 50)}%` }}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function SubTrajPage() {
@@ -34,10 +60,19 @@ export default function SubTrajPage() {
   });
   const live = status?.live ?? false;
 
-  const { data: traj, isLoading } = useQuery({
+  const {
+    data: traj,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["traj", identityId, trajId],
     queryFn: () => fetchSubTraj(identityId, trajId),
     refetchInterval: pollWhileLive(live),
+    // 404 = 轨迹不存在——语义是空态不是故障，重试没有意义。
+    retry: (count, err) =>
+      !(err instanceof HttpError && err.status === 404) && count < 3,
   });
 
   const stream = useMemo(
@@ -47,8 +82,17 @@ export default function SubTrajPage() {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center py-20">
-        <LoadingDots />
+      <div className="mx-auto w-full max-w-7xl">
+        <SubTrajSkeleton />
+      </div>
+    );
+  }
+
+  // 404 = 轨迹不存在（走"未找到"空态）；其它错误才是故障。
+  if (isError && !(error instanceof HttpError && error.status === 404)) {
+    return (
+      <div className="mx-auto w-full max-w-7xl">
+        <QueryErrorBanner error={error} onRetry={() => void refetch()} />
       </div>
     );
   }
@@ -71,38 +115,36 @@ export default function SubTrajPage() {
   return (
     <TrajContext.Provider value={{ identityId, trajId: traj.traj_id }}>
       <div className="mx-auto w-full max-w-7xl">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <Link to="/" className="text-sm text-muted-foreground hover:underline">
-            identities
-          </Link>
-          <span className="text-muted-foreground">/</span>
-          <Link
-            to={`/i/${encodeURIComponent(identityId)}/mindlog`}
-            className="font-mono text-sm hover:underline"
-          >
-            {traj.identity.name}
-          </Link>
-          {traj.breadcrumb.slice(1).map((crumb) => (
-            <Fragment key={crumb.traj_id}>
-              <span className="text-muted-foreground">/</span>
-              {crumb.traj_id === traj.traj_id ? (
-                <span className="font-mono text-sm font-semibold">
-                  {crumb.slug.slice(0, 8)}
-                </span>
-              ) : (
-                <Link
-                  to={`/i/${encodeURIComponent(identityId)}/t/${encodeURIComponent(crumb.traj_id)}`}
-                  className="font-mono text-sm hover:underline"
-                  title={crumb.slug}
-                >
-                  {crumb.slug.slice(0, 8)}
-                </Link>
-              )}
-            </Fragment>
-          ))}
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <span className="flex flex-wrap items-center gap-1.5 font-mono text-xs text-muted-foreground">
+            <Link
+              to={`/i/${encodeURIComponent(identityId)}/log`}
+              className="hover:text-foreground hover:underline"
+            >
+              {traj.identity.name}
+            </Link>
+            {traj.breadcrumb.slice(1).map((crumb) => (
+              <Fragment key={crumb.traj_id}>
+                <span className="text-faint">/</span>
+                {crumb.traj_id === traj.traj_id ? (
+                  <span className="font-semibold text-foreground">
+                    {crumb.slug.slice(0, 8)}
+                  </span>
+                ) : (
+                  <Link
+                    to={`/i/${encodeURIComponent(identityId)}/t/${encodeURIComponent(crumb.traj_id)}`}
+                    className="hover:text-foreground hover:underline"
+                    title={crumb.slug}
+                  >
+                    {crumb.slug.slice(0, 8)}
+                  </Link>
+                )}
+              </Fragment>
+            ))}
+          </span>
           {live && <LiveBadge />}
-          <span className="text-sm text-muted-foreground">
-            {traj.step_count} steps
+          <span className="font-mono text-xs text-muted-foreground">
+            {traj.step_count} 步
           </span>
           <div className="ml-auto">
             <Button
@@ -113,18 +155,18 @@ export default function SubTrajPage() {
             >
               {expandAll ? (
                 <>
-                  <FoldVertical className="h-3.5 w-3.5" /> Collapse all
+                  <FoldVertical className="h-3.5 w-3.5" /> 收起全部
                 </>
               ) : (
                 <>
-                  <UnfoldVertical className="h-3.5 w-3.5" /> Expand all
+                  <UnfoldVertical className="h-3.5 w-3.5" /> 展开全部
                 </>
               )}
             </Button>
           </div>
         </div>
 
-        <div className="mb-1 truncate font-mono text-[11px] text-muted-foreground">
+        <div className="mb-1 truncate font-mono text-[11px] text-faint">
           {traj.dir_rel}
         </div>
 
@@ -142,8 +184,14 @@ export default function SubTrajPage() {
               />
             </div>
           </aside>
-          <div className="min-w-0 flex-1 rounded-lg border bg-card px-2 py-2">
-            <StreamItems items={stream} expandAll={expandAll} live={live} />
+          <div className="min-w-0 flex-1 rounded-xl border border-line bg-card px-2 py-2">
+            {stream.length === 0 ? (
+              <div className="px-2 py-10 text-center text-sm text-muted-foreground">
+                这条子轨迹还没有步骤。
+              </div>
+            ) : (
+              <StreamItems items={stream} expandAll={expandAll} live={live} />
+            )}
           </div>
         </div>
       </div>

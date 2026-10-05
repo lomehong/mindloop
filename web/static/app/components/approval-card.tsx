@@ -27,11 +27,11 @@ export function ApprovalCard({
   });
   return (
     <div
-      className="rounded-lg border border-amber-300/70 bg-card p-3 dark:border-amber-900"
+      className="rounded-xl border border-resin/40 bg-card p-3"
       data-approval-hash={approval.hash}
     >
       <div className="flex items-center gap-2">
-        <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+        <span className="shrink-0 rounded-full border border-resin/40 bg-resin/10 px-2 py-px font-mono text-[10.5px] text-resin">
           待批准
         </span>
         <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
@@ -48,7 +48,7 @@ export function ApprovalCard({
         {` · 运行 ${approval.run_id}`}
       </div>
       {approval.risks && approval.risks.length > 0 && (
-        <div className="mt-1.5 space-y-0.5 text-xs text-amber-700 dark:text-amber-400">
+        <div className="mt-1.5 space-y-0.5 text-xs text-resin">
           {approval.risks.map((risk) => (
             <div key={risk}>⚠ {risk}</div>
           ))}

@@ -120,7 +120,9 @@ export function StepContent({
       const cmd = str(raw.cmd);
       return (
         <div className="space-y-1.5">
-          {thought && <ExpandableText text={thought} expandAll={expandAll} />}
+          {thought && (
+            <ExpandableText text={thought} expandAll={expandAll} className="font-note" />
+          )}
           {cmd && <CodeBlock code={cmd} lang="bash" wrap />}
         </div>
       );
@@ -135,16 +137,14 @@ export function StepContent({
                 variant="outline"
                 className={cn(
                   "font-mono text-[10px]",
-                  exit === 0
-                    ? "text-green-700 dark:text-green-400"
-                    : "text-red-700 dark:text-red-400"
+                  exit === 0 ? "text-primary" : "text-clay"
                 )}
               >
                 exit {exit}
               </Badge>
             )}
             {raw.timed_out === true && (
-              <Badge variant="outline" className="text-[10px] text-amber-700 dark:text-amber-400">
+              <Badge variant="outline" className="text-[10px] text-resin">
                 已超时
               </Badge>
             )}
@@ -164,10 +164,10 @@ export function StepContent({
             totalBytes={(raw.stderr_bytes as number) ?? null}
             blobRef={typeof raw.stderr_ref === "string" ? raw.stderr_ref : null}
             expandAll={expandAll}
-            tint="border-red-200 dark:border-red-900"
+            tint="border-clay/30"
           />
           {str(raw.feedback) && (
-            <ExpandableText text={str(raw.feedback)} expandAll={expandAll} className="text-amber-800 dark:text-amber-300" />
+            <ExpandableText text={str(raw.feedback)} expandAll={expandAll} className="font-note text-resin" />
           )}
         </div>
       );
@@ -219,14 +219,16 @@ export function StepContent({
       const content = str(raw.content);
       return (
         <div className="space-y-1.5">
-          {thought && <ExpandableText text={thought} expandAll={expandAll} />}
+          {thought && (
+            <ExpandableText text={thought} expandAll={expandAll} className="font-note" />
+          )}
           {cmd && <CodeBlock code={cmd} lang="bash" wrap />}
           {content && (
             <div className="rounded border bg-muted/30 px-2 py-1.5">
               <div className="mb-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                 结果
               </div>
-              <ExpandableText text={content} expandAll={expandAll} />
+              <ExpandableText text={content} expandAll={expandAll} className="font-note" />
             </div>
           )}
         </div>
@@ -248,7 +250,7 @@ export function StepContent({
               {to && <> → {to}</>}
             </div>
           )}
-          <ExpandableText text={str(raw.content)} expandAll={expandAll} />
+          <ExpandableText text={str(raw.content)} expandAll={expandAll} className="font-note" />
           {sourceUrl && (
             <a
               href={sourceUrl}
@@ -267,9 +269,9 @@ export function StepContent({
       const label = step.fork?.slug ?? childId;
       return (
         <div className="flex items-center gap-2 font-mono text-xs">
-          <GitFork className="h-3.5 w-3.5 text-fuchsia-500" />
+          <GitFork className="h-3.5 w-3.5 text-plum" />
           {step.fork?.resolved ? (
-            <TrajLink trajId={childId} className="truncate text-fuchsia-700 dark:text-fuchsia-300">
+            <TrajLink trajId={childId} className="truncate text-plum">
               {label} ↗
             </TrajLink>
           ) : (
@@ -289,14 +291,14 @@ export function StepContent({
       return (
         <div className="space-y-1">
           {step.writeback && (
-            <div className="flex items-center gap-1.5 font-mono text-[11px] text-fuchsia-600 dark:text-fuchsia-400">
+            <div className="flex items-center gap-1.5 font-mono text-[11px] text-plum">
               <Undo2 className="h-3 w-3" />
               <TrajLink trajId={step.writeback.from_traj}>
                 回写自 {step.writeback.from_traj.slice(0, 8)} ↗
               </TrajLink>
             </div>
           )}
-          <ExpandableText text={content} expandAll={expandAll} />
+          <ExpandableText text={content} expandAll={expandAll} className="font-note" />
         </div>
       );
     }

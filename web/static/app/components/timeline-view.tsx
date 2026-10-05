@@ -17,7 +17,6 @@
 // three are URL-persisted (?collapsed= / ?hidden= / ?laneorder=).
 
 import { EyeOff } from "lucide-react";
-import { useTheme } from "next-themes";
 import { parseAsString, useQueryState } from "nuqs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -30,9 +29,8 @@ import {
   CELL,
   CELL_PAD,
   COLLAPSED_W,
-  DARK_PALETTE,
   LANE_GAP,
-  LIGHT_PALETTE,
+  PALETTE,
   ROW_CLICK_H,
   BLOCK_INSET,
   NEST_PAD,
@@ -78,9 +76,7 @@ export function TimelineView({
   openStep?: { step: NormalizedStep } | null;
 }) {
   const traj = useTrajContext();
-  // SPA, no SSR: resolvedTheme starts undefined; render dark until mounted.
-  const { resolvedTheme } = useTheme();
-  const palette = resolvedTheme === "light" ? LIGHT_PALETTE : DARK_PALETTE;
+  const palette = PALETTE;
   const { hovered, setHover } = useHoverGhost();
   const [selected, setSelected] = useState<TimelineSelection | null>(null);
 
@@ -540,7 +536,7 @@ export function TimelineView({
             width,
             minWidth: "100%",
             backgroundImage: palette.canvasGrid,
-            backgroundSize: "28px 28px",
+            backgroundSize: "26px 26px",
           }}
         >
           {/* sticky lane headers */}
@@ -608,10 +604,7 @@ export function TimelineView({
                 }}
               >
                 <span className={cn("h-px flex-1 border-t border-dashed", palette.gapBorder)} />
-                <span
-                  className={cn("font-mono text-[10px]", palette.gapText)}
-                  style={{ textShadow: palette.gapGlow }}
-                >
+                <span className={cn("font-mono text-[10px]", palette.gapText)}>
                   {gap.label}
                 </span>
                 <span className={cn("h-px flex-1 border-t border-dashed", palette.gapBorder)} />
@@ -738,20 +731,6 @@ export function TimelineView({
               );
             })}
 
-            {/* CRT scanlines + horizon glow (pure decoration) */}
-            <div
-              className="pointer-events-none absolute inset-0 z-[12]"
-              style={{
-                backgroundImage: palette.scanlines,
-                opacity: 0.18,
-              }}
-            />
-            {palette.horizonGlow && (
-              <div
-                className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-64"
-                style={{ background: palette.horizonGlow }}
-              />
-            )}
           </div>
         </div>
       </div>

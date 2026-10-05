@@ -45,7 +45,7 @@ export function RunGroupBlock({
   return (
     <div
       id={`step-${run.run_id}`}
-      className="my-1 rounded-md border border-blue-200 bg-blue-50/40 dark:border-blue-900 dark:bg-blue-950/20"
+      className="my-1 rounded-md border border-resin/30 bg-resin/5"
     >
       <button
         type="button"
@@ -60,11 +60,11 @@ export function RunGroupBlock({
         )}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <Play className="h-3 w-3 shrink-0 text-blue-500" />
+            <Play className="h-3 w-3 shrink-0 text-resin" />
             <span
               className={cn(
-                "min-w-0 flex-1 truncate text-sm",
-                actionStep ? "italic" : "font-mono text-xs"
+                "min-w-0 flex-1 truncate",
+                actionStep ? "font-note text-sm italic" : "font-mono text-xs"
               )}
             >
               {title || "shellm run"}
@@ -82,8 +82,8 @@ export function RunGroupBlock({
               run.status === "done"
                 ? "text-muted-foreground"
                 : live
-                  ? "text-green-700 dark:text-green-400"
-                  : "text-amber-700 dark:text-amber-400"
+                  ? "text-primary"
+                  : "text-resin"
             )}
           >
             {run.status === "done" ? "完成" : live ? "运行中" : "未完成"}
@@ -93,7 +93,7 @@ export function RunGroupBlock({
         </div>
       </button>
       {open && (
-        <div className="space-y-0.5 border-t border-blue-200/60 px-3 py-1.5 dark:border-blue-900/60">
+        <div className="space-y-0.5 border-t border-resin/20 px-3 py-1.5">
           {steps.map((step) => (
             <StepCard key={step.step_id} step={step} expandAll={expandAll} />
           ))}

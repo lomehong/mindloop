@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 import { formatClock } from "~/lib/format";
 import { RunGroupBlock } from "~/components/run-group";
@@ -104,22 +104,49 @@ export function IdleStrip({
   );
 }
 
+/** 时间戳轨包装：日志流视图给每条目一行——左列 mono 时刻（发线分栏），
+ * 右列渲染条目本体。条目自身的时间戳语义：step=其 ts、run=开始时刻、
+ * idle=链首 ts。 */
+function RailRow({
+  ts,
+  children,
+}: {
+  ts: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-[52px_1fr] gap-2">
+      <div className="pt-[13px] text-right font-mono text-[10px] leading-none tabular-nums text-faint">
+        {formatClock(ts)}
+      </div>
+      <div className="min-w-0 border-l border-line pl-3">{children}</div>
+    </div>
+  );
+}
+
 export function StreamItems({
   items,
   expandAll,
   live = false,
+  rail = false,
 }: {
   items: StreamItem[];
   expandAll: boolean;
   live?: boolean;
+  /** 日志流视图：每条目加时间戳轨（左列时刻 + 发线）。 */
+  rail?: boolean;
 }) {
   return (
     <>
       {items.map((item) => {
+        let key: string;
+        let node: React.ReactNode;
+        let ts: string;
         if (item.kind === "run") {
-          return (
+          key = item.run.run_id;
+          ts = item.run.started_ts;
+          node = (
             <RunGroupBlock
-              key={item.run.run_id}
               run={item.run}
               actionStep={item.actionStep}
               steps={item.steps}
@@ -127,18 +154,24 @@ export function StreamItems({
               live={live}
             />
           );
+        } else if (item.kind === "idle") {
+          key = item.steps[0].step_id;
+          ts = item.steps[0].ts;
+          node = <IdleStrip steps={item.steps} expandAll={expandAll} />;
+        } else {
+          key = item.step.step_id;
+          ts = item.step.ts;
+          node = <StepCard step={item.step} expandAll={expandAll} />;
         }
-        if (item.kind === "idle") {
+        if (!rail) {
           return (
-            <IdleStrip
-              key={item.steps[0].step_id}
-              steps={item.steps}
-              expandAll={expandAll}
-            />
+            <Fragment key={key}>{node}</Fragment>
           );
         }
         return (
-          <StepCard key={item.step.step_id} step={item.step} expandAll={expandAll} />
+          <RailRow key={key} ts={ts}>
+            {node}
+          </RailRow>
         );
       })}
     </>

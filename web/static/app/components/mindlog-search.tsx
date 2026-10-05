@@ -41,7 +41,7 @@ function Snippet({ text, q }: { text: string; q: string }) {
   return (
     <>
       {text.slice(0, pos)}
-      <mark className="rounded-sm bg-amber-200 px-0.5 dark:bg-amber-900">
+      <mark className="rounded-sm bg-resin/30 px-0.5 text-foreground">
         {text.slice(pos, pos + q.length)}
       </mark>
       {text.slice(pos + q.length)}

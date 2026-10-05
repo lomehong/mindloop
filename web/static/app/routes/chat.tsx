@@ -1,40 +1,41 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SendHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
 
 import {
   ChatBubble,
   PendingChatBubble,
   StreamingChatBubble,
 } from "~/components/chat-bubble";
-import { IdentityTabs } from "~/components/identity-tabs";
 import { WorkingCard } from "~/components/working-card";
+import { QueryErrorBanner } from "~/components/query-error-banner";
 import {
   StartStopButtons,
   useControlsEnabled,
 } from "~/components/thinker-controls";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
-import { LoadingDots } from "~/components/ui/loading-dots";
+import { Skeleton } from "~/components/ui/loading-skeleton";
 import { Textarea } from "~/components/ui/textarea";
 import { useAutosizeTextarea } from "~/hooks/use-autosize-textarea";
 import {
   fetchConfig,
-  fetchIdentityStatus,
+  fetchLlmProviders,
   fetchThinkers,
+  submitTask,
 } from "~/lib/api";
 import {
   CHAT_DOTS_WINDOW_MS,
+  newClientMessageId,
   nonTaskActivity,
   useChat,
   useNowTicker,
   useReplyStream,
 } from "~/lib/use-chat";
-import {
-  STATUS_ACTIVE_POLL_MS,
-  THINKERS_IDLE_POLL_MS,
-} from "~/lib/polling";
+import { THINKERS_IDLE_POLL_MS } from "~/lib/polling";
+import type { ChatMessage } from "~/lib/types";
 
 export function meta() {
   return [{ title: "mindloop · 对话" }];
@@ -78,13 +79,6 @@ export default function ChatPage() {
     if (config) setMyName(config.default_send_from || "you");
   }, [config]);
 
-  const { data: status } = useQuery({
-    queryKey: ["status", identityId],
-    queryFn: () => fetchIdentityStatus(identityId),
-    refetchInterval: STATUS_ACTIVE_POLL_MS,
-  });
-  const live = status?.live ?? false;
-
   // 桌面版取整份聊天记录（不按发送者过滤），与 PWA 共享同一条
   // 查询/发送链路：乐观气泡、失败重试、发送后快轮询全部由 useChat 提供。
   // 流式渐进气泡、实时活动进度卡同样共享（useReplyStream），两端一致。
@@ -93,6 +87,9 @@ export default function ChatPage() {
     messages,
     pending,
     isLoading,
+    isError,
+    error,
+    refetch,
     send,
     retry,
     isSending,
@@ -136,6 +133,26 @@ export default function ChatPage() {
 
   const identityName = chat?.identity.name ?? identityId.split("~").pop();
 
+  // 消息转任务：以该消息为 source_step_id 提交显式委托（保留来源
+  // 关联），成功后跳任务面看真实状态——不做乐观推断。
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const convertMutation = useMutation({
+    mutationFn: (message: ChatMessage) =>
+      submitTask(identityId, {
+        content: message.content,
+        fromName: myName || undefined,
+        clientMessageId: newClientMessageId(),
+        sourceStepId: message.step_id ?? undefined,
+      }),
+    onSuccess: () => {
+      toast.success("已交给 Agent 执行");
+      void queryClient.invalidateQueries({ queryKey: ["tasks", identityId] });
+      navigate(`/i/${encodeURIComponent(identityId)}/tasks`);
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const itemCount =
     messages.length +
     pending.length +
@@ -147,11 +164,10 @@ export default function ChatPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl">
-      <IdentityTabs identityId={identityId} live={live} active="chat" />
       <div className="mx-auto flex w-full max-w-3xl flex-col">
 
       {controlsEnabled && !dispatcherRunning && (
-        <div className="mb-3 flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-resin/40 bg-resin/5 px-3.5 py-2.5 text-xs text-foreground">
           <span>
             思考者已停止——{identityName} 看不到也不会回复消息。
           </span>
@@ -161,11 +177,24 @@ export default function ChatPage() {
         </div>
       )}
 
-      <div className="flex min-h-[40vh] flex-col gap-2 overflow-y-auto rounded-lg border bg-background p-4 max-h-[65vh]">
+      <div className="flex max-h-[68vh] min-h-[40vh] flex-col overflow-y-auto px-1 py-2">
         {isLoading ? (
-          <div className="flex justify-center py-10">
-            <LoadingDots />
+          <div className="space-y-5 py-6">
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-9 w-3/5 rounded-xl" />
+            </div>
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-5 w-2/5" />
+            </div>
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-16 w-4/5 rounded-xl" />
+            </div>
           </div>
+        ) : isError ? (
+          <QueryErrorBanner error={error} onRetry={() => void refetch()} />
         ) : messages.length === 0 && pending.length === 0 ? (
           <div className="py-10 text-center text-sm text-muted-foreground">
             还没有消息，打个招呼吧。
@@ -179,6 +208,10 @@ export default function ChatPage() {
                 key={message.step_id ?? idx}
                 message={message}
                 mine={message.from === myName || message.from === "you"}
+                fromMind={message.from === identityName}
+                onConvertToTask={() => {
+                  if (!convertMutation.isPending) convertMutation.mutate(message);
+                }}
               />
             ))}
             {pending.map((message) => (
@@ -207,7 +240,7 @@ export default function ChatPage() {
 
       {controlsEnabled && (
         <form
-          className="mt-3 flex items-end gap-2"
+          className="mt-4 rounded-[14px] border border-line bg-secondary/60 p-3 shadow-sm"
           onSubmit={(event) => {
             event.preventDefault();
             if (!draft.trim() || isSending) return;
@@ -215,15 +248,6 @@ export default function ChatPage() {
             setDraft("");
           }}
         >
-          <Input
-            value={myName}
-            onChange={(event) => {
-              setMyName(event.target.value);
-              window.localStorage.setItem(MY_NAME_KEY, event.target.value);
-            }}
-            title="你的名字（消息的 from 字段）"
-            className="h-9 w-24 shrink-0 font-mono text-xs"
-          />
           <Textarea
             ref={draftRef}
             autoFocus
@@ -242,20 +266,60 @@ export default function ChatPage() {
                 event.currentTarget.form?.requestSubmit();
               }
             }}
-            placeholder={`给 ${identityName} 发消息…`}
-            className="max-h-40 flex-1 py-2"
+            placeholder={`对 ${identityName} 说点什么…`}
+            className="max-h-40 resize-none border-0 bg-transparent px-1 py-1 shadow-none focus-visible:ring-0"
           />
-          <Button
-            type="submit"
-            size="sm"
-            disabled={isSending || !draft.trim()}
-          >
-            <SendHorizontal className="size-3.5" />
-            发送
-          </Button>
+          <div className="flex items-center gap-2 pt-2">
+            <Input
+              value={myName}
+              onChange={(event) => {
+                setMyName(event.target.value);
+                window.localStorage.setItem(MY_NAME_KEY, event.target.value);
+              }}
+              title="你的名字（消息的 from 字段）"
+              className="h-7 w-24 shrink-0 border-0 bg-transparent px-1 font-mono text-xs shadow-none focus-visible:ring-0"
+            />
+            <ModelChip identityId={identityId} />
+            <span className="grow" />
+            <Button
+              type="submit"
+              size="sm"
+              className="rounded-full px-4"
+              disabled={isSending || !draft.trim()}
+            >
+              <SendHorizontal className="size-3.5" />
+              发送
+            </Button>
+          </div>
         </form>
       )}
       </div>
     </div>
+  );
+}
+
+/** 输入坞的模型芯片：读身份生效的 think 档位模型（身份级覆盖 >
+ * 全局 providers.json），静默失败即隐藏——芯片是显示，不是承诺。 */
+function ModelChip({ identityId }: { identityId: string }) {
+  const { data } = useQuery({
+    queryKey: ["chat-model-chip", identityId],
+    queryFn: async () => {
+      try {
+        return await fetchLlmProviders(identityId);
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 60_000,
+  });
+  const model = data?.tiers?.think?.model;
+  if (!model) return null;
+  return (
+    <span
+      className="rounded-md px-2 py-0.5 font-mono text-[11px] text-muted-foreground"
+      title="生效的思考档位模型"
+    >
+      {model}
+    </span>
   );
 }

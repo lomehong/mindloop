@@ -93,7 +93,6 @@ export const RunBlockButton = memo(function RunBlockButton({
         width: rect.width,
         top: rect.top,
         height: rect.height,
-        boxShadow: palette.blockShadow,
       }}
       title={`[run] ${title}`}
     />
@@ -159,11 +158,7 @@ export const StepCellButton = memo(function StepCellButton({
           hot && palette.cellRing,
           flash && "tl-flash"
         )}
-        style={{
-          width: CELL,
-          height: CELL,
-          boxShadow: step.type === "idle" ? undefined : palette.cellGlow,
-        }}
+        style={{ width: CELL, height: CELL }}
       />
       {!isCollapsed && (
         <span
@@ -237,16 +232,14 @@ export const RunChip = memo(function RunChip({
         style={{
           top: headerH + 4,
           backgroundColor: palette.chipBg,
-          boxShadow: palette.chipShadow,
         }}
         title={`[run] ${title}`}
       >
         <span
           className={cn(
-            "line-clamp-2 w-full break-words text-[11px] italic leading-4",
+            "line-clamp-2 w-full break-words text-[11px] leading-4",
             palette.chipTitle
           )}
-          style={{ textShadow: palette.chipTitleGlow }}
         >
           {title}
         </span>
@@ -325,16 +318,18 @@ export const LaneHeader = memo(function LaneHeader({
       key={lane.id}
       style={{ left, width, height: headerH }}
       className={cn(
-        "group absolute top-0 flex items-center gap-0.5 overflow-hidden rounded-t pl-2 pr-1",
+        "group absolute top-0 flex items-center gap-1.5 overflow-hidden rounded-t pl-2 pr-1",
         palette.laneHead
       )}
     >
       <span
+        className={cn("h-1.5 w-1.5 shrink-0 rounded-full", palette.laneDot[nameKind])}
+      />
+      <span
         className={cn(
-          "min-w-0 flex-1 truncate font-mono text-xs uppercase tracking-widest",
-          palette.laneName[nameKind]
+          "min-w-0 flex-1 truncate font-mono text-[10.5px] uppercase tracking-[0.12em]",
+          palette.laneName
         )}
-        style={{ textShadow: palette.laneNameGlow[nameKind] }}
       >
         {lane.label}
       </span>
@@ -416,31 +411,29 @@ export const EdgeLayer = memo(function EdgeLayer({
       height={height}
     >
       {/* No arrowheads: time flows down, so direction is implied —
-          endpoints are dots (source small, target larger). */}
+          endpoints are dots (source small, target larger). Strokes are
+          CSS-var colors, so they switch with the theme via style. */}
       {paths.map(({ edge, d, start, end }) => {
         const s = edgeStyle(edge, hovered);
         const color = EDGE_STROKE[edge.kind];
         return (
-          <g key={edge.id} opacity={s.opacity}>
+          <g key={edge.id} opacity={s.opacity} style={{ color }}>
             {s.halo && (
               <path
                 d={d}
                 fill="none"
-                stroke={palette.canvasBg}
+                style={{ stroke: palette.canvasBg }}
                 strokeWidth={s.width + 2.5}
               />
             )}
-            {/* neon under-glow */}
             <path
               d={d}
               fill="none"
-              stroke={color}
-              strokeWidth={s.width * 3 + 2}
-              opacity={0.22}
+              stroke="currentColor"
+              strokeWidth={s.width}
             />
-            <path d={d} fill="none" stroke={color} strokeWidth={s.width} />
-            <circle cx={start.x} cy={start.y} r={s.width + 0.5} fill={color} />
-            <circle cx={end.x} cy={end.y} r={s.width + 1.5} fill={color} />
+            <circle cx={start.x} cy={start.y} r={s.width + 0.5} fill="currentColor" />
+            <circle cx={end.x} cy={end.y} r={s.width + 1.5} fill="currentColor" />
           </g>
         );
       })}
@@ -525,7 +518,7 @@ export function FollowPill({ pinned, onResume }: FollowPillProps) {
     return (
       <div className="absolute bottom-3 right-3 z-30">
         <div className="flex items-center gap-1.5 rounded-full border bg-background/90 px-3 py-1.5 font-mono text-[11px] text-muted-foreground shadow-md backdrop-blur">
-          <ArrowDownToLine className="h-3 w-3 text-green-500" />
+          <ArrowDownToLine className="h-3 w-3 text-primary" />
           跟随中
         </div>
       </div>
@@ -538,7 +531,7 @@ export function FollowPill({ pinned, onResume }: FollowPillProps) {
         onClick={onResume}
         className="flex items-center gap-1.5 rounded-full border bg-background/90 px-3 py-1.5 font-mono text-[11px] shadow-md backdrop-blur hover:bg-accent"
       >
-        <Pause className="h-3 w-3 text-amber-500" />
+        <Pause className="h-3 w-3 text-resin" />
         已暂停 · 恢复跟随
       </button>
     </div>

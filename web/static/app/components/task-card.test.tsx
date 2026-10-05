@@ -62,7 +62,7 @@ describe("TaskCard", () => {
     expect(screen.getByText("执行中")).toBeDefined();
     expect(screen.getByText("第 2 次执行")).toBeDefined();
     const link = screen.getByRole("link", { name: "运行记录" });
-    expect(link.getAttribute("href")).toBe("/i/ada/mindlog");
+    expect(link.getAttribute("href")).toBe("/i/ada/log");
     expect(screen.queryByRole("button", { name: "重试" })).toBeNull();
   });
 

@@ -80,7 +80,7 @@ export function BlobLoader({
       >
         {loading ? "加载中…" : "加载完整输出"}
       </button>
-      {error && <span className="text-red-600 dark:text-red-400">{error}</span>}
+      {error && <span className="text-clay">{error}</span>}
     </div>
   );
 }

@@ -13,10 +13,10 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { ConfirmDialog } from "~/components/confirm-dialog";
-import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { LoadingDots } from "~/components/ui/loading-dots";
+import { Skeleton } from "~/components/ui/loading-skeleton";
 import { fetchLlmModels, fetchLlmProviders, saveLlmProviders } from "~/lib/api";
 import type {
   LlmTierBinding,
@@ -25,6 +25,10 @@ import type {
 } from "~/lib/types";
 
 const NEW_PROFILE = "__new__";
+
+/** 归属/元信息胶囊（mockup .mbadge）。 */
+const MBADGE =
+  "rounded-full border border-line-strong px-1.5 py-px font-mono text-[9.5px] font-normal leading-[1.6] text-muted-foreground";
 
 interface ProfileDraft {
   id: string;
@@ -139,9 +143,10 @@ export function ProviderProfilesSection({ identityId }: { identityId: string }) 
 
   if (isLoading || !view) {
     return (
-      <div className="flex justify-center py-10">
-        <LoadingDots />
-      </div>
+      <section className="rounded-xl border border-line bg-card px-4 pt-3.5 pb-2.5">
+        <Skeleton className="h-5 w-32" />
+        <Skeleton className="mt-2 h-12 w-full" />
+      </section>
     );
   }
 
@@ -185,94 +190,93 @@ export function ProviderProfilesSection({ identityId }: { identityId: string }) 
     save.mutate({ profiles, tiers: nextTiers });
   };
 
+  const editing = editingId !== null;
+
   return (
-    <section className="mb-8">
-      <div className="mb-2 flex items-baseline gap-3">
-        <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          提供商档案
-        </h2>
-        <span className="text-[11px] text-muted-foreground">
-          providers.json 管连接与模型清单；密钥只存身份 .env（"API Key"
-          输入后保存时自动分流）。运行中的思考者保留启动时的配置——修改后需重启思考者。
-        </span>
-      </div>
+    <section className="rounded-xl border border-line bg-card px-4 pt-3.5 pb-2.5">
+      <h2 className="text-[14.5px] font-semibold">提供商档案</h2>
+      <p className="mb-2 text-[12px] leading-[1.65] text-faint">
+        providers.json 管连接与模型清单；密钥只存身份 .env（「API Key」
+        输入后保存时自动分流）。运行中的思考者保留启动时的配置——修改后需重启。
+      </p>
 
       {view.error && (
         <p
           role="alert"
-          className="mb-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+          className="mb-2 rounded-lg border border-clay/45 bg-clay/[0.06] px-3 py-2 text-xs text-clay"
         >
           无法读取现有配置：{view.error}
         </p>
       )}
 
-      <div className="rounded-lg border">
-        {view.profiles.length === 0 && (
-          <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-            还没有提供商档案。添加一个——下方模型档位的候选就来自档案的模型清单。
-          </p>
-        )}
-        {view.profiles.map((p) => (
-          <div
-            key={p.id}
-            className="flex flex-wrap items-center gap-3 border-b px-3 py-2 last:border-b-0"
-          >
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium">{p.label || p.id}</span>
-                <span className="font-mono text-xs text-muted-foreground">
+      {view.profiles.length === 0 && (
+        <p className="border-t border-line px-0.5 py-5 text-center text-[12.5px] text-muted-foreground">
+          还没有提供商档案。添加一个——下方模型档位的候选就来自档案的模型清单。
+        </p>
+      )}
+      {view.profiles.map((p) => (
+        <div
+          key={p.id}
+          className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-t border-line px-0.5 py-2.5"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[13.5px] font-medium">{p.label || p.id}</span>
+              {p.label && (
+                <span className="font-mono text-[11px] text-muted-foreground">
                   {p.id}
                 </span>
-                <Badge variant="outline" className="text-[10px]">
-                  {p.origin === "identity" ? "身份级" : "全局级"}
-                </Badge>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
-                <span>{p.base_url}</span>
-                <span>· {p.models.length} 个模型</span>
-                <span>· {p.provider || "自动推断"}</span>
-              </div>
-              <span className="text-xs text-muted-foreground">
+              )}
+              <span className={MBADGE}>
+                {p.origin === "identity" ? "身份级" : "全局级"}
+              </span>
+            </div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 font-mono text-[11px] leading-[1.7] text-muted-foreground">
+              <span>{p.base_url}</span>
+              <span>· {p.models.length} 个模型</span>
+              <span>· {p.provider || "自动推断"}</span>
+              <span className="rounded-full border border-line-strong px-2 py-px text-[10.5px]">
                 {keyStatus(p)}
               </span>
             </div>
-            {p.origin === "identity" ? (
-              <div className="flex gap-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={`编辑 ${p.id}`}
-                  onClick={() => {
-                    setEditingId(p.id);
-                    setDraft(draftFromProfile(p));
-                    setProbeError(null);
-                  }}
-                >
-                  编辑
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={`删除 ${p.id}`}
-                  onClick={() => setConfirmDelete(p.id)}
-                >
-                  删除
-                </Button>
-              </div>
-            ) : (
-              <span className="text-[11px] text-muted-foreground">
-                在全局 providers.json 中管理
-              </span>
-            )}
           </div>
-        ))}
-      </div>
+          {p.origin === "identity" ? (
+            <div className="flex gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                aria-label={`编辑 ${p.id}`}
+                onClick={() => {
+                  setEditingId(p.id);
+                  setDraft(draftFromProfile(p));
+                  setProbeError(null);
+                }}
+              >
+                编辑
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[11px] text-muted-foreground hover:text-clay"
+                aria-label={`删除 ${p.id}`}
+                onClick={() => setConfirmDelete(p.id)}
+              >
+                删除
+              </Button>
+            </div>
+          ) : (
+            <span className="text-[11px] text-faint">在全局 providers.json 中管理</span>
+          )}
+        </div>
+      ))}
 
-      {editingId === null ? (
-        <div className="mt-3">
+      {!editing && (
+        <div className="flex items-center gap-2.5 border-t border-line px-0.5 pt-2.5 pb-1">
           <Button
             variant="outline"
             size="sm"
+            className="h-7 px-2.5 text-[12px]"
             onClick={() => {
               setEditingId(NEW_PROFILE);
               setDraft(emptyDraft());
@@ -283,142 +287,145 @@ export function ProviderProfilesSection({ identityId }: { identityId: string }) 
             添加档案
           </Button>
         </div>
-      ) : (
-        draft && (
-          <form
-            className="mt-3 flex flex-col gap-3 rounded-lg border p-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              submitDraft();
-            }}
-          >
-            <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-                ID
-                <Input
-                  value={draft.id}
-                  disabled={editingId !== NEW_PROFILE}
-                  onChange={(event) => updateDraft({ id: event.target.value })}
-                  placeholder="glm"
-                  pattern="[a-z0-9][a-z0-9_-]*"
-                  title="小写字母/数字/_/-，首字符为字母或数字"
-                  className="h-8 font-mono text-xs"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-                名称
-                <Input
-                  value={draft.label}
-                  onChange={(event) => updateDraft({ label: event.target.value })}
-                  placeholder="智谱"
-                  className="h-8 text-xs"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-                供应商
-                <select
-                  value={draft.provider}
-                  onChange={(event) =>
-                    updateDraft({ provider: event.target.value })
-                  }
-                  className="h-8 rounded-md border bg-transparent px-2 text-xs"
-                >
-                  <option value="">自动推断（按模型名）</option>
-                  <option value="openai-compatible">openai-compatible</option>
-                  <option value="anthropic">anthropic</option>
-                  <option value="echo">echo</option>
-                </select>
-              </label>
-              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-                Base URL
-                <Input
-                  value={draft.base_url}
-                  onChange={(event) =>
-                    updateDraft({ base_url: event.target.value })
-                  }
-                  placeholder="https://open.bigmodel.cn/api/paas/v4"
-                  className="h-8 font-mono text-xs"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-                密钥引用（api_key_env）
-                <Input
-                  value={draft.api_key_env}
-                  onChange={(event) =>
-                    updateDraft({ api_key_env: event.target.value })
-                  }
-                  placeholder="留空 = 约定键 MINDLOOP_PROFILE_<ID>_API_KEY"
-                  className="h-8 font-mono text-xs"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-                API Key
-                <Input
-                  type="password"
-                  autoComplete="off"
-                  value={draft.api_key}
-                  onChange={(event) =>
-                    updateDraft({ api_key: event.target.value })
-                  }
-                  placeholder="保存时写入身份 .env；留空不改动"
-                  className="h-8 font-mono text-xs"
-                />
-              </label>
-            </div>
-            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-              模型清单（每行一个）
-              <textarea
-                value={draft.models}
-                onChange={(event) => updateDraft({ models: event.target.value })}
-                rows={4}
-                placeholder={"glm-4.6\nglm-4.5-air"}
-                className="rounded-md border bg-transparent px-2 py-1.5 font-mono text-xs"
+      )}
+
+      {editing && draft && (
+        <form
+          className="mt-2 flex flex-col gap-3 rounded-lg border border-line-strong bg-muted/40 p-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitDraft();
+          }}
+        >
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+              ID
+              <Input
+                value={draft.id}
+                disabled={editingId !== NEW_PROFILE}
+                onChange={(event) => updateDraft({ id: event.target.value })}
+                placeholder="glm"
+                pattern="[a-z0-9][a-z0-9_-]*"
+                title="小写字母/数字/_/-，首字符为字母或数字"
+                className="h-8 font-mono text-xs"
               />
             </label>
-            {probeError && (
-              <p role="alert" className="text-xs text-destructive">
-                拉取失败：{probeError}
-              </p>
-            )}
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={probe.isPending || !draft.id.trim()}
-                onClick={() => probe.mutate(draft.id.trim())}
+            <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+              名称
+              <Input
+                value={draft.label}
+                onChange={(event) => updateDraft({ label: event.target.value })}
+                placeholder="智谱"
+                className="h-8 text-xs"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+              供应商
+              <select
+                value={draft.provider}
+                onChange={(event) =>
+                  updateDraft({ provider: event.target.value })
+                }
+                className="h-8 rounded-lg border border-line bg-secondary px-2 text-xs"
               >
-                {probe.isPending ? (
-                  <LoadingDots text="拉取中" />
-                ) : (
-                  <>
-                    <RefreshCw className="size-3" />
-                    从提供商拉取
-                  </>
-                )}
-              </Button>
-              <Button
-                type="submit"
-                size="sm"
-                disabled={save.isPending || !draft.id.trim() || !draft.base_url.trim()}
-              >
-                保存
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setEditingId(null);
-                  setDraft(null);
-                  setProbeError(null);
-                }}
-              >
-                取消
-              </Button>
-            </div>
-          </form>
-        )
+                <option value="">自动推断（按模型名）</option>
+                <option value="openai-compatible">openai-compatible</option>
+                <option value="anthropic">anthropic</option>
+                <option value="echo">echo</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+              Base URL
+              <Input
+                value={draft.base_url}
+                onChange={(event) =>
+                  updateDraft({ base_url: event.target.value })
+                }
+                placeholder="https://open.bigmodel.cn/api/paas/v4"
+                className="h-8 font-mono text-xs"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+              密钥引用（api_key_env）
+              <Input
+                value={draft.api_key_env}
+                onChange={(event) =>
+                  updateDraft({ api_key_env: event.target.value })
+                }
+                placeholder="留空 = 约定键 MINDLOOP_PROFILE_<ID>_API_KEY"
+                className="h-8 font-mono text-xs"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+              API Key
+              <Input
+                type="password"
+                autoComplete="off"
+                value={draft.api_key}
+                onChange={(event) =>
+                  updateDraft({ api_key: event.target.value })
+                }
+                placeholder="保存时写入身份 .env；留空不改动"
+                className="h-8 font-mono text-xs"
+              />
+            </label>
+          </div>
+          <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+            模型清单（每行一个）
+            <textarea
+              value={draft.models}
+              onChange={(event) => updateDraft({ models: event.target.value })}
+              rows={4}
+              placeholder={"glm-4.6\nglm-4.5-air"}
+              className="rounded-lg border border-line bg-transparent px-2 py-1.5 font-mono text-xs"
+            />
+          </label>
+          {probeError && (
+            <p role="alert" className="text-[12px] text-clay">
+              拉取失败：{probeError}
+            </p>
+          )}
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2.5 text-[12px]"
+              disabled={probe.isPending || !draft.id.trim()}
+              onClick={() => probe.mutate(draft.id.trim())}
+            >
+              {probe.isPending ? (
+                <LoadingDots text="拉取中" />
+              ) : (
+                <>
+                  <RefreshCw className="size-3" />
+                  从提供商拉取
+                </>
+              )}
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              className="h-7 px-2.5 text-[12px]"
+              disabled={save.isPending || !draft.id.trim() || !draft.base_url.trim()}
+            >
+              保存
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2.5 text-[12px]"
+              onClick={() => {
+                setEditingId(null);
+                setDraft(null);
+                setProbeError(null);
+              }}
+            >
+              取消
+            </Button>
+          </div>
+        </form>
       )}
 
       <ConfirmDialog
