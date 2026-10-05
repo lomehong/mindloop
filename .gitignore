@@ -19,6 +19,7 @@ dist/
 web/static/node_modules/
 web/static/build/server/
 web/static/.react-router/
+web/static/build/
 
 # UI 场景测试（uitest/：依赖不入库；playwright-core 走系统 Edge）
 uitest/node_modules/
