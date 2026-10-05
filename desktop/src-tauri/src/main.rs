@@ -16,6 +16,7 @@ use tauri::{Emitter, Manager};
 mod config;
 mod health;
 mod job;
+mod pet;
 mod proc;
 mod tray;
 
@@ -55,9 +56,14 @@ impl AppState {
 }
 
 fn main() {
+    // --pet：启动即开宠物窗（单实例下会转发给已运行的壳）。
+    let want_pet = std::env::args().any(|a| a == "--pet");
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // 第二实例启动：唤起已有主窗口。
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // 第二实例启动：--pet 转交宠物开关；否则唤起已有主窗口。
+            if args.iter().any(|a| a == "--pet") {
+                crate::pet::toggle(app);
+            }
             if let Some(w) = app.get_webview_window("main") {
                 show_main(&w);
             }
@@ -69,6 +75,7 @@ fn main() {
             shell_state,
             backend_toggle,
             quit_app,
+            pet_open_dashboard,
         ])
         .on_window_event(|window, event| {
             // 关窗 = 缩入托盘（与主流桌面应用一致）；真正退出走托盘菜单。
@@ -77,7 +84,7 @@ fn main() {
                 let _ = window.hide();
             }
         })
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle().clone();
 
             let config_dir = handle.path().app_config_dir()?;
@@ -103,6 +110,10 @@ fn main() {
                 #[cfg(windows)]
                 round_corners(&w);
                 let _ = w.show();
+            }
+
+            if want_pet {
+                crate::pet::toggle(&handle);
             }
 
             // 后端监督跑在独立常驻线程（单状态机，见 run_supervisor）。
@@ -417,6 +428,14 @@ fn quit_app(app: tauri::AppHandle, remember: bool) {
         }
     }
     do_quit(&app);
+}
+
+/// 宠物页「打开仪表盘」：唤起主窗口（浏览器形态下走 window.open）。
+#[tauri::command]
+fn pet_open_dashboard(app: tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        show_main(&w);
+    }
 }
 
 // ———— Windows 观感 ————

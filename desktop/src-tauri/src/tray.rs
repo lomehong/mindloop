@@ -14,10 +14,13 @@ use crate::show_main;
 pub struct TrayItems {
     pub status: MenuItem<Wry>,
     pub stop: MenuItem<Wry>,
+    /// 宠物窗口：后端未运行时禁用（页面加载不出来）。
+    pub pet: MenuItem<Wry>,
 }
 
 pub fn build(app: &AppHandle) -> tauri::Result<TrayItems> {
     let open = MenuItemBuilder::with_id("open", "打开 mindloop").build(app)?;
+    let pet = MenuItemBuilder::with_id("pet", "宠物").build(app)?;
     let status = MenuItemBuilder::with_id("status", "状态：连接中…")
         .enabled(false)
         .build(app)?;
@@ -25,7 +28,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<TrayItems> {
     let quit = MenuItemBuilder::with_id("quit", "退出…").build(app)?;
 
     let menu = MenuBuilder::new(app)
-        .items(&[&open, &status])
+        .items(&[&open, &pet, &status])
         .separator()
         .item(&stop)
         .separator()
@@ -43,6 +46,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<TrayItems> {
                     show_main(&w);
                 }
             }
+            "pet" => crate::pet::toggle(app),
             "stop" => crate::toggle_backend(app),
             "quit" => crate::request_quit(app),
             _ => {}
@@ -57,7 +61,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<TrayItems> {
         })
         .build(app)?;
 
-    Ok(TrayItems { status, stop })
+    Ok(TrayItems { status, stop, pet })
 }
 
 /// 按后端状态刷新托盘文案与「停止/启动」项。
@@ -87,6 +91,9 @@ pub fn update_status(app: &AppHandle, st: &crate::AppState) {
         let _ = items.stop.set_enabled(true);
         let _ = items.stop.set_text("停止 mindloop web");
     }
+
+    // 宠物窗口要加载 /pet 页面，后端不在就开不出来。
+    let _ = items.pet.set_enabled(s.state == "running");
 
     if let Some(tray) = app.tray_by_id("main") {
         let tip = match s.state.as_str() {

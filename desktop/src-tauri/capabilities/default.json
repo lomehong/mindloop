@@ -1,11 +1,26 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "mindloop 桌面壳主窗口能力",
-  "windows": ["main"],
+  "description": "mindloop 桌面壳能力（main + pet 合并为单一联合能力）。Trellis：标题栏已移除，窗体 chrome（拖动/最小化/最大化/关闭）由仪表盘顶排 + 顶部拖动带承载；仪表盘与 pet 页都是远程源（127.0.0.1），Tauri 2 对远程源 IPC 默认全拒，故显式开放 remote 上下文与所需窗口权限。合并原因：tauri/wry 在第二个 webview（pet）创建后，自定义协议 IPC 的 ACL 上下文错拿最后创建 webview 的标签判定（实测：pet 存在时 main 的 toggle_maximize 被按 pet 上下文拒绝）——单一联合能力使任一标签下命令均可放行；命令的实际目标窗口取自 JS 侧 label（getCurrentWindow 元数据），不受此错位影响。",
+  "windows": ["main", "pet"],
+  "remote": {
+    "urls": ["http://127.0.0.1:*", "http://localhost:*"]
+  },
   "permissions": [
     "core:default",
+    "core:event:default",
     "core:window:allow-start-dragging",
-    "core:event:default"
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-close",
+    "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-cursor-position",
+    "core:window:allow-set-position",
+    "core:window:allow-outer-position",
+    "core:window:allow-hide",
+    "core:window:allow-show"
   ]
 }

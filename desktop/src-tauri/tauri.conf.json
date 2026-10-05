@@ -17,6 +17,7 @@
         "minWidth": 960,
         "minHeight": 600,
         "decorations": false,
+        "transparent": false,
         "visible": false,
         "center": true
       }

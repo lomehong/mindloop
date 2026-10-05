@@ -47,7 +47,10 @@ Copy-Item -Recurse (Join-Path $root "web/static/build/client") $resDir
 if ($Dev) {
     Write-Host "== tauri dev =="
     Set-Location $desktop
-    bunx @tauri-apps/cli@2 dev
+    # CLI 本地优先（desktop/package.json 的 devDependency）——部分网络
+    # 环境对 registry.npmjs.org 的 TLS 链验证不稳，临时下载会挂。
+    if (Test-Path (Join-Path $desktop "node_modules\@tauri-apps\cli")) { bun run tauri dev }
+    else { bunx @tauri-apps/cli@2 dev }
     return
 }
 
@@ -62,7 +65,8 @@ if ($SkipBundle) {
 
 Write-Host "== tauri bundle =="
 Set-Location $desktop
-bunx @tauri-apps/cli@2 build
+if (Test-Path (Join-Path $desktop "node_modules\@tauri-apps\cli")) { bun run tauri build }
+else { bunx @tauri-apps/cli@2 build }
 if ($LASTEXITCODE -ne 0) { throw "tauri build failed" }
 
 Write-Host ""

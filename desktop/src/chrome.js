@@ -1,12 +1,12 @@
-// mindloop 桌面壳 chrome 逻辑：标题栏控制、后端状态渲染、退出流程。
+// mindloop 桌面壳 chrome 逻辑：后端状态渲染、退出流程。
+// Trellis 重构：标题栏已移除——窗体拖动/最小化/最大化/关闭由仪表盘
+// 导航栏顶排承载（capabilities/default.json 开放 main 窗远程源 IPC）。
 // 依赖 withGlobalTauri 暴露的 window.__TAURI__（Tauri 2 全局 API）。
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 const els = {
-  dot: document.getElementById("status-dot"),
-  statusText: document.getElementById("status-text"),
   boot: document.getElementById("boot"),
   bootText: document.getElementById("boot-text"),
   bootDetail: document.getElementById("boot-detail"),
@@ -20,17 +20,8 @@ const els = {
 let framePort = 0; // iframe 已指向的端口（0 = 未指向）
 
 function applyStatus(s) {
-  els.dot.className = `dot ${s.state}`;
-
-  const text =
-    s.state === "running"
-      ? s.attached
-        ? `已连接现有服务 :${s.port}`
-        : `运行中 :${s.port}`
-      : s.state === "connecting"
-        ? "连接中…"
-        : "已停止";
-  els.statusText.textContent = text;
+  // 连接状态读数由仪表盘自身的状态坞渲染（连接态即其 API 可达性）；
+  // chrome 只负责 boot 遮罩与 iframe 装载。
 
   // 后端就绪且 iframe 尚未指向（或端口变了）→ 装载仪表盘。
   if (s.state === "running" && framePort !== s.port) {
@@ -56,17 +47,6 @@ async function refresh() {
   }
 }
 
-// ———— 标题栏按钮 ————
-
-document.getElementById("btn-min").addEventListener("click", () =>
-  invoke("win_minimize").catch(() => {})
-);
-document.getElementById("btn-max").addEventListener("click", () =>
-  invoke("win_maximize_toggle").catch(() => {})
-);
-document.getElementById("btn-close").addEventListener("click", () =>
-  invoke("win_hide").catch(() => {})
-);
 els.retry.addEventListener("click", () =>
   invoke("backend_toggle").catch(() => {})
 );

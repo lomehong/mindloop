@@ -1,26 +1,16 @@
 /* mindloop 桌面壳 chrome：无边框标题栏 + 全幅 iframe。
-   深浅色跟随系统（与仪表盘一致的暗色观感）。 */
+   深浅色跟随系统（与仪表盘一致的暗色观感）。
+   色系对齐仪表盘「年轮」暗色 token（web/static/app/app.css）。 */
 
 :root {
-  --tb-height: 38px;
-  --tb-bg: #f6f7f9;
-  --line: #e4e6ea;
-  --fg: #1c1e21;
-  --fg-dim: #6b7078;
-  --accent: #3b82f6;
-  --hover: #e8eaee;
-  color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --tb-bg: #16181d;
-    --line: #262930;
-    --fg: #e6e8ec;
-    --fg-dim: #9aa0a8;
-    --hover: #22252c;
-    color-scheme: dark;
-  }
+  --sb-height: 26px;
+  --tb-bg: #121814; /* 暗叶底：与仪表盘 --bg 同值 */
+  --line: rgba(230, 236, 225, 0.09); /* 同 --line */
+  --fg: #e6eadf; /* 同 --fg */
+  --fg-dim: #99a593; /* 同 --muted-foreground */
+  --hover: #1f2922; /* 同 --surface-2 */
+  --accent: #8fc166; /* 叶绿：同暗色 --primary */
+  color-scheme: dark;
 }
 
 * {
@@ -33,113 +23,20 @@ html,
 body {
   height: 100%;
   overflow: hidden;
-  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  font-family: "IBM Plex Sans", "Segoe UI", "Microsoft YaHei", system-ui,
+    sans-serif;
   color: var(--fg);
   background: var(--tb-bg);
   user-select: none;
 }
 
-/* ———— 标题栏 ———— */
-
-#titlebar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: var(--tb-height);
-  padding-left: 12px;
-  background: var(--tb-bg);
-  border-bottom: 1px solid var(--line);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.logo-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  background: var(--accent);
-}
-
-.name {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.2px;
-}
-
-.status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--fg-dim);
-}
-
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-}
-
-.dot.connecting {
-  background: #d9a520;
-}
-
-.dot.running {
-  background: #2ea44f;
-}
-
-.dot.stopped {
-  background: #8a9099;
-}
-
-.spring {
-  flex: 1;
-  height: 100%;
-}
-
-.controls {
-  display: flex;
-  height: 100%;
-}
-
-.controls button {
-  width: 46px;
-  height: 100%;
-  border: 0;
-  background: transparent;
-  color: var(--fg);
-  cursor: default;
-  display: grid;
-  place-items: center;
-}
-
-.controls button:hover {
-  background: var(--hover);
-}
-
-.controls button svg {
-  width: 10px;
-  height: 10px;
-  stroke: currentColor;
-  stroke-width: 1;
-  fill: none;
-}
-
-.controls #btn-close:hover {
-  background: #e81123;
-  color: #fff;
-}
 
 /* ———— 舞台：boot 页 / 仪表盘 iframe ———— */
 
 #stage {
   position: relative;
-  height: calc(100% - var(--tb-height));
-  background: var(--tb-bg);
+  height: 100%;
+  background: transparent;
 }
 
 #app-frame {
@@ -156,7 +53,9 @@ body {
 
 #boot {
   position: absolute;
-  inset: 0;
+  inset: 8px;
+  border-radius: 14px;
+  background: var(--tb-bg);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -276,12 +175,12 @@ body {
 }
 
 .dialog-actions .primary {
-  background: #e81123;
-  border-color: #e81123;
+  background: #d4735e; /* 陶土：危险操作 */
+  border-color: #d4735e;
   color: #fff;
 }
 
 .dialog-actions .primary:hover {
-  background: #f1707b;
-  border-color: #f1707b;
+  background: #c4634f;
+  border-color: #c4634f;
 }
