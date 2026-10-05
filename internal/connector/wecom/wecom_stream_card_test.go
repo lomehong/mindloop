@@ -289,9 +289,12 @@ func TestApprovalCardFlow(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// 有效期取相对当前时间——写死的日期会随日历翻页变成"已过期孤儿"，
+	// 被 Decide 的过期校验拒掉（过期请求不可再决策是控制面硬规则）。
+	now := time.Now().UTC()
 	req := map[string]any{
 		"hash": hash, "script": "rm -rf /tmp/x", "work_dir": "C:/tmp",
-		"created": "2026-09-27T07:00:00Z", "expires": "2026-09-27T07:05:00Z",
+		"created": now.Format(time.RFC3339), "expires": now.Add(5 * time.Minute).Format(time.RFC3339),
 	}
 	reqBody, _ := json.Marshal(req)
 	if err := os.WriteFile(filepath.Join(dir, "request-"+hash+".json"), reqBody, 0o644); err != nil {

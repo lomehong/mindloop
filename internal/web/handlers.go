@@ -116,6 +116,10 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 	switch sub {
 	case "":
+		if r.Method == http.MethodDelete {
+			s.handleIdentityDelete(w, r, id)
+			return
+		}
 		writeJSON(w, 200, identitySummary(s.cfg.Root, id))
 	case "activity":
 		s.handleActivity(w, r, id, rest)

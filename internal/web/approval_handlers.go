@@ -15,6 +15,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/lomehong/mindloop/internal/identity"
 	"github.com/lomehong/mindloop/internal/policy"
@@ -60,27 +61,41 @@ func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request, id *ide
 }
 
 // approvalList 读控制面待批请求；空列表给 [] 而不是 null——前端
-// 直接迭代。
+// 直接迭代。已过期与已有决定文件的请求不算"待批"：前者是死运行
+// 留下的孤儿（等待方在到期瞬间会自行否决并清理，滞留即孤儿），
+// 后者已经决定、只差消费——展示它们会让操作员对着不可生效的请求
+// 点批准（web 面修复过的真实事故面）。
 func (s *Server) approvalList(w http.ResponseWriter, dir string) {
 	pending, err := policy.ListPending(dir)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}
-	if pending == nil {
-		pending = []policy.PendingRequest{}
+	now := time.Now()
+	actionable := pending[:0]
+	for _, p := range pending {
+		if policy.IsExpired(p, now) || policy.HasDecision(dir, p.Hash) {
+			continue
+		}
+		actionable = append(actionable, p)
 	}
-	writeJSON(w, 200, pending)
+	if actionable == nil {
+		actionable = []policy.PendingRequest{}
+	}
+	writeJSON(w, 200, actionable)
 }
 
 // writeApprovalError 把控制面错误映射为 HTTP 状态：非法哈希 400、
-// 未命中 404、前缀歧义 409——决定必须有对象，猜测不是便利。
+// 未命中 404、前缀歧义与已决定 409、已过期 410——决定必须有对象，
+// 猜测不是便利。
 func writeApprovalError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, policy.ErrBadHash):
 		writeError(w, 400, err.Error())
 	case errors.Is(err, policy.ErrNoMatch):
 		writeError(w, 404, err.Error())
+	case errors.Is(err, policy.ErrExpired):
+		writeError(w, 410, err.Error())
 	case errors.Is(err, policy.ErrAmbiguous):
 		writeError(w, 409, err.Error())
 	default:

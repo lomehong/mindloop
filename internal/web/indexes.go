@@ -9,6 +9,8 @@ package web
 // 持有同一实例，无订阅者时释放。
 
 import (
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/lomehong/mindloop/internal/traj"
@@ -36,4 +38,19 @@ func (s *indexStore) get(tl *traj.Timeline) (*traj.Index, error) {
 	}
 	s.byPath[tl.Path] = ix
 	return ix, nil
+}
+
+// forgetUnder 丢弃某一身份目录（含其下子轨迹）的全部共享侧索引——
+// 身份删除后调用：与已删除路径绑定的实例不再有意义，一并释放。
+// 索引按读取即开即关的模式访问文件，不持有句柄；RemoveAll 的阻碍
+// 只可能来自活进程，这里不承担停机职责。
+func (s *indexStore) forgetUnder(dirPrefix string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prefix := filepath.Clean(dirPrefix) + string(filepath.Separator)
+	for k := range s.byPath {
+		if strings.HasPrefix(filepath.Clean(k), prefix) {
+			delete(s.byPath, k)
+		}
+	}
 }

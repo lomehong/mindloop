@@ -52,7 +52,26 @@ var (
 	ErrNoMatch = errors.New("policy: 没有待批请求匹配")
 	// ErrAmbiguous：前缀匹配多个待批请求，需要更长前缀。
 	ErrAmbiguous = errors.New("policy: 前缀匹配多个待批请求")
+	// ErrExpired：授权请求已过有效期。活着的等待方在到期瞬间会自行
+	// 否决并清理；仍然滞留的过期请求是死运行留下的孤儿——写决定
+	// 不会有任何人消费，必须在展示面与决定面同时排除。
+	ErrExpired = errors.New("policy: 授权请求已过期")
 )
+
+// IsExpired 报告请求是否已过有效期（now 通常取 time.Now()）。
+func IsExpired(p PendingRequest, now time.Time) bool {
+	return !now.Before(p.Expires)
+}
+
+// HasDecision 报告该哈希是否已有决定文件——已决定 = 不再是"待批"，
+// 哪怕等待方尚未消费（活着的消费方在毫秒级收尾；滞留即孤儿）。
+func HasDecision(dir, hash string) bool {
+	if !hashRe.MatchString(hash) {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(dir, "decision-"+hash+".json"))
+	return err == nil
+}
 
 // ListPending 读目录里的全部待批请求，按创建时间排序。目录不存在
 // 返回空（没有人等待批准是正常状态）。
@@ -114,13 +133,37 @@ func ResolveHash(dir, prefix string) (string, error) {
 	return match, nil
 }
 
+// readRequest 按完整哈希读请求文件（哈希先过格式与内嵌一致性校验）。
+func readRequest(dir, hash string) (PendingRequest, bool) {
+	if !hashRe.MatchString(hash) {
+		return PendingRequest{}, false
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "request-"+hash+".json"))
+	if err != nil {
+		return PendingRequest{}, false
+	}
+	var p PendingRequest
+	if json.Unmarshal(data, &p) != nil || p.Hash != hash {
+		return PendingRequest{}, false
+	}
+	return p, true
+}
+
 // Decide 批准或拒绝一个待批请求（哈希可用完整值或唯一前缀）。决定
-// 以原子文件写回控制面，等待方消费后自动清理；对不存在的请求写
-// 决定直接报错——决定必须有对象。
+// 以原子文件写回控制面，等待方消费后自动清理；对不存在或已过期的
+// 请求写决定直接报错——批准一个没人会消费的孤儿是在对操作员撒谎。
 func Decide(dir, hash string, approve bool) error {
 	full, err := ResolveHash(dir, hash)
 	if err != nil {
 		return err
+	}
+	p, ok := readRequest(dir, full)
+	if !ok {
+		return fmt.Errorf("%w %q", ErrNoMatch, full)
+	}
+	if IsExpired(p, time.Now()) {
+		return fmt.Errorf("%w（有效期至 %s）",
+			ErrExpired, p.Expires.Local().Format("2006-01-02 15:04"))
 	}
 	decision := "deny"
 	if approve {

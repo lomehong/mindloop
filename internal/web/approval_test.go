@@ -19,6 +19,16 @@ import (
 // 完整哈希——与 policy.Gate 的写盘同构（文件名与内嵌哈希一致是
 // 控制面的硬校验）。
 func seedApproval(t *testing.T, id *identity.Identity, script string) string {
+	return seedApprovalExpires(t, id, script, 10*time.Minute)
+}
+
+// seedApprovalExpired 写一条已过有效期的请求（默认种子 10 分钟有效期，
+// 这里回拨到 10 分钟前）——死运行留下的孤儿形态。
+func seedApprovalExpired(t *testing.T, id *identity.Identity, script string) string {
+	return seedApprovalExpires(t, id, script, -10*time.Minute)
+}
+
+func seedApprovalExpires(t *testing.T, id *identity.Identity, script string, ttl time.Duration) string {
 	t.Helper()
 	dir := policy.Dir(id.Timeline.Dir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -28,7 +38,7 @@ func seedApproval(t *testing.T, id *identity.Identity, script string) string {
 	p := policy.PendingRequest{
 		Hash: hash, Script: script, WorkDir: `D:\work\y`,
 		RunID: "run-7", TaskID: "task-2", Attempt: 1,
-		Created: time.Now().UTC(), Expires: time.Now().Add(10 * time.Minute).UTC(),
+		Created: time.Now().UTC().Add(-ttl), Expires: time.Now().Add(ttl).UTC(),
 		Risks: policy.RiskNotes(script),
 	}
 	data, err := json.Marshal(p)
@@ -135,6 +145,59 @@ func TestApprovalsDecideEndpoint(t *testing.T) {
 	}
 	if got := approvalDecision(t, id, h2); got != "deny" {
 		t.Fatalf("决定 = %q，应为 deny", got)
+	}
+}
+
+// TestApprovalsListFiltersExpiredAndDecided：孤儿不进展示面——过期
+// 请求（死运行滞留）与已决定的请求（等待方未消费）都不算"待批"，
+// 否则操作员会对不可生效的请求点批准。
+func TestApprovalsListFiltersExpiredAndDecided(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MINDLOOP_HOME", dir)
+	id, err := identity.Create(context.Background(), "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := seedApproval(t, id, "echo live")
+	seedApprovalExpired(t, id, "echo expired-orphan")
+	decided := seedApproval(t, id, "echo decided")
+	if err := policy.Decide(policy.Dir(id.Timeline.Dir), decided, true); err != nil {
+		t.Fatal(err)
+	}
+	ts, _ := newTestServer(t, identity.Home(), "")
+
+	resp, err := http.Get(ts.URL + "/api/identities/ada/approvals")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var list []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+		t.Fatalf("响应应为数组: %v", err)
+	}
+	if len(list) != 1 || list[0]["hash"] != live {
+		t.Fatalf("待批应只剩活请求 %q，得到 %v", live, list)
+	}
+}
+
+// TestApprovalsDecideExpiredGone：对过期孤儿批准 = 410（不是 200 的
+// "已批准"假象），且不落任何决定文件。
+func TestApprovalsDecideExpiredGone(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MINDLOOP_HOME", dir)
+	id, err := identity.Create(context.Background(), "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := seedApprovalExpired(t, id, "echo orphan")
+	ts, _ := newTestServer(t, identity.Home(), "")
+
+	resp, out := postJSON(t, ts, "/api/identities/ada/approvals/"+hash[:8]+"/approve", nil)
+	if resp.StatusCode != 410 {
+		t.Fatalf("过期批准 status = %d，应为 410；out=%v", resp.StatusCode, out)
+	}
+	if approvalDecision(t, id, hash) != "" {
+		t.Fatal("过期请求不应写下决定文件")
 	}
 }
 
