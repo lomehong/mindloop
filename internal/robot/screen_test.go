@@ -75,7 +75,12 @@ func TestTypeTextRejectsControlChars(t *testing.T) {
 	// 只测拒绝路径——拒绝发生在任何键击合成之前，绝不触桌。
 	// 快乐路径的合成验证走 robotd 的注入层（fake typeText）；在这
 	// 里调 TypeText 会把测试文本真打进当时的前台窗口（2026-10-03
-	// 实锤：测试文本出现在操作员的记事本里）。
+	// 实锤：测试文本出现在操作员的记事本里）。非 Windows 的
+	// TypeText 一律 ErrUnsupported（拒绝语义天然成立），控制字符
+	// 的具体校验由 windows-latest 跑。
+	if runtime.GOOS != "windows" {
+		t.Skip("仅 Windows")
+	}
 	if err := TypeText("ok\x00断"); err == nil || !strings.Contains(err.Error(), "控制字符") {
 		t.Fatalf("控制字符应被拒: %v", err)
 	}
