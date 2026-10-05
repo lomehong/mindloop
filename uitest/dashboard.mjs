@@ -63,8 +63,11 @@ async function gotoPath(path) {
 async function home() {
   await gotoPath("/");
   const text = await page.locator("body").innerText();
-  assert(text.includes("ada"), "首页缺少 ada 身份行");
-  assert(text.includes(IDENT), `首页缺少 ${IDENT} 身份行`);
+  assert(text.includes("工作台"), "首页缺少「工作台」masthead");
+  assert(text.includes("ada"), "首页缺少 ada 身份卡");
+  assert(text.includes(IDENT), `首页缺少 ${IDENT} 身份卡`);
+  assert(/需要你|没有需要你的事/.test(text), "首页缺少「需要你」面板");
+  assert(text.includes("近 14 天 · 年轮"), "首页缺少年轮条读数");
   assert(text.includes("新建身份"), "缺『新建身份』入口");
   await inventory("home");
   await shot("G1-home");
@@ -114,23 +117,32 @@ async function llmPage() {
   await shot("G4-llm-dropdown");
 }
 
-// —— 身份页：14 个 tab 逐页盘点 ——————————————————————
+// —— 身份页：6 tab + 子页段逐页盘点 ——————————————————————
+
+// 6 个一级页签（每页都应在壳里可见）——收敛后的 IA 不得回流。
+const BASE_NAV = [
+  ["", "轨迹"],
+  ["/chat", "对话"],
+  ["/memories", "记忆"],
+  ["/run/thinkers", "运行"],
+  ["/sensors", "感知"],
+  ["/settings/config", "设置"],
+];
 
 const ID_TABS = [
-  ["", "timeline", /时间线|思维|步骤|暂无/i],
-  ["/recap", "recap", /摘要|暂无/i],
-  ["/mindlog", "mindlog", /思维|日志|暂无|来源/i],
-  ["/mindlog2", "mindlog2", /./],
-  ["/thinkers", "thinkers", /思考者|调度器|订阅/i],
-  ["/health", "health", /响应耗时|回复路径|总耗时|暂无/i],
-  ["/usage", "usage", /预算|Token|消息|用量|暂无/i],
+  ["", "traj-swimlane", /轨迹|泳道|生命线|步骤|暂无/i],
+  ["/log", "traj-log", /步骤|来源|展开|暂无/i],
+  ["/recap", "traj-recap", /摘要|暂无/i],
   ["/chat", "chat", /./],
   ["/memories", "memories", /记忆|搜索|暂无/i],
-  ["/skills", "skills", /技能|skill|暂无/i],
-  ["/schedule", "schedule", /日程|暂无|条目/i],
+  ["/run/thinkers", "run-thinkers", /思考者|调度器|订阅/i],
+  ["/run/schedule", "run-schedule", /日程|暂无|条目/i],
+  ["/run/health", "run-health", /响应耗时|回复路径|总耗时|暂无/i],
+  ["/run/usage", "run-usage", /预算|Token|消息|用量|暂无/i],
   ["/sensors", "sensors", /感知|感官|眼|身/i],
-  ["/connections", "connections", /连接|渠道|企微|暂无/i],
-  ["/config", "config", /配置|env|变量/i],
+  ["/settings/config", "settings-config", /配置|env|变量/i],
+  ["/settings/skills", "settings-skills", /技能|skill|暂无/i],
+  ["/settings/connections", "settings-connections", /连接|渠道|企微|暂无/i],
 ];
 
 async function tabsInventory() {
@@ -140,9 +152,47 @@ async function tabsInventory() {
     assert(text.trim().length > 30, `tab ${name} 疑似空白`);
     assert(!/请求的页面不存在/.test(text), `tab ${name} 404（路由漂移）`);
     if (re.source !== "./") assert(re.test(text), `tab ${name} 缺预期文案（${re.source.slice(0, 30)}）`);
+    // 壳断言：6 个一级页签链接都在（新 IA 不回流）。
+    for (const [p, label] of BASE_NAV) {
+      const href = `/i/${IDENT}${p}`;
+      const link = page.locator(`a[href="${href}"]`).filter({ hasText: label }).first();
+      assert((await link.count()) > 0, `tab ${name} 缺一级页签「${label}」（${href}）`);
+    }
     await inventory(`tab:${name}`);
     await shot(`T-${name}`);
   }
+}
+
+// 旧 14 tab 路径经 splat 客户端重定向落新 canonical；?step= 深链原样带过。
+async function legacyRedirects() {
+  const cases = [
+    ["mindlog", "log"],
+    ["mindlog2", "log"],
+    ["thinkers", "run/thinkers"],
+    ["schedule", "run/schedule"],
+    ["health", "run/health"],
+    ["usage", "run/usage"],
+    ["config", "settings/config"],
+    ["skills", "settings/skills"],
+    ["connections", "settings/connections"],
+    ["run", "run/thinkers"],
+    ["settings", "settings/config"],
+  ];
+  for (const [from, to] of cases) {
+    await page.goto(`${BASE}/i/${IDENT}/${from}`, { waitUntil: "domcontentloaded" });
+    await page
+      .waitForFunction((p) => location.pathname === p, `/i/${IDENT}/${to}`, { timeout: 8000 })
+      .catch(() => {});
+    const path = new URL(page.url()).pathname;
+    assert(path === `/i/${IDENT}/${to}`, `/${from} → /${to} 重定向失败（现 ${path}）`);
+  }
+  // 深链参数保留：搜索/回链跳转依赖它。
+  await page.goto(`${BASE}/i/ada/mindlog2?step=zzz`, { waitUntil: "domcontentloaded" });
+  await page
+    .waitForFunction(() => location.pathname === "/i/ada/log" && location.search === "?step=zzz", null, { timeout: 8000 })
+    .catch(() => {});
+  assert(page.url().includes("/i/ada/log?step=zzz"), "旧路径重定向应保留 ?step= 参数");
+  await shot("F-redirects");
 }
 
 // —— 逐功能点深测 ——————————————————————————————
@@ -151,7 +201,7 @@ async function tabsInventory() {
 async function timelineContent() {
   await gotoPath(`/i/ada`);
   const text = await page.locator("body").innerText();
-  assert(!/暂无思维日志/.test(text), "ada 时间线不应为空");
+  assert(!/暂无轨迹/.test(text), "ada 轨迹页不应为空");
   await shot("F-timeline-ada");
   const sub = page.locator('a[href*="/t/"]').first();
   if (await sub.count()) {
@@ -179,9 +229,9 @@ async function recapGenerate() {
 
 // 思维日志过滤器（全部来源 select/下拉）。
 async function mindlogFilter() {
-  await gotoPath(`/i/ada/mindlog`);
+  await gotoPath(`/i/ada/log`);
   const text0 = await page.locator("body").innerText();
-  assert(text0.length > 50, "思维日志疑似空白");
+  assert(text0.length > 50, "日志流疑似空白");
   const combo = page.getByRole("combobox").first();
   if (await combo.count()) {
     await combo.click();
@@ -194,7 +244,7 @@ async function mindlogFilter() {
 
 // 健康：点探针/刷新类按钮（真 token ping），验证耗时字段出现。
 async function healthProbe() {
-  await gotoPath(`/i/ada/health`);
+  await gotoPath(`/i/ada/run/health`);
   let text = await page.locator("body").innerText();
   assert(/响应耗时|回复路径|总耗时|暂无/.test(text), "健康页缺核心字段");
   const btn = page.getByRole("button", { name: /探针|probe|刷新|测试/ }).first();
@@ -209,7 +259,7 @@ async function healthProbe() {
 
 // 用量：ada 有真实账单（今日大量调用）。
 async function usageRender() {
-  await gotoPath(`/i/ada/usage`);
+  await gotoPath(`/i/ada/run/usage`);
   const text = await page.locator("body").innerText();
   assert(/预算与准入|每日 Token|每日消息/.test(text), "用量页缺核心区块");
   assert(!/暂无用量数据/.test(text), "ada 用量不应为空（今日有真实调用）");
@@ -258,7 +308,7 @@ async function memoriesSearch() {
 
 // 日程：qa-e2e 空态 + 表单控件盘点。
 async function scheduleRender() {
-  await gotoPath(`/i/${IDENT}/schedule`);
+  await gotoPath(`/i/${IDENT}/run/schedule`);
   const text = await page.locator("body").innerText();
   assert(/日程/.test(text), "日程页缺标题语义");
   await inventory("schedule");
@@ -267,7 +317,7 @@ async function scheduleRender() {
 
 // 连接器：表单字段在 + 空保存的校验路径。
 async function connectionsForm() {
-  await gotoPath(`/i/${IDENT}/connections`);
+  await gotoPath(`/i/${IDENT}/settings/connections`);
   await page.getByPlaceholder("ww1234567890").fill("0000000000");
   await page.getByPlaceholder("zhangsan,lisi").fill("uitest");
   await inventory("connections-form");
@@ -278,7 +328,7 @@ async function connectionsForm() {
 // 配置页：env 变量表单真实添加哑键（写入→行出现→删除→空态）；
 // 全程不写真实凭据。
 async function configEnv() {
-  await gotoPath(`/i/${IDENT}/config`);
+  await gotoPath(`/i/${IDENT}/settings/config`);
   const name = page.getByPlaceholder("变量名");
   const val = page.getByPlaceholder("值");
   assert(await name.count() && await val.count(), "配置页缺 env 表单");
@@ -288,10 +338,11 @@ async function configEnv() {
   const envForm = page.locator("form", { has: page.getByPlaceholder("变量名") });
   await envForm.getByRole("button", { name: "添加" }).click();
   await page.getByText("MINDLOOP_UITEST_PROBE").first().waitFor({ timeout: 8000 });
-  // 删除该行（操作列）。
+  // 删除该行（操作列）——危险操作带确认弹窗，需点弹窗里的「移除」。
   const del = page.getByRole("button", { name: /删除|移除/ }).first();
   if (await del.count()) {
     await del.click();
+    await page.getByRole("button", { name: "移除" }).last().click().catch(() => {});
     await page.waitForTimeout(800);
   }
   const all = await page.locator("body").innerText();
@@ -329,11 +380,11 @@ async function sensorsCrud() {
   await page.getByPlaceholder("关键词（逗号分隔，可空）").fill("uitest探针");
   await page.getByRole("button", { name: "接入" }).click();
   await page.getByText(watchDir).first().waitFor({ timeout: 8000 });
-  const row = page.locator("div.rounded-lg.border", { hasText: watchDir }).first();
+  const row = page.locator("div.rounded-lg", { hasText: watchDir }).first();
   assert(await row.isVisible(), "接入后列表未见新感官");
   const toggle = row.locator('button[aria-label*="停用"]').first();
   await toggle.click();
-  await page.getByText("已暂停").first().waitFor({ timeout: 8000 }).catch(() => {});
+  await page.getByText("已停用").first().waitFor({ timeout: 8000 }).catch(() => {});
   await row.getByRole("button", { name: "移除" }).click();
   await page.getByText("移除感官").waitFor({ timeout: 5000 });
   await page.getByRole("button", { name: "移除" }).last().click();
@@ -351,7 +402,7 @@ async function webhookSecretOnce() {
   await page.waitForTimeout(800);
   const text = await page.locator("body").innerText();
   assert(/只显示这一次|HMAC/.test(text), "webhook 创建后未见一次性密钥提示语义");
-  const row = page.locator("div.rounded-lg.border", { hasText: "example.com" }).first();
+  const row = page.locator("div.rounded-lg", { hasText: "example.com" }).first();
   if (await row.isVisible()) {
     await row.getByRole("button", { name: "移除" }).click();
     await page.getByText("移除感官").waitFor({ timeout: 5000 });
@@ -380,12 +431,173 @@ async function notFound() {
   await shot("F-notfound");
 }
 
+// —— 桌面宠物（/pet）：页面形态 + 菜单 + 说话链路 ——————————
+
+// 页面形态：光点挂载、状态行非空、petMode 无全局导航栏。
+// 注意 /pet 初始无 button/a，不能走 gotoPath（它等 a,button）。
+async function petPage() {
+  await page.goto(`${BASE}/pet`, { waitUntil: "domcontentloaded" });
+  const root = page.locator("[data-testid='pet-root']");
+  await root.waitFor({ timeout: 10000 });
+  await root.locator("[data-testid='pet-orb']").waitFor({ timeout: 8000 });
+  const status = await root.locator("[data-testid='pet-status']").innerText();
+  assert(status.trim().length > 0, "宠物状态行为空");
+  assert(await page.locator("header").count() === 0, "/pet 不应渲染全局导航栏");
+  const mood = await root.getAttribute("data-mood");
+  assert(!!mood, "pet-root 缺 data-mood");
+  await inventory("pet");
+  await shot("F-pet-page");
+}
+
+// 菜单交互：光点开菜单 → 功能项齐全 → 勿扰切换持久化 → Escape 收起。
+async function petMenu() {
+  await page.goto(`${BASE}/pet`, { waitUntil: "domcontentloaded" });
+  await page.locator("[data-testid='pet-orb']").waitFor({ timeout: 10000 });
+  await page.locator("[data-testid='pet-orb']").click();
+  await page.locator("[data-testid='pet-menu']").waitFor({ timeout: 5000 });
+  for (const tid of ["pet-chat-input", "pet-send", "pet-poke", "pet-dnd", "pet-open-dashboard"]) {
+    assert(
+      (await page.locator(`[data-testid='${tid}']`).count()) > 0,
+      `宠物菜单缺 ${tid}`
+    );
+  }
+  const dnd = page.locator("[data-testid='pet-dnd']");
+  const before = await dnd.innerText();
+  await dnd.click();
+  await page.waitForTimeout(300);
+  const stored = await page.evaluate(() => localStorage.getItem("mindloop-pet-dnd"));
+  assert(stored !== null && stored.includes("enabled"), "勿扰开关未持久化到 localStorage");
+  const after = await page.locator("[data-testid='pet-dnd']").innerText();
+  assert(before !== after, "勿扰开关文案未随切换变化");
+  await dnd.click(); // 还原为关。
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(250);
+  assert((await page.locator("[data-testid='pet-menu']").count()) === 0, "Escape 未收起菜单");
+  await shot("F-pet-menu");
+}
+
+// 说话链路（真模型，心智需运行中）：菜单输入框发消息 → 输入框清空 →
+// 90s 内拿到「回复已发生」的证据。成功信号四选一：
+//   a) 光点说话态（data-mood=speaking）  b) 流式气泡
+//   c) SSE status replying=true        d) SSE 非回显的 message 步骤
+// c/d 之所以必要：单字快回复的 replying 旁路文件窗口可能短于服务端
+// 200ms 观察轮询周期，a/b 存在固有漏采概率（见 docs/designs/pet.md
+// §7）——轨迹步骤不受此影响，是管线打通的兜底证据。
+async function petChatSend() {
+  await page.goto(`${BASE}/pet`, { waitUntil: "domcontentloaded" });
+  await page.locator("[data-testid='pet-orb']").waitFor({ timeout: 10000 });
+  // 裸 SSE 监听（与宠物页同端点）：兜底证据通道。
+  await page.evaluate(async (base) => {
+    const w = window;
+    w.__saw = null;
+    try {
+      const resp = await fetch(`${base}/api/identities/${IDENT}/replies/stream`, {
+        headers: { Accept: "text/event-stream" },
+      });
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      let event = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, i);
+          buf = buf.slice(i + 1);
+          if (line.startsWith("event:")) { event = line.slice(6).trim(); continue; }
+          if (line.startsWith("data:") && event) {
+            if (event === "status" && line.includes('"replying":true')) {
+              w.__saw = w.__saw ?? "status-replying";
+            }
+            if (event === "step" && line.includes('"type":"message"') && !line.includes("宠物链路")) {
+              w.__saw = w.__saw ?? "reply-message-step";
+            }
+            event = "";
+          }
+        }
+      }
+    } catch { /* 连接失败不影响页面通道判定 */ }
+  }, BASE);
+  await page.locator("[data-testid='pet-orb']").click();
+  const input = page.locator("[data-testid='pet-chat-input']");
+  await input.waitFor({ timeout: 5000 });
+  // 等 SSE 对所选身份真正订阅（data-sse=on）再发送。mood 脱离 offline
+  // 不够——身份未选出时它会被"身份列表可读"顶替，快回复会漏采。
+  await page.waitForFunction(
+    () =>
+      document.querySelector("[data-testid='pet-root']")?.getAttribute("data-sse") ===
+      "on",
+    { timeout: 30000 }
+  );
+  // 裸 SSE 监听跟随宠物实际选中的身份（localStorage 持久的选择），
+  // 兜底证据通道才听得到同一份轨迹。读循环永不返回——必须
+  // fire-and-forget，且捕获关页时的中断。
+  const petIdentity =
+    (await page.evaluate(() => localStorage.getItem("mindloop-pet-identity"))) ??
+    IDENT;
+  void page.evaluate(async (id) => {
+    const w = window;
+    w.__saw = null;
+    try {
+      const resp = await fetch(
+        `${location.origin}/api/identities/${id}/replies/stream`,
+        { headers: { Accept: "text/event-stream" } }
+      );
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      let event = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, i);
+          buf = buf.slice(i + 1);
+          if (line.startsWith("event:")) { event = line.slice(6).trim(); continue; }
+          if (line.startsWith("data:") && event) {
+            if (event === "status" && line.includes('"replying":true')) {
+              w.__saw = w.__saw ?? "status-replying";
+            }
+            if (event === "step" && line.includes('"type":"message"') && !line.includes("宠物链路")) {
+              w.__saw = w.__saw ?? "reply-message-step";
+            }
+            event = "";
+          }
+        }
+      }
+    } catch { /* 连接失败不影响页面通道判定 */ }
+  }, petIdentity).catch(() => {});
+  await input.fill("UI 测试：宠物链路 ping，回复一个字即可。");
+  await page.locator("[data-testid='pet-send']").click();
+  await page.waitForTimeout(1200);
+  const cleared = await input.inputValue();
+  assert(cleared === "", "发送成功后输入框应清空（未清空=发送链路报错）");
+  let saw = null;
+  for (let i = 0; i < 300 && saw === null; i++) {
+    await page.waitForTimeout(300);
+    const mood = await page.locator("[data-testid='pet-root']").getAttribute("data-mood");
+    if (mood === "speaking") saw = "speaking";
+    if (saw === null && (await page.locator("[data-testid='pet-bubble'][data-kind='stream']").count()) > 0) {
+      saw = "stream-bubble";
+    }
+    if (saw === null) saw = await page.evaluate(() => window.__saw);
+  }
+  assert(saw !== null, "90s 内未取得任何回复证据（说话态/气泡/status/回复步骤皆无）");
+  console.log(`  reply-evidence: ${saw}`);
+  await shot("F-pet-chat");
+}
+
 const SCENARIOS = {
   home, homeCreateIdentity, credentialsPage, llmPage,
-  tabsInventory, timelineContent, recapGenerate, mindlogFilter,
+  tabsInventory, legacyRedirects, timelineContent, recapGenerate, mindlogFilter,
   healthProbe, usageRender, chatSend, memoriesSearch,
   scheduleRender, connectionsForm, configEnv, talkPages,
   sensorsCrud, webhookSecretOnce, bodySection, notFound,
+  petPage, petMenu, petChatSend,
 };
 
 browser = await chromium.launch({ channel: "msedge", headless: true });

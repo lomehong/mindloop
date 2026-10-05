@@ -165,6 +165,25 @@ Edge**（playwright-core `channel:'msedge'`，零浏览器下载，纯 Bash/Node
 读 `.zcode/test-journal.jsonl` 尾部：上一轮的 FAIL/FLAKE 本轮是否
 复现？连续两次同点 FAIL = 优先升级（可能真回归）。
 
+## S15 桌面宠物（/pet：页面形态 + 壳窗体形态）
+
+页面形态（uitest/dashboard.mjs 三个场景，随 S12 一并跑）：
+
+    node uitest/dashboard.mjs --scenario petPage
+    node uitest/dashboard.mjs --scenario petMenu
+    node uitest/dashboard.mjs --scenario petChatSend   # 真模型，心智需运行中
+
+验证点：光点挂载且 data-mood 就位、无全局导航栏（petMode）；菜单
+功能项齐全（说话/戳醒/勿扰/打开仪表盘）、勿扰切换持久化、Escape
+收起；说话链路 = POST /chat → responder → SSE，四路证据任一即可
+（说话态 / 流式气泡 / 裸 status replying / 非回显的回复 message
+步骤——单字快回复的旁路文件窗口可能短于服务端 200ms 观察轮询，
+前两路有固有漏采概率，见 docs/designs/pet.md §7）。发送前必须等
+`data-sse="on"`（裸 SSE 对所选身份订阅完成）。窗体形态（桌面壳）：
+托盘「宠物」开/关透明置顶窗、拖动记忆位置、空白区点击穿透、关窗
+缩起——壳不在无头测试射程内，按文档级验收 + 人工确认
+（desktop/README.md「宠物窗口」节）。
+
 ---
 
 ## 台账协议
