@@ -3,6 +3,7 @@
 // 只提供手机壳（返回对话、身份名、安全区）。
 
 import { ChevronLeft, ListTodo } from "lucide-react";
+import { parseAsString, useQueryState } from "nuqs";
 import { Link, useParams } from "react-router";
 
 import { TasksBoard } from "~/components/tasks-board";
@@ -18,6 +19,8 @@ export function meta({ params }: { params: { identityId?: string } }) {
 export default function TasksPage() {
   const { identityId = "" } = useParams();
   const identityName = identityId.split("~").pop();
+  // ?task= 深链：对话流的任务消息入口定位到该任务卡。
+  const [focusTask] = useQueryState("task", parseAsString.withDefault(""));
 
   return (
     <div className="min-h-dvh">
@@ -39,6 +42,7 @@ export default function TasksPage() {
         <TasksBoard
           identityId={identityId}
           emptyHint="还没有任务。回到对话，把要它做的事用「交给 Agent 执行」发出去。"
+          focusTaskId={focusTask || undefined}
         />
       </div>
     </div>

@@ -15,6 +15,7 @@ import {
   drainUnread,
   isDnd,
   offer,
+  phaseFor,
   reactionForStep,
   stepAnnouncement,
   tick,
@@ -108,6 +109,27 @@ describe("reactionForStep 映射", () => {
     expect(reactionForStep("reasoning")).toBeNull();
     expect(reactionForStep("action")).toBeNull();
     expect(reactionForStep("shell-output")).toBeNull();
+  });
+});
+
+describe("phaseFor 动效相位", () => {
+  it("同 seed 恒同值，落在 [0,1)", () => {
+    const a = phaseFor("alpha");
+    expect(phaseFor("alpha")).toBe(a);
+    expect(a).toBeGreaterThanOrEqual(0);
+    expect(a).toBeLessThan(1);
+  });
+
+  it("常见身份名两两不同（一屏多只不会整排同拍）", () => {
+    const names = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"];
+    const set = new Set(names.map(phaseFor));
+    expect(set.size).toBe(names.length);
+  });
+
+  it("空串也不炸", () => {
+    const v = phaseFor("");
+    expect(v).toBeGreaterThanOrEqual(0);
+    expect(v).toBeLessThan(1);
   });
 });
 

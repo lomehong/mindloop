@@ -4,7 +4,9 @@
 //! 服务化）时该项禁用——计划任务的 RestartOnFailure 会立即复活进程，
 //! 对它下手是徒劳且误导的。
 
-use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder};
+use std::sync::atomic::Ordering;
+
+use tauri::menu::{CheckMenuItem, CheckMenuItemBuilder, MenuBuilder, MenuItem, MenuItemBuilder};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
 
@@ -14,13 +16,15 @@ use crate::show_main;
 pub struct TrayItems {
     pub status: MenuItem<Wry>,
     pub stop: MenuItem<Wry>,
-    /// 宠物窗口：后端未运行时禁用（页面加载不出来）。
-    pub pet: MenuItem<Wry>,
+    /// 桌面宠物开关：勾选 = 开启（主窗隐藏时悬浮桌面；主窗可见时停靠仪表盘）。
+    pub pet: CheckMenuItem<Wry>,
 }
 
 pub fn build(app: &AppHandle) -> tauri::Result<TrayItems> {
     let open = MenuItemBuilder::with_id("open", "打开 mindloop").build(app)?;
-    let pet = MenuItemBuilder::with_id("pet", "宠物").build(app)?;
+    let pet = CheckMenuItemBuilder::with_id("pet", "宠物")
+        .checked(false)
+        .build(app)?;
     let status = MenuItemBuilder::with_id("status", "状态：连接中…")
         .enabled(false)
         .build(app)?;
@@ -46,7 +50,12 @@ pub fn build(app: &AppHandle) -> tauri::Result<TrayItems> {
                     show_main(&w);
                 }
             }
-            "pet" => crate::pet::toggle(app),
+            "pet" => {
+                // 勾选态以开关为唯一事实源：点击的可见结果由 set_enabled 收尾。
+                let st = app.state::<crate::AppState>();
+                let next = !st.pet_enabled.load(Ordering::Relaxed);
+                crate::pet::set_enabled(app, next);
+            }
             "stop" => crate::toggle_backend(app),
             "quit" => crate::request_quit(app),
             _ => {}
@@ -92,8 +101,8 @@ pub fn update_status(app: &AppHandle, st: &crate::AppState) {
         let _ = items.stop.set_text("停止 mindloop web");
     }
 
-    // 宠物窗口要加载 /pet 页面，后端不在就开不出来。
-    let _ = items.pet.set_enabled(s.state == "running");
+    // 宠物项与后端状态解耦：开窗时机由 pet::sync 把关，此处不再设 disabled
+    // （后端中途停止时，已浮出的宠物留在场，页面自行退化为「未连接」）。
 
     if let Some(tray) = app.tray_by_id("main") {
         let tip = match s.state.as_str() {

@@ -129,7 +129,7 @@ export function TaskCard({
       <div className="mt-2 flex items-center gap-2">
         {task.run_id && (
           <Link
-            to={`/i/${encodeURIComponent(task.identity_id)}/log`}
+            to={`/i/${encodeURIComponent(task.identity_id)}/log?run=${encodeURIComponent(task.run_id)}`}
             className="font-mono text-[10px] text-primary underline-offset-4 hover:underline"
           >
             运行记录

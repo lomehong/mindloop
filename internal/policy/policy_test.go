@@ -43,21 +43,32 @@ func waitForPending(t *testing.T, dir string, want int) []PendingRequest {
 	return nil
 }
 
-// TestParseMode：ask 是缺省与非法值的落点；trusted/deny 显式选择。
+// TestParseMode：空串是缺省 auto；非法值退到保守的 ask；ask/trusted/
+// deny 显式选择——拼写错误绝不静默放宽。
 func TestParseMode(t *testing.T) {
 	cases := map[string]Mode{
-		"":        Ask,
+		"":        Auto,
+		"auto":    Auto,
+		"Auto":    Auto,
 		"ask":     Ask,
 		"trusted": Trusted,
 		"Trusted": Trusted,
 		"deny":    Deny,
 		"DENY":    Deny,
-		"yolo":    Ask, // 非法值退到最保守的 ask，而不是静默放行
+		"yolo":    Ask, // 非法值退到保守的 ask，而不是缺省 auto
 	}
 	for in, want := range cases {
 		if got := ParseMode(in); got != want {
 			t.Errorf("ParseMode(%q) = %q，应为 %q", in, got, want)
 		}
+	}
+	t.Setenv("MINDLOOP_EXEC_POLICY", "")
+	if got := ModeFromEnv(); got != Auto {
+		t.Errorf("未设置应缺省 auto，得到 %q", got)
+	}
+	t.Setenv("MINDLOOP_EXEC_POLICY", "ask")
+	if got := ModeFromEnv(); got != Ask {
+		t.Errorf("ModeFromEnv = %q，应为 ask", got)
 	}
 	t.Setenv("MINDLOOP_EXEC_POLICY", "deny")
 	if got := ModeFromEnv(); got != Deny {
@@ -404,7 +415,7 @@ func TestAnnounceShowsScriptAndGuidance(t *testing.T) {
 		Created: time.Now(), Expires: time.Now().Add(10 * time.Minute),
 	}
 	var lines []string
-	Announce(p, func(format string, args ...any) {
+	Announce(p, Ask, func(format string, args ...any) {
 		lines = append(lines, fmt.Sprintf(format, args...))
 	})
 	text := strings.Join(lines, "\n")

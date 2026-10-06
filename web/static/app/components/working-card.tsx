@@ -5,6 +5,7 @@
 // 渡播完淡出再卸载（见 use-chat.ts 的 ACTIVITY_LINGER_MS）。
 
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 
 import type { StepActivity } from "~/lib/use-chat";
 import { formatRelativeTime } from "~/lib/format";
@@ -57,6 +58,8 @@ export function WorkingCard({
   stepTotal,
   sentAt,
   variant = "desktop",
+  activeTasks = 0,
+  tasksHref,
 }: {
   /** 身份显示名（标题里的「谁」）。 */
   name: string;
@@ -68,6 +71,10 @@ export function WorkingCard({
    * 不显示计时器。 */
   sentAt: number | null;
   variant?: "desktop" | "talk";
+  /** 在途任务数：任务步骤不在此卡显示，有任务在跑时给出任务面入口。 */
+  activeTasks?: number;
+  /** 任务面目标（桌面 /i/:id/tasks，PWA /talk/:id/tasks）。 */
+  tasksHref?: string;
 }) {
   const now = useNowTicker();
   // 无活可干且淡出已清空：整卡退场。
@@ -133,6 +140,24 @@ export function WorkingCard({
           已完成 {stepTotal} 步
         </span>
       </div>
+      {activeTasks > 0 && (
+        <div className="mt-1 flex items-baseline gap-2 text-xs text-muted-foreground">
+          <span className="shrink-0 rounded-full border border-line-strong px-2 py-px font-mono text-[10px]">
+            任务
+          </span>
+          <span className="min-w-0 flex-1 truncate">
+            另有 {activeTasks} 个任务在执行——步骤不在此显示
+          </span>
+          {tasksHref && (
+            <Link
+              to={tasksHref}
+              className="shrink-0 font-mono text-[10px] text-primary underline-offset-4 hover:underline"
+            >
+              去任务页 →
+            </Link>
+          )}
+        </div>
+      )}
       {longTask && (
         <div className="mt-1 text-[11px] text-muted-foreground">
           长任务可能需要几分钟，完成后会回复。
@@ -142,9 +167,13 @@ export function WorkingCard({
         <div className="mt-1.5 flex items-baseline gap-1.5 text-xs text-muted-foreground">
           {stageThinking ? (
             <span className="min-w-0 flex-1 truncate">
-              💭 深度思考中（已{" "}
-              {Math.max(0, Math.floor((thinkingSince ?? 0) / 1000))}s）——模型
-              推理不产生步骤
+              💭 深度思考中
+              {thinkingSince !== null &&
+                `（已 ${Math.max(0, Math.floor(thinkingSince / 1000))}s）`}
+              ——
+              {activeTasks > 0
+                ? "任务在后台执行，步骤见任务页"
+                : "模型推理不产生步骤"}
             </span>
           ) : (
             last && (

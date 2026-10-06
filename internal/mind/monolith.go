@@ -54,6 +54,12 @@ type MonolithOptions struct {
 	// 本身就是一次完整的运行循环（Headlong："each wakeup is
 	// itself a shellm run"）。
 	MaxIterations int
+	// TaskMaxIterations 是显式委托（任务）单个 attempt 的轮次上限
+	// （默认 16）：任务是一次完整交付，与"唤醒切片"不同——8 轮会把
+	// 采集/整理/交付这类多步弧拖死在半途（2026-10-06 实测：资讯
+	// 收集任务的 8 轮全花在逐段读中间产物，交付物一个字没写）。
+	// 与调度器的 30 分钟唤醒期限共同设界，先到者为准。
+	TaskMaxIterations int
 	// Persona 是人格文本，注入每次唤醒的系统提示。
 	Persona string
 	// SelfName 是身份名：轮次耗尽时的工作摘要以它署名投递给
@@ -71,7 +77,7 @@ type MonolithOptions struct {
 	MemoryBytes   int
 	SummaryBytes  int
 	// TaskCallBudget 是显式任务每个 attempt 的模型调用尝试上限
-	// （含重试；<=0 取默认 20）——与调度器的 30 分钟唤醒期限共同
+	// （含重试；<=0 取默认 24）——与调度器的 30 分钟唤醒期限共同
 	// 构成任务成本防线，超出时任务落 budget_exceeded。
 	TaskCallBudget int
 	// Timeout / IdleTimeout / MaxOutputBytes 透传给每轮执行。
@@ -133,6 +139,9 @@ type monolith struct {
 func NewMonolith(opts MonolithOptions) Thinker {
 	if opts.MaxIterations <= 0 {
 		opts.MaxIterations = 8
+	}
+	if opts.TaskMaxIterations <= 0 {
+		opts.TaskMaxIterations = 16
 	}
 	return &monolith{opts: opts}
 }

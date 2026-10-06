@@ -120,6 +120,11 @@ export interface ControlResult {
 export interface ChatMessage {
   ts: string | null;
   step_id: string | null;
+  /** 消息类别（后端 message_kind）：任务书消息为 "task"；普通消息
+   * 为 null（旧后端无此字段 → undefined，按非任务处理）。 */
+  kind?: string | null;
+  /** 任务书消息的任务 id（= 该消息步骤 id）——任务入口的定位键。 */
+  task_id?: string | null;
   from: string;
   to: string;
   content: string;

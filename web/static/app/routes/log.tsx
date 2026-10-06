@@ -156,6 +156,33 @@ export default function LogPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepParam, mindlog?.traj_id]);
 
+  // 深链（?run=）：任务卡「运行记录」定位到该次运行的分组节点
+  // （运行组的锚点 id 即 step-<run_id>，见 scrollToStep 的回退分支）；
+  // 大日志渲染慢，重试到元素出现；即时定位 + 600ms 再校准一次——
+  // 盖过 FollowPin 首次加载的跳尾与迟到布局。找不到（窗口外的旧运行）
+  // 静默放弃。
+  const [runParam] = useQueryState("run", parseAsString.withDefault(""));
+  useEffect(() => {
+    if (!runParam || !mindlog) return;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const attempt = () => {
+      const el = document.getElementById(`step-${runParam}`);
+      if (el) {
+        el.scrollIntoView({ block: "center" });
+        el.classList.add("tl-flash");
+        setTimeout(() => el.scrollIntoView({ block: "center" }), 600);
+        setTimeout(() => el.classList.remove("tl-flash"), 3000);
+        return;
+      }
+      if (tries++ < 40) timer = setTimeout(attempt, 250);
+    };
+    timer = setTimeout(attempt, 100);
+    return () => clearTimeout(timer);
+    // scroll once per navigation, not on live-poll refreshes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runParam, mindlog?.traj_id]);
+
   // Deeplink to a step older than the loaded window (e.g. a search jump
   // from another tab): show it in a modal instead of scrolling.
   const [modalStep, setModalStep] = useState<string | null>(null);

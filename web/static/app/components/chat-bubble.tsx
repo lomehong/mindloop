@@ -7,6 +7,7 @@
 import { ExternalLink } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Link } from "react-router";
 
 import type { PendingMessage } from "~/lib/use-chat";
 import type { ChatMessage } from "~/lib/types";
@@ -29,6 +30,7 @@ export function ChatBubble({
   variant = "desktop",
   fromMind,
   onConvertToTask,
+  taskHref,
 }: {
   message: ChatMessage;
   mine: boolean;
@@ -39,14 +41,19 @@ export function ChatBubble({
   /** 提供时，自己的消息（有 step_id）显示「转为任务」入口——以该步
    * 骤为 source_step_id 提交显式委托，保留来源关联。 */
   onConvertToTask?: () => void;
+  /** 任务书消息（kind=task）的「查看任务」入口目标；缺省只显示
+   * 「任务」徽章（无任务面的宿主）。 */
+  taskHref?: string;
 }) {
   const talk = variant === "talk";
+  const isTask = message.kind === "task";
   const sourceUrl =
     slackSourceUrl(message.source_url) ||
     slackConversationUrl(message.from) ||
     slackConversationUrl(message.to);
+  // 任务书消息本身就是任务，不再提供「转为任务」（重复委托）。
   const convertAction =
-    onConvertToTask && mine && message.step_id ? (
+    onConvertToTask && mine && message.step_id && !isTask ? (
       <button
         type="button"
         onClick={onConvertToTask}
@@ -91,6 +98,21 @@ export function ChatBubble({
             在 Slack 中打开 <ExternalLink className="h-3 w-3" />
           </a>
         )}
+        {isTask && (
+          <div className="mt-1.5 flex items-center gap-2 font-mono text-[10.5px] text-muted-foreground">
+            <span className="rounded-full border border-line-strong px-2 py-px">
+              任务
+            </span>
+            {taskHref && (
+              <Link
+                to={taskHref}
+                className="text-primary underline-offset-4 hover:underline"
+              >
+                查看任务 →
+              </Link>
+            )}
+          </div>
+        )}
         {convertAction && <div className="mt-1.5 flex justify-end">{convertAction}</div>}
       </div>
     );
@@ -120,6 +142,18 @@ export function ChatBubble({
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {message.content}
             </ReactMarkdown>
+          </div>
+        )}
+        {isTask && (
+          <div className="mt-1 flex items-center gap-2 font-mono text-[10px] opacity-80">
+            <span className="rounded-full border border-current/40 px-1.5 py-px">
+              任务
+            </span>
+            {taskHref && (
+              <Link to={taskHref} className="underline underline-offset-2">
+                查看任务 →
+              </Link>
+            )}
           </div>
         )}
         <div

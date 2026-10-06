@@ -23,7 +23,8 @@ import (
 
 // IndexCacheVersion 是侧索引缓存的 schema 版本；索引布局或消费
 // 语义变化时必须递增——旧缓存会因版本不符被整体重建。
-const IndexCacheVersion = 2
+// v3：IndexMessage 增补任务归因（Kind/TaskID）。
+const IndexCacheVersion = 3
 
 // IndexCacheName 是侧索引缓存的文件名（轨迹目录内，与 journal 相邻）。
 const IndexCacheName = "index.json"
@@ -33,9 +34,13 @@ func (t *Timeline) IndexCachePath() string { return filepath.Join(t.Dir, IndexCa
 
 // IndexMessage 是消息步骤的投影——chat 视图消费的全部字段。
 // Status 标记 reply-status 收据：它提供结局事实，但不进消息流。
+// Kind/TaskID 是任务书归因（message_kind=task 的提交消息，task_id
+// 即该步骤自身 id，见 task.Store.Submit）——消费方据此给出任务入口。
 type IndexMessage struct {
 	TS        string `json:"ts"`
 	StepID    string `json:"step_id"`
+	Kind      string `json:"kind,omitempty"`
+	TaskID    string `json:"task_id,omitempty"`
 	From      string `json:"from,omitempty"`
 	To        string `json:"to,omitempty"`
 	Content   string `json:"content,omitempty"`
@@ -278,6 +283,8 @@ func (ix *Index) consumeMessage(s Step) {
 	m.From, _ = s.Field("from")
 	m.To, _ = s.Field("to")
 	m.Content, _ = s.Field("content")
+	m.Kind, _ = s.Field("message_kind")
+	m.TaskID, _ = s.Field("task_id")
 	m.Filename, _ = s.Field("filename")
 	m.SourceURL, _ = s.Field("source_url")
 	m.State, _ = s.Field("state")

@@ -2,6 +2,7 @@
 // TasksBoard；页头动作是同一枚「新的任务」对话框（预选本身份）。
 
 import { Plus } from "lucide-react";
+import { parseAsString, useQueryState } from "nuqs";
 import { useState } from "react";
 import { useParams } from "react-router";
 
@@ -20,6 +21,8 @@ export function meta({ params }: { params: { identityId?: string } }) {
 export default function IdentityTasks() {
   const { identityId = "" } = useParams();
   const [open, setOpen] = useState(false);
+  // ?task= 深链：对话流的任务消息/工作卡入口定位到该任务卡。
+  const [focusTask] = useQueryState("task", parseAsString.withDefault(""));
   return (
     <div className="mx-auto w-full max-w-3xl">
       <div className="mb-4 flex items-center gap-3">
@@ -35,6 +38,7 @@ export default function IdentityTasks() {
       <TasksBoard
         identityId={identityId}
         emptyHint="还没有任务。点「新的任务」把要做的事交给它。"
+        focusTaskId={focusTask || undefined}
       />
       <NewTaskDialog
         open={open}

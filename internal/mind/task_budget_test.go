@@ -31,7 +31,7 @@ func budgetGuardThinker(t *testing.T) taskModelFunc {
 }
 
 // TestExecuteTaskCallBudgetDefault：任务 attempt 的 ctx 上挂着默认
-// 20 次的调用配额；ErrBudgetExceeded 经 runner 包装后映射为
+// 24 次的调用配额；ErrBudgetExceeded 经 runner 包装后映射为
 // budget_exceeded 状态（runner 对 Think 错误立即中止，不空转轮次
 // ——否则会走到轮次耗尽，状态就不是预算语义了）。
 func TestExecuteTaskCallBudgetDefault(t *testing.T) {
@@ -46,8 +46,8 @@ func TestExecuteTaskCallBudgetDefault(t *testing.T) {
 	})
 	m.Wake(context.Background(), Wake{Step: syntheticStep(monolithWakeType), Kind: WakeScheduled})
 
-	if granted != 20 {
-		t.Fatalf("默认任务调用配额 = %d，应为 20", granted)
+	if granted != 24 {
+		t.Fatalf("默认任务调用配额 = %d，应为 24", granted)
 	}
 	got := readTask(t, s, submitted.ID)
 	if got.State != task.BudgetExceeded {

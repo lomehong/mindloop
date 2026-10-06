@@ -19,9 +19,11 @@ func (c *CLI) newApproveCmd() *cobra.Command {
 	var denyP bool
 	cmd := &cobra.Command{
 		Use:   "approve <traj> [脚本哈希前缀]",
-		Short: "批准或拒绝等待执行的脚本（ask 策略的控制面）",
-		Long: `MINDLOOP_EXEC_POLICY=ask（缺省）时，模型生成的脚本在执行前
-展示正文、工作目录与任务/运行归属，并等待明确批准。
+		Short: "批准或拒绝等待执行的脚本（执行策略的控制面）",
+		Long: `MINDLOOP_EXEC_POLICY=auto（缺省）或 ask 时，需要人过目的
+脚本在执行前展示正文、工作目录与任务/运行归属，并等待明确批准
+（auto 只拦删除/外发发布/提权/凭据/系统改动，见
+internal/policy/approval_class.go；ask 拦一切非只读脚本）。
 
 无哈希: 列出全部待批脚本（含完整正文与风险提示）。
 有哈希: 批准该脚本；--deny 拒绝。哈希可用唯一前缀（至少 4 位）。
@@ -90,7 +92,7 @@ func (c *CLI) printPendingApprovals(dir string) error {
 		return c.fail(err)
 	}
 	if len(pending) == 0 {
-		fmt.Fprintln(c.stdout, "没有等待批准的脚本（MINDLOOP_EXEC_POLICY=ask 时脚本执行前会在这里等待）")
+		fmt.Fprintln(c.stdout, "没有等待批准的脚本（auto/ask 策略下需要人过目的脚本会在这里等待）")
 		return nil
 	}
 	fmt.Fprintf(c.stdout, "待批脚本 %d 个：\n", len(pending))

@@ -287,3 +287,35 @@ func TestExtractCodeMultiBlockNotice(t *testing.T) {
 		t.Fatal("多块应有提示")
 	}
 }
+
+// TestRoundNoteExposesRemainingRounds：每轮上下文末位注入运行注记
+// （共 N 轮/第 N 轮/剩余 N 轮）——预算感知让模型在预算将尽时收口，
+// 而不是把轮次烧在重复阅读上（2026-10-06 资讯任务实测事故）。
+func TestRoundNoteExposesRemainingRounds(t *testing.T) {
+	requireBash(t)
+	tl := newTestTimeline(t)
+	thinker := &fakeThinker{responses: []string{
+		fence("echo one"),
+		fence("echo two"),
+		fence("FINAL=\"done\""),
+	}}
+	_, err := Run(context.Background(), Options{
+		Timeline:      tl,
+		Thinker:       thinker,
+		Task:          "T",
+		MaxIterations: 3,
+		IdleTimeout:   2 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	joined := ""
+	for _, m := range thinker.lastMsgs {
+		joined += m.Content + "\n"
+	}
+	for _, want := range []string{"共 3 轮", "第 3 轮", "剩余 0 轮"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("轮次注记缺 %q:\n%s", want, joined)
+		}
+	}
+}

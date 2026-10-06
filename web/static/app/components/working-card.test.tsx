@@ -3,6 +3,7 @@
 // activity 时整卡不渲染）。
 
 import { cleanup, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { WorkingCard } from "~/components/working-card";
@@ -111,5 +112,41 @@ describe("WorkingCard", () => {
     expect(root).not.toBeNull();
     expect(root?.getAttribute("data-working")).toBe("false");
     expect(root?.className).toContain("opacity-0");
+  });
+
+  it("有在途任务：给任务行与任务页入口；思考文案改口（步骤在任务页）", () => {
+    render(
+      <MemoryRouter>
+        <WorkingCard
+          name="ada"
+          working
+          stepTotal={0}
+          sentAt={null}
+          activity={[]}
+          activeTasks={2}
+          tasksHref="/i/ada/tasks"
+        />
+      </MemoryRouter>
+    );
+    expect(screen.getByText(/另有 2 个任务在执行/)).toBeDefined();
+    const link = screen.getByRole("link", { name: "去任务页 →" });
+    expect(link.getAttribute("href")).toBe("/i/ada/tasks");
+    expect(screen.getByText(/任务在后台执行，步骤见任务页/)).toBeDefined();
+  });
+
+  it("无在途任务：不渲染任务行", () => {
+    render(
+      <WorkingCard name="ada" working stepTotal={0} sentAt={null} activity={[]} />
+    );
+    expect(screen.queryByText(/另有 .* 个任务在执行/)).toBeNull();
+    expect(screen.queryByRole("link", { name: "去任务页 →" })).toBeNull();
+  });
+
+  it("无发送基准（自发活动）时不显示假的「已 0s」", () => {
+    render(
+      <WorkingCard name="ada" working stepTotal={0} sentAt={null} activity={[]} />
+    );
+    expect(screen.getByText(/深度思考中/)).toBeDefined();
+    expect(screen.queryByText(/已 0s/)).toBeNull();
   });
 });

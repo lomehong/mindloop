@@ -23,6 +23,7 @@ func (c *CLI) newMindRunCmd() *cobra.Command {
 	var pollP, watchdogP, idleBaseP, idleMaxP, thoughtCapP time.Duration
 	var idleHoldP int
 	var maxIterP int
+	var taskMaxIterP, taskCallBudgetP int
 	cmd := &cobra.Command{
 		Use:   "run <身份名>",
 		Short: "启动常驻心智（前台守护；与人对话请用 mind chat）",
@@ -65,12 +66,14 @@ monolith 负责自主行动；闲置时指数回退（每级驻留 --idle-hold �
 			stack, err := c.assembleMindStack(id, mindStackOpts{
 				// 思考档：MINDLOOP_MODEL 优先，否则 providers.json 的
 				// think 绑定（mind run 硬性要求配置，坏配置拒启）。
-				clientFactory: func() (*llm.Client, error) { return thinkClient(id.Dir) },
-				poll:          pollP,
-				watchdog:      watchdogP,
-				backoff:       &policy,
-				maxIterations: maxIterP,
-				logger:        c.mindLog,
+				clientFactory:     func() (*llm.Client, error) { return thinkClient(id.Dir) },
+				poll:              pollP,
+				watchdog:          watchdogP,
+				backoff:           &policy,
+				maxIterations:     maxIterP,
+				taskMaxIterations: taskMaxIterP,
+				taskCallBudget:    taskCallBudgetP,
+				logger:            c.mindLog,
 			})
 			if err != nil {
 				return c.fail(err)
@@ -102,6 +105,8 @@ monolith 负责自主行动；闲置时指数回退（每级驻留 --idle-hold �
 	fs.DurationVar(&thoughtCapP, "thought-cap", time.Minute, "思考型唤醒的回退封顶")
 	fs.IntVar(&idleHoldP, "idle-hold", 3, "每级驻留的空唤醒次数（dwell，0 取默认 3）")
 	fs.IntVar(&maxIterP, "max-iterations", 8, "每次唤醒的内部轮次上限")
+	fs.IntVar(&taskMaxIterP, "task-max-iterations", 16, "显式任务每个 attempt 的轮次上限")
+	fs.IntVar(&taskCallBudgetP, "task-call-budget", 24, "显式任务每个 attempt 的模型调用尝试上限（含重试）")
 	return cmd
 }
 

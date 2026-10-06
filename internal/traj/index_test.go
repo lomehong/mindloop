@@ -172,6 +172,37 @@ func TestIndexChatView(t *testing.T) {
 	}
 }
 
+// TestIndexTaskMessageAttribution：任务书消息（message_kind=task、
+// task_id=自身步骤 id 的 store 约定）在消息投影里带归因；普通消息
+// 两字段皆空——消费方（chat 契约）据此给出任务入口。
+func TestIndexTaskMessageAttribution(t *testing.T) {
+	tl := rawTimeline(t)
+	head := journalLine(TypeTrajectory, "tid00000000", tsA, map[string]string{"slug": "t"})
+	taskMsg := journalLine(TypeMessage, "msg00000001", tsB, map[string]string{
+		"from": "you", "to": "ada", "content": "任务书正文",
+		"message_kind": "task", "task_id": "msg00000001",
+		"client_message_id": "cm-1", "source": "task",
+	})
+	plain := journalLine(TypeMessage, "msg00000002", tsB, map[string]string{
+		"from": "you", "to": "ada", "content": "普通消息",
+	})
+	writeJournal(t, tl, head, taskMsg, plain)
+
+	chat, err := openIndex(t, tl).ChatView(200, "", "ada")
+	if err != nil {
+		t.Fatalf("ChatView: %v", err)
+	}
+	if len(chat.Messages) != 2 {
+		t.Fatalf("消息流 = %d 条，应为 2", len(chat.Messages))
+	}
+	if chat.Messages[0].Kind != "task" || chat.Messages[0].TaskID != "msg00000001" {
+		t.Fatalf("任务书消息应带归因: %+v", chat.Messages[0])
+	}
+	if chat.Messages[1].Kind != "" || chat.Messages[1].TaskID != "" {
+		t.Fatalf("普通消息不应带任务归因: %+v", chat.Messages[1])
+	}
+}
+
 func TestIndexHalfLine(t *testing.T) {
 	tl := rawTimeline(t)
 	head := journalLine(TypeTrajectory, "tid00000000", tsA, map[string]string{"slug": "t"})

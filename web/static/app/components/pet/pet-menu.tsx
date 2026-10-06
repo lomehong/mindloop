@@ -32,11 +32,14 @@ const BUBBLE_KIND_LABEL: Partial<Record<AnnouncementKind | "stream", string>> = 
 };
 
 // 快捷菜单：说话 / 戳醒 / 勿扰 / 身份 / 未读 / 仪表盘 / 隐藏。
-// 纯展示 + 回调；动作与状态在 pet-app.tsx。
+// 纯展示 + 回调；动作与状态在 lib/use-pet.ts。
+// variant="dock"（仪表盘停靠）：去掉窗体专属项（打开仪表盘/隐藏），
+// 身份切换可关（身份页停靠固定在页面身份）。
 export function PetMenu({
   identities,
   identityId,
   onChooseIdentity,
+  identitySwitchable = true,
   dnd,
   dndActive,
   onToggleDnd,
@@ -54,10 +57,12 @@ export function PetMenu({
   onHide,
   authNeeded,
   note,
+  variant = "window",
 }: {
   identities: Identity[];
   identityId: string | null;
   onChooseIdentity: (id: string) => void;
+  identitySwitchable?: boolean;
   dnd: PetDndConfig;
   dndActive: boolean;
   onToggleDnd: () => void;
@@ -71,10 +76,11 @@ export function PetMenu({
   onPoke: () => void;
   poking: boolean;
   pokeNote: string | null;
-  onOpenDashboard: () => void;
-  onHide: () => void;
+  onOpenDashboard?: () => void;
+  onHide?: () => void;
   authNeeded: boolean;
   note: string | null;
+  variant?: "window" | "dock";
 }) {
   const canAct = identityId !== null;
   return (
@@ -102,7 +108,7 @@ export function PetMenu({
         </button>
       </div>
 
-      <div className="pet-menu-row">
+      <div className="pet-menu-row pet-menu-actions">
         <button
           type="button"
           className="pet-btn"
@@ -129,7 +135,7 @@ export function PetMenu({
         </button>
       )}
 
-      {identities.length > 1 && (
+      {identities.length > 1 && identitySwitchable && (
         <label className="pet-menu-row pet-menu-identity">
           身份
           <select
@@ -149,14 +155,16 @@ export function PetMenu({
 
       {authNeeded && <TokenRow />}
 
-      <div className="pet-menu-row">
-        <button type="button" className="pet-btn" data-testid="pet-open-dashboard" onClick={onOpenDashboard}>
-          打开仪表盘
-        </button>
-        <button type="button" className="pet-btn" data-testid="pet-hide" onClick={onHide}>
-          隐藏
-        </button>
-      </div>
+      {variant === "window" && (
+        <div className="pet-menu-row">
+          <button type="button" className="pet-btn" data-testid="pet-open-dashboard" onClick={onOpenDashboard}>
+            打开仪表盘
+          </button>
+          <button type="button" className="pet-btn" data-testid="pet-hide" onClick={onHide}>
+            隐藏
+          </button>
+        </div>
+      )}
 
       {(chatErr || pokeNote || note) && (
         <div className="pet-note">{chatErr ?? pokeNote ?? note}</div>

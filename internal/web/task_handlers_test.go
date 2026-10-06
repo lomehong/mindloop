@@ -225,6 +225,52 @@ func TestChatOutcomesFromReceipts(t *testing.T) {
 	}
 }
 
+// TestChatLogTaskMessageAttribution：任务书消息在对话流里带归因
+// （kind=task + task_id，与提交返回的任务 id 一致）——前端据此渲染
+// 任务入口；普通消息不带归因（两字段为 null）。
+func TestChatLogTaskMessageAttribution(t *testing.T) {
+	ts, _, id := newTaskTestRig(t)
+	resp, out := postJSON(t, ts, "/api/identities/ada/tasks",
+		map[string]string{"content": "任务书正文", "from_name": "you", "client_message_id": "cm-attrib-1"})
+	if resp.StatusCode != 200 {
+		t.Fatalf("submit = %d %v", resp.StatusCode, out)
+	}
+	taskID, _ := out["task_id"].(string)
+	if err := mind.PostMessage(id.Timeline, "you", "ada", "chat", "普通消息"); err != nil {
+		t.Fatal(err)
+	}
+
+	get, err := http.Get(ts.URL + "/api/identities/ada/chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer get.Body.Close()
+	var log struct {
+		Messages []map[string]any `json:"messages"`
+	}
+	if err := json.NewDecoder(get.Body).Decode(&log); err != nil {
+		t.Fatal(err)
+	}
+	var sawTask, sawPlain bool
+	for _, msg := range log.Messages {
+		switch msg["content"] {
+		case "任务书正文":
+			sawTask = true
+			if msg["kind"] != "task" || msg["task_id"] != taskID {
+				t.Fatalf("任务书消息应带归因（task_id=%s）: %v", taskID, msg)
+			}
+		case "普通消息":
+			sawPlain = true
+			if msg["kind"] != nil || msg["task_id"] != nil {
+				t.Fatalf("普通消息不应带任务归因: %v", msg)
+			}
+		}
+	}
+	if !sawTask || !sawPlain {
+		t.Fatalf("消息流缺消息（task=%v plain=%v）: %v", sawTask, sawPlain, log.Messages)
+	}
+}
+
 // TestRepliesStreamStepAttribution：step 事件携带 task_id/run_id/
 // attempt 归因字段（SSE 消费者据此分辨"本任务的进度"与身份其他
 // 活动）；无归因字段的步骤不带这些键。

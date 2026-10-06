@@ -3,6 +3,7 @@ import { Activity, ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { PetDock } from "~/components/pet/pet-dock";
 import { useControlsEnabled } from "~/components/thinker-controls";
 import { Button } from "~/components/ui/button";
 import { fetchConfig, fetchIdentities, fetchLlmHealth, probeLlm } from "~/lib/api";
@@ -87,6 +88,11 @@ export function SystemPanel() {
 
   return (
     <aside className="hidden w-[276px] shrink-0 flex-col gap-3 overflow-y-auto rounded-2xl border border-border bg-card p-3 xl:flex">
+      {/* 停靠的生命体：与桌面浮窗同一只生物，点击出快捷菜单 */}
+      <div className="rounded-xl bg-muted p-3">
+        <PetDock identitySwitchable />
+      </div>
+
       <div className="rounded-xl bg-muted p-3">
         <div className="text-[13.5px] font-semibold">系统</div>
         <div className="text-[11px] text-muted-foreground">

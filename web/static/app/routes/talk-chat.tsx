@@ -16,7 +16,7 @@ import { Button } from "~/components/ui/button";
 import { LoadingDots } from "~/components/ui/loading-dots";
 import { Textarea } from "~/components/ui/textarea";
 import { useAutosizeTextarea } from "~/hooks/use-autosize-textarea";
-import { fetchThinkers, submitTask } from "~/lib/api";
+import { IN_PROGRESS_POLL_MS, fetchTasks, fetchThinkers, submitTask } from "~/lib/api";
 import { getPwaName, pwaSender, setLastIdentity } from "~/lib/pwa";
 import type { ChatMessage } from "~/lib/types";
 import {
@@ -28,6 +28,7 @@ import {
   CHAT_DOTS_WINDOW_MS,
 } from "~/lib/use-chat";
 import { WorkingCard } from "~/components/working-card";
+import { isTaskActive } from "~/components/task-card";
 import {
   THINKERS_AWAITING_POLL_MS,
   THINKERS_IDLE_POLL_MS,
@@ -199,6 +200,20 @@ export default function TalkChat() {
   });
   const dispatcherRunning = thinkerStatus?.dispatcher.running ?? true;
 
+  // 在途任务投影：工作卡据此给出任务面入口（任务步骤不在对话页显示）；
+  // 有在途短轮询，空闲慢心跳——发现新任务延迟上限 15s。
+  const { data: taskList } = useQuery({
+    queryKey: ["tasks", identityId],
+    queryFn: () => fetchTasks(identityId),
+    refetchInterval: (q) =>
+      (q.state.data ?? []).some((item) => isTaskActive(item.status))
+        ? IN_PROGRESS_POLL_MS
+        : 15000,
+  });
+  const activeTasks = (taskList ?? []).filter((item) =>
+    isTaskActive(item.status)
+  ).length;
+
   // Waiting longer than the backstop expires the "no reply yet" note —
   // NO_REPLY (declined) and failure stamp their own outcome instead.
   // 派生：typingExpired 仅在「最近一次发送」已挂起超过 backstop 时为真；
@@ -355,6 +370,15 @@ export default function TalkChat() {
                 message={message}
                 mine={message.from === myName}
                 variant="talk"
+                taskHref={
+                  message.kind === "task"
+                    ? `/talk/${encodeURIComponent(identityId)}/tasks${
+                        message.task_id
+                          ? `?task=${encodeURIComponent(message.task_id)}`
+                          : ""
+                      }`
+                    : undefined
+                }
                 onConvertToTask={() => convertToTask(message)}
               />
             ))}
@@ -395,6 +419,8 @@ export default function TalkChat() {
             stepTotal={stepTotal}
             sentAt={lastSentAt}
             variant="talk"
+            activeTasks={activeTasks}
+            tasksHref={`/talk/${encodeURIComponent(identityId)}/tasks`}
           />
         )}
         <div ref={bottomRef} />

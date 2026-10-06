@@ -136,3 +136,18 @@ func TestSystemPromptConnectorDisclosure(t *testing.T) {
 		t.Fatal("未配置渠道不应出现披露段")
 	}
 }
+
+// TestNewMonolithTaskBudgets：显式任务的预算独立于唤醒切片——轮次
+// 默认 16（唤醒 8）、调用预算默认由 tasks.go 兜底（24）。
+func TestNewMonolithTaskBudgets(t *testing.T) {
+	m := NewMonolith(MonolithOptions{}).(*monolith)
+	if m.opts.MaxIterations != 8 {
+		t.Fatalf("唤醒轮次默认 = %d，应为 8", m.opts.MaxIterations)
+	}
+	if m.opts.TaskMaxIterations != 16 {
+		t.Fatalf("任务轮次默认 = %d，应为 16", m.opts.TaskMaxIterations)
+	}
+	if got := m.taskCallBudget(); got != 24 {
+		t.Fatalf("任务调用预算默认 = %d，应为 24", got)
+	}
+}

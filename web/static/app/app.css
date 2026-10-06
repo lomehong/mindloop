@@ -486,7 +486,11 @@ html.pet-mode {
   overflow: hidden;
   user-select: none;
   font-family: var(--font-sans);
-  /* 心情派生变量（默认 idle：主题蓝慢呼吸）+ 墨色（五官）。 */
+}
+/* 心情派生变量（默认 idle：主题蓝慢呼吸）+ 墨色（五官）。页面根与
+   生命体自身都挂这一组：缩略/停靠不在 .pet 根下，由组件自带。 */
+.pet,
+.pet-vars {
   --pet-color: var(--primary);
   --pet-breath: 4.6s;
   --pet-orbit-speed: 7s;
@@ -525,9 +529,12 @@ html.dark .pet-mood-offline  { --pet-color: oklch(0.5 0.01 250); }
   cursor: grab; /* 拖本体移动（空白区是点击穿透的） */
 }
 .pet-body:active { cursor: grabbing; }
+/* 相位错拍：负延迟按各自动画周期换算（--pet-phase ∈ [0,1)，由 phaseFor 按身份 id 生成）——
+   工作台一屏多只生物时，呼吸/心跳/苗曳/眨眼各走各的，而不是整排同拍。 */
 .pet-creature-wrap {
   display: block;
   animation: pet-hop 9s ease-in-out infinite;
+  animation-delay: calc(var(--pet-phase, 0) * -9s);
 }
 @keyframes pet-hop {
   0%, 91%, 100% { transform: translateY(0); }
@@ -559,6 +566,7 @@ html.dark .pet-mood-offline  { --pet-color: oklch(0.5 0.01 250); }
   transform-origin: 60px 96px;
   transform-box: view-box;
   animation: pet-breathe var(--pet-breath, 4.6s) ease-in-out infinite;
+  animation-delay: calc(var(--pet-phase, 0) * var(--pet-breath, 4.6s) * -1);
 }
 .pet-mood-offline .pet-breathe { animation: none; opacity: 0.55; }
 
@@ -572,6 +580,7 @@ html.dark .pet-mood-offline  { --pet-color: oklch(0.5 0.01 250); }
   transform-origin: 60px 96px;
   transform-box: view-box;
   animation: pet-heartbeat 4.2s ease-in-out infinite;
+  animation-delay: calc(var(--pet-phase, 0) * -4.2s);
 }
 
 /* 体色随心情渐变（而不是瞬跳） */
@@ -592,6 +601,7 @@ html.dark .pet-shadow { opacity: 0.32; }
   transform-origin: 60px 44px;
   transform-box: view-box;
   animation: pet-sway 3.6s ease-in-out infinite;
+  animation-delay: calc(var(--pet-phase, 0) * -3.6s);
 }
 @keyframes pet-sway {
   0%, 100% { transform: rotate(0); }
@@ -622,6 +632,7 @@ html.dark .pet-shadow { opacity: 0.32; }
 .pet-eyes-open {
   transform-box: fill-box; transform-origin: center;
   animation: pet-blink 4.6s ease-in-out infinite;
+  animation-delay: calc(var(--pet-phase, 0) * -4.6s);
 }
 .pet-eye { fill: var(--pet-ink); transition: fill 0.6s ease; }
 .pet-eye-glint { fill: #fff; opacity: 0.9; }
@@ -678,7 +689,18 @@ html.dark .pet-shadow { opacity: 0.32; }
 }
 
 /* —— 腮红 —— */
-.pet-cheek { fill: oklch(0.72 0.11 15); opacity: 0.4; }
+.pet-cheek { fill: oklch(0.78 0.13 20); opacity: 0.42; }
+
+/* —— 细节分层（<44px）：减噪 + 加粗，读得清才谈得上可爱 —— */
+.pet-tier-lo .pet-rim { stroke-width: 3; }
+.pet-tier-lo .pet-mouth-smile,
+.pet-tier-lo .pet-mouth-flat { stroke-width: 3; }
+.pet-tier-lo .pet-eye-line { stroke-width: 3; }
+.pet-tier-lo .pet-sprout-stem { stroke-width: 3.1; }
+.pet-tier-lo .pet-eye-glint.g2 { display: none; }
+.pet-tier-lo .pet-cheek { display: none; }
+/* 小尺寸收跳动：22px 的 ±3px 是 14% 的位移，在大尺寸是呼吸、在小尺寸是蹦跶。 */
+.pet-tier-lo .pet-creature-wrap { animation: none; }
 
 /* —— 说话涟漪：身体外围错相外扩 —— */
 @keyframes pet-ripple {
@@ -828,17 +850,32 @@ html.dark .pet-shadow { opacity: 0.32; }
   box-shadow: 0 0 0 2px color-mix(in oklch, var(--background) 80%, transparent);
 }
 
-/* —— 快捷菜单：文档流内堆叠（气泡→菜单→生物），永不遮住本体 —— */
+/* —— 停靠形态（仪表盘右卡顶部）：与浮窗同源的表达（气泡/未读/菜单），
+   但没有窗体行为——点击本体出快捷菜单，气泡与菜单在卡内流式展开 —— */
+.pet-dock {
+  display: flex;
+  flex-direction: column;
+}
+/* 卡内菜单没有窗体的 128px 高度约束：右栏自身可滚，别再加内滚动条 */
+.pet-dock .pet-menu { max-height: none; }
+.pet-dock-dot {
+  top: -2px;
+  right: 0;
+}
+
+/* —— 快捷菜单：文档流内堆叠（气泡→菜单→生物），永不遮住本体 ——
+   窗体形态（260×300 小窗）菜单上限 128px：默认单身份菜单（说话/戳醒/勿扰/
+   仪表盘/隐藏）必须整页可读，不许裁出半截行；再多行（未读/多身份）才转滚动。 */
 .pet-menu {
   width: 100%;
   max-width: 244px;
-  max-height: 120px;
+  max-height: 128px;
   overflow-y: auto;
   margin-bottom: 8px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px;
+  gap: 3px;
+  padding: 6px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: color-mix(in oklch, var(--background) 94%, transparent);
@@ -848,14 +885,25 @@ html.dark .pet-shadow { opacity: 0.32; }
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
 }
 .pet-menu-row { display: flex; align-items: center; gap: 6px; }
+/* 动作钮（戳醒/勿扰）各占整行：标签在左、提示在右——并排时提示词
+   在窄卡里折得很难看；整行铺开后两处形态（浮窗/停靠）都读得顺 */
+.pet-menu-actions { flex-direction: column; align-items: stretch; gap: 4px; }
+.pet-menu-actions .pet-btn {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  white-space: nowrap;
+}
 .pet-menu-identity { justify-content: space-between; color: var(--muted-foreground); }
 .pet-menu-hint { margin-left: 4px; font-size: 10px; color: var(--muted-foreground); }
 .pet-btn {
-  padding: 4px 8px;
+  padding: 3px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: transparent;
   font-size: 12px;
+  line-height: 1.4;
   color: var(--foreground);
   cursor: pointer;
   text-align: left;
@@ -870,11 +918,12 @@ html.dark .pet-shadow { opacity: 0.32; }
 .pet-input {
   flex: 1;
   min-width: 0;
-  padding: 4px 8px;
+  padding: 3px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: color-mix(in oklch, var(--background) 80%, transparent);
   font-size: 12px;
+  line-height: 1.4;
   color: var(--foreground);
 }
 .pet-input:focus { outline: 1px solid var(--primary); }

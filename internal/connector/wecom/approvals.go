@@ -1,6 +1,6 @@
 package wecom
 
-// 审批卡：把 policy 门（MINDLOOP_EXEC_POLICY=approval）的待批脚本
+// 审批卡：把 policy 门（MINDLOOP_EXEC_POLICY=auto/ask）的待批脚本
 // 推成 button_interaction 卡片到企微，用户点允许/拒绝，点击回调经
 // policy.Decide 落决策（gate 轮询消费后自动继续/拒绝执行），卡片
 // 更新为终态。手机上完成全部审批闭环。

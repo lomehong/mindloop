@@ -73,6 +73,20 @@ export function deriveMood(s: PetSignals): PetMood {
   return "idle";
 }
 
+// ---- 动效相位：同屏多只时各自错拍（而不是整排同频） ----
+
+/** 稳定相位（0..1，同 seed 恒同值）。种子取身份 id 时：同一身份在
+ * 页面各处（masthead/卡/列表）同拍（它们是同一只生物），不同身份
+ * 错拍——工作台一屏多只不会像克隆体一样同时呼吸、同时眨眼。 */
+export function phaseFor(seed: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 997) / 997;
+}
+
 // ---- 微反应：step 类型 → 一闪而过的动作（约 1.6s） ----
 
 export type PetReaction = "ripple" | "focus" | "gaze" | "bloom" | "jolt" | "happy";

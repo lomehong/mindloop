@@ -8,6 +8,7 @@
 //! 或仪表盘控制。
 
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -37,6 +38,8 @@ pub struct AppState {
     pub config_dir: PathBuf,
     pub backend: Mutex<proc::BackendProc>,
     pub tray: Mutex<Option<tray::TrayItems>>,
+    /// 桌面宠物开关（会话内，不落盘）：主窗隐藏时悬浮、主窗可见时停靠。
+    pub pet_enabled: AtomicBool,
 }
 
 impl AppState {
@@ -56,15 +59,15 @@ impl AppState {
 }
 
 fn main() {
-    // --pet：启动即开宠物窗（单实例下会转发给已运行的壳）。
+    // --pet：以宠物形态启动（主窗不露脸，悬浮窗随后端就绪出现）；
+    // 单实例下转发给已运行的壳并收起其主窗。
     let want_pet = std::env::args().any(|a| a == "--pet");
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            // 第二实例启动：--pet 转交宠物开关；否则唤起已有主窗口。
+            // 第二实例启动：--pet 转交宠物形态；否则唤起已有主窗口。
             if args.iter().any(|a| a == "--pet") {
-                crate::pet::toggle(app);
-            }
-            if let Some(w) = app.get_webview_window("main") {
+                crate::pet::set_enabled(app, true);
+            } else if let Some(w) = app.get_webview_window("main") {
                 show_main(&w);
             }
         }))
@@ -76,12 +79,22 @@ fn main() {
             backend_toggle,
             quit_app,
             pet_open_dashboard,
+            pet_hide,
         ])
         .on_window_event(|window, event| {
-            // 关窗 = 缩入托盘（与主流桌面应用一致）；真正退出走托盘菜单。
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+            if window.label() != "main" {
+                return;
+            }
+            match event {
+                // 关窗 = 缩入托盘（与主流桌面应用一致）；真正退出走托盘菜单。
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    crate::pet::sync_with_main(window.app_handle(), false);
+                }
+                // 最小化/还原/最大化：宠物形态立即对账，不等监督循环的下一拍。
+                tauri::WindowEvent::Resized(_) => crate::pet::sync(window.app_handle()),
+                _ => {}
             }
         })
         .setup(move |app| {
@@ -104,16 +117,20 @@ fn main() {
                 config_dir,
                 backend: Mutex::new(proc::BackendProc::default()),
                 tray: Mutex::new(Some(items)),
+                pet_enabled: AtomicBool::new(false),
             });
 
             if let Some(w) = handle.get_webview_window("main") {
                 #[cfg(windows)]
                 round_corners(&w);
-                let _ = w.show();
+                // --pet：主窗不露脸，让宠物以桌面形态登场。
+                if !want_pet {
+                    let _ = w.show();
+                }
             }
 
             if want_pet {
-                crate::pet::toggle(&handle);
+                crate::pet::set_enabled(&handle, true);
             }
 
             // 后端监督跑在独立常驻线程（单状态机，见 run_supervisor）。
@@ -185,6 +202,9 @@ fn run_supervisor(app: tauri::AppHandle) {
     let mut failures: u32 = 0;
     loop {
         std::thread::sleep(Duration::from_millis(300));
+
+        // 宠物形态对账：主窗隐藏/最小化 → 悬浮窗上岗；主窗现形 → 收窗停靠。
+        crate::pet::sync(&app);
 
         let mut b = st.backend.lock().unwrap();
 
@@ -329,6 +349,9 @@ pub fn show_main(w: &tauri::WebviewWindow) {
     let _ = w.show();
     let _ = w.unminimize();
     let _ = w.set_focus();
+    // 主窗现形 = 宠物改以停靠形态示人：悬浮窗即刻收起，别让两只同屏
+    // （明示 true：show 是异步落地的，回读 is_visible 可能还是旧值）。
+    crate::pet::sync_with_main(w.app_handle(), true);
 }
 
 /// 托盘「停止/启动 mindloop web」：仅对壳拉起的子进程生效。
@@ -405,6 +428,8 @@ fn win_hide(app: tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.hide();
     }
+    // 收主窗即换宠物形态：悬浮窗即刻上岗（明示 false，不赌 hide 的落地时序）。
+    crate::pet::sync_with_main(&app, false);
 }
 
 #[tauri::command]
@@ -436,6 +461,13 @@ fn pet_open_dashboard(app: tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         show_main(&w);
     }
+}
+
+/// 宠物页「隐藏」：关闭桌面宠物开关（托盘勾选随之复位，可再开启）。
+/// 只隐自己的窗会被形态对账立刻显示回来，必须走开关。
+#[tauri::command]
+fn pet_hide(app: tauri::AppHandle) {
+    crate::pet::set_enabled(&app, false);
 }
 
 // ———— Windows 观感 ————

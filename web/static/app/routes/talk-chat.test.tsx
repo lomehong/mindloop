@@ -86,6 +86,7 @@ vi.mock("~/lib/api", async (importOriginal) => {
       })
     ),
     fetchChat: (...args: Parameters<typeof fetchChat>) => fetchChat(...args),
+    fetchTasks: vi.fn(async (): Promise<AgentTask[]> => []),
     submitTask: (...args: Parameters<typeof submitTask>) => submitTask(...args),
     fetchThinkers: vi.fn(
       async (): Promise<ThinkersStatus> => ({

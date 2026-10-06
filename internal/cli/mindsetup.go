@@ -43,12 +43,14 @@ type mindStack struct {
 // 调用方负责传）。
 type mindStackOpts struct {
 	// clientFactory 产出思考档客户端；返回错误则装配失败。
-	clientFactory func() (*llm.Client, error)
-	poll          time.Duration
-	watchdog      time.Duration
-	backoff       *mind.BackoffPolicy // nil = monolith 用内置默认
-	maxIterations int                 // 0 = monolith 用内置默认
-	logger        func(format string, args ...any)
+	clientFactory     func() (*llm.Client, error)
+	poll              time.Duration
+	watchdog          time.Duration
+	backoff           *mind.BackoffPolicy // nil = monolith 用内置默认
+	maxIterations     int                 // 0 = monolith 用内置默认（唤醒 8 轮）
+	taskMaxIterations int                 // 0 = monolith 用内置默认（任务 16 轮）
+	taskCallBudget    int                 // 0 = monolith 用内置默认（任务 24 次调用）
+	logger            func(format string, args ...any)
 }
 
 // assembleMindStack 按 chat / mind run 共用的语义装配一个完整心智。
@@ -108,6 +110,8 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 		SummaryThinker:     mind.LLMThinker{Client: summaryClient},
 		Backoff:            o.backoff,
 		MaxIterations:      o.maxIterations,
+		TaskMaxIterations:  o.taskMaxIterations,
+		TaskCallBudget:     o.taskCallBudget,
 		Watchdog:           o.watchdog,
 		Persona:            persona,
 		SelfName:           id.Name, // 轮次耗尽的工作摘要以身份名署名投递 operator

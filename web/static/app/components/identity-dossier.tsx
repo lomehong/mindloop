@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "react-router";
 
+import { PetDock } from "~/components/pet/pet-dock";
 import {
   fetchActivity,
   fetchIdentities,
@@ -30,41 +31,6 @@ function silent<T>(fn: () => Promise<T>): () => Promise<T | null> {
       return null;
     }
   };
-}
-
-/** 小生物静态缩略（v0.3：苔绿本体 + 叶绿小苗，同样张 #creature）。 */
-export function CreatureMini({ size = 38 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 120 120" aria-hidden="true">
-      <path
-        d="M60,44 C60,38 58,34 54,30"
-        fill="none"
-        stroke="var(--primary)"
-        strokeWidth="6"
-        strokeLinecap="round"
-      />
-      <ellipse
-        cx="51"
-        cy="28"
-        rx="14"
-        ry="8"
-        fill="var(--primary)"
-        transform="rotate(-28 51 28)"
-      />
-      <ellipse cx="60" cy="70" rx="52" ry="46" fill="var(--moss)" />
-      <ellipse cx="42" cy="70" rx="9" ry="11" fill="var(--primary-foreground)" />
-      <ellipse cx="78" cy="70" rx="9" ry="11" fill="var(--primary-foreground)" />
-      <circle cx="46" cy="65" r="4" fill="#fff" opacity=".9" />
-      <circle cx="82" cy="65" r="4" fill="#fff" opacity=".9" />
-      <path
-        d="M50,90 Q60,98 70,90"
-        fill="none"
-        stroke="var(--primary-foreground)"
-        strokeWidth="5"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
 }
 
 const THINKER_DOT: Record<string, string> = {
@@ -121,10 +87,10 @@ export function IdentityDossier() {
 
   return (
     <aside className="hidden w-[276px] shrink-0 flex-col gap-3 overflow-y-auto rounded-2xl border border-border bg-card p-3 xl:flex">
-      {/* 摘要卡 */}
+      {/* 摘要卡：停靠的生命体——静态缩略升级为活宠物（点击出快捷菜单），
+          名字与运行态行沿用档案自己的读数 */}
       <div className="rounded-xl bg-muted p-3">
-        <div className="flex items-center gap-3">
-          <CreatureMini />
+        <PetDock fixedIdentityId={identityId}>
           <div className="min-w-0">
             <div className="truncate text-[13.5px] font-semibold">
               {me?.name ?? identityId}
@@ -135,7 +101,7 @@ export function IdentityDossier() {
               {ageText(activity?.last_step_age_s ?? null)}
             </div>
           </div>
-        </div>
+        </PetDock>
       </div>
 
       {/* 环境信息 */}

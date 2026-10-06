@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { fmtDuration } from "~/components/activity-badge";
 import { AuthenticatedDownload } from "~/components/authenticated-download";
 import { ConfirmDialog } from "~/components/confirm-dialog";
-import { CreatureMini } from "~/components/identity-dossier";
+import { CreatureSvg } from "~/components/pet/creature";
 import { QueryErrorBanner } from "~/components/query-error-banner";
 import {
   useControlsEnabled,
@@ -42,6 +42,7 @@ import {
   killAll,
 } from "~/lib/api";
 import { formatClock, formatCount, formatRelativeTime } from "~/lib/format";
+import { phaseFor } from "~/lib/pet-state";
 import { STATUS_BACKGROUND_POLL_MS, USAGE_IDLE_POLL_MS } from "~/lib/polling";
 import type {
   Identity,
@@ -640,7 +641,7 @@ function IdentityCard({
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3.5 pb-3">
       <div className="flex items-center gap-2.5">
-        <CreatureMini size={30} />
+        <CreatureSvg size={30} phase={phaseFor(identity.id)} />
         <Link
           to={identityPath(identity.id)}
           className={cn(
@@ -702,7 +703,7 @@ function IdentityRow({
         to={identityPath(identity.id)}
         className="flex min-w-0 items-center gap-2.5"
       >
-        <CreatureMini size={22} />
+        <CreatureSvg size={22} phase={phaseFor(identity.id)} />
         <span
           className={cn(
             "truncate text-[13px] font-medium",

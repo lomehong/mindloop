@@ -39,11 +39,14 @@ func (c *CLI) newRunCmd() *cobra.Command {
 
 退出码：0 完成；3 失速或轮次耗尽（运行的真实结局）。
 
-执行授权（MINDLOOP_EXEC_POLICY=ask|trusted|deny）：
-  ask（缺省）：脚本执行前展示正文、工作目录与归属，并等待批准
-  （mindloop approve <traj> <hash> 批准，加 --deny 拒绝）；
+执行授权（MINDLOOP_EXEC_POLICY=auto|ask|trusted|deny）：
+  auto（缺省）：分级放行——脚本命中需审批类（删除/外发发布/提权/
+  凭据/系统改动）才展示正文、工作目录与归属并等待批准
+  （mindloop approve <traj> <hash> 批准，加 --deny 拒绝）；其余
+  自动执行并记审计；
+  ask：除可证明只读外一律等待批准（严格档）；
   trusted：直接执行；deny：禁止脚本执行（模型仍可思考）。
-  注意：trusted 是"启动授权与工作目录约定"，不是操作系统访问隔离——
+  注意：任何档位都是"启动授权与工作目录约定"，不是操作系统访问隔离——
   bash 仍以当前用户权限运行，可能访问本用户可访问的文件与网络。`,
 		Example: `  mindloop run <id> "统计本目录下 go 文件的总行数"
   mindloop run <id> "清点当前目录" --max-iterations 4`,

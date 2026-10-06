@@ -50,10 +50,10 @@ func (m *monolith) Pending(ctx context.Context) (Wake, bool, error) {
 }
 
 // defaultTaskCallBudget 是一个 task attempt 的默认模型调用尝试
-// 上限（含重试）——成本防线，不是建议值。
-const defaultTaskCallBudget = 20
+// 上限（含重试）——成本防线，不是建议值。16 轮任务 + 50% 重试余量。
+const defaultTaskCallBudget = 24
 
-// taskCallBudget 折算生效的任务调用预算：<=0 取默认 20。
+// taskCallBudget 折算生效的任务调用预算：<=0 取默认 24。
 func (m *monolith) taskCallBudget() int {
 	if m.opts.TaskCallBudget > 0 {
 		return m.opts.TaskCallBudget
@@ -129,7 +129,7 @@ func (m *monolith) executeTask(ctx context.Context, item task.Task) Outcome {
 			Timeline: m.opts.Timeline, Thinker: thinker, Task: item.Content,
 			TaskID: item.ID, Attempt: item.Attempt, RunID: item.RunID,
 			SystemPrompt: m.systemPrompt() + "\n\n当前为显式委托：只完成当前完整任务，不继续其他任务，也不将普通聊天视为授权。最终结果通过 FINAL 回传。",
-			LaunchedBy:   m.Name(), MaxIterations: m.opts.MaxIterations,
+			LaunchedBy:   m.Name(), MaxIterations: m.opts.TaskMaxIterations,
 			Timeout: m.opts.Timeout, IdleTimeout: m.opts.IdleTimeout,
 			MaxOutputBytes: m.opts.MaxOutputBytes, ExtraEnv: m.opts.ExtraEnv,
 			Snapshots:     m.opts.Snapshots,

@@ -9,6 +9,7 @@ import {
   PendingChatBubble,
   StreamingChatBubble,
 } from "~/components/chat-bubble";
+import { isTaskActive } from "~/components/task-card";
 import { WorkingCard } from "~/components/working-card";
 import { QueryErrorBanner } from "~/components/query-error-banner";
 import {
@@ -21,8 +22,10 @@ import { Skeleton } from "~/components/ui/loading-skeleton";
 import { Textarea } from "~/components/ui/textarea";
 import { useAutosizeTextarea } from "~/hooks/use-autosize-textarea";
 import {
+  IN_PROGRESS_POLL_MS,
   fetchConfig,
   fetchLlmProviders,
+  fetchTasks,
   fetchThinkers,
   submitTask,
 } from "~/lib/api";
@@ -131,6 +134,20 @@ export default function ChatPage() {
   });
   const dispatcherRunning = thinkerStatus?.dispatcher.running ?? true;
 
+  // 在途任务投影：工作卡据此给出任务面入口（任务步骤不在对话页显示）；
+  // 有在途短轮询，空闲慢心跳——发现别处提交/重试的新任务延迟上限 15s。
+  const { data: taskList } = useQuery({
+    queryKey: ["tasks", identityId],
+    queryFn: () => fetchTasks(identityId),
+    refetchInterval: (q) =>
+      (q.state.data ?? []).some((item) => isTaskActive(item.status))
+        ? IN_PROGRESS_POLL_MS
+        : 15000,
+  });
+  const activeTasks = (taskList ?? []).filter((item) =>
+    isTaskActive(item.status)
+  ).length;
+
   const identityName = chat?.identity.name ?? identityId.split("~").pop();
 
   // 消息转任务：以该消息为 source_step_id 提交显式委托（保留来源
@@ -209,6 +226,15 @@ export default function ChatPage() {
                 message={message}
                 mine={message.from === myName || message.from === "you"}
                 fromMind={message.from === identityName}
+                taskHref={
+                  message.kind === "task"
+                    ? `/i/${encodeURIComponent(identityId)}/tasks${
+                        message.task_id
+                          ? `?task=${encodeURIComponent(message.task_id)}`
+                          : ""
+                      }`
+                    : undefined
+                }
                 onConvertToTask={() => {
                   if (!convertMutation.isPending) convertMutation.mutate(message);
                 }}
@@ -234,6 +260,8 @@ export default function ChatPage() {
           stepTotal={stepTotal}
           sentAt={lastSentAt}
           variant="desktop"
+          activeTasks={activeTasks}
+          tasksHref={`/i/${encodeURIComponent(identityId)}/tasks`}
         />
         <div ref={bottomRef} />
       </div>

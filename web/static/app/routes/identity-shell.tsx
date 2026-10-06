@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router";
 
-import { CreatureMini } from "~/components/identity-dossier";
+import { CreatureSvg } from "~/components/pet/creature";
 import { MindlogSearch } from "~/components/mindlog-search";
 import { fetchIdentities } from "~/lib/api";
+import { phaseFor } from "~/lib/pet-state";
 import type { SearchHit } from "~/lib/types";
 import { cn } from "~/lib/utils";
 
@@ -66,7 +67,7 @@ function Masthead({ identityId }: { identityId: string }) {
 
   return (
     <div className="flex min-h-8 items-center gap-2.5">
-      <CreatureMini size={30} />
+      <CreatureSvg size={30} phase={phaseFor(identityId)} />
       <span className="font-note text-[19px] font-semibold tracking-[0.01em]">
         {me?.name ?? identityId}
       </span>

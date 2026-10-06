@@ -271,6 +271,19 @@ func (r *run) appendStep(ctx context.Context, typ, content string, extra map[str
 
 // renderMessages 每轮从日志重渲上下文——日志是唯一事实源，绝不
 // 在内存私藏一份真相。
+// roundNoteBudget 是轮次注记的字节预留：历史渲染上限要扣掉它——
+// 注记与历史同吃输入预算，超支就不是防线了。
+const roundNoteBudget = 256
+
+// roundNote 是每轮追加的运行注记：模型必须知道自己还有几轮。没有
+// 这条信息，模型会无意识地把预算烧在重复阅读上（2026-10-06 实测：
+// 资讯收集任务的 8 轮全花在逐段读中间产物，交付物一个字没写就
+// 轮次耗尽）。
+func roundNote(iteration, max int) string {
+	return fmt.Sprintf("（运行注记：本次运行共 %d 轮，现为第 %d 轮，剩余 %d 轮。请围绕当前目标紧凑推进；剩余 2 轮以内必须收口——落盘已有成果、给出结论并 FINAL，不再开启新的探索。）",
+		max, iteration, max-iteration)
+}
+
 func (r *run) renderMessages() ([]llm.Message, error) {
 	steps, err := r.opts.Timeline.Steps()
 	if err != nil {
@@ -294,7 +307,13 @@ func (r *run) renderMessages() ([]llm.Message, error) {
 	// 不能当"零预算"用）。
 	opts := renderOptions
 	if remain := r.budget.Remaining(); remain > 0 {
-		opts.MaxBytes = remain
+		// 给轮次注记留位（见 roundNoteBudget）；扣除后不足 1 字节时
+		// 以 1 为下限——MaxBytes=0 在 prompt 里表示"不限"，不能当
+		// "零预算"用。
+		opts.MaxBytes = remain - roundNoteBudget
+		if opts.MaxBytes <= 0 {
+			opts.MaxBytes = 1
+		}
 	} else {
 		return []llm.Message{}, nil
 	}
@@ -452,6 +471,9 @@ func (r *run) loop(ctx context.Context) (Result, error) {
 		if err != nil {
 			return Result{RunID: r.runID, WorkDir: r.workDir}, fmt.Errorf("runner: 读轨迹: %w", err)
 		}
+		// 轮次注记（见 roundNote）：预算感知是 agent 行为的一部分，
+		// 每轮末位注入。
+		msgs = append(msgs, llm.Message{Role: "user", Content: roundNote(iteration, r.opts.MaxIterations)})
 
 		text, err := r.opts.Thinker.Think(ctx, r.opts.SystemPrompt, msgs)
 		if err != nil && ctx.Err() == nil && hasImages(msgs) {

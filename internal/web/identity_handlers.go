@@ -10,10 +10,13 @@ import (
 	"github.com/lomehong/mindloop/internal/mind"
 )
 
-// chatMessage 是 viewer ChatMessage 契约的 Go 形态。
+// chatMessage 是 viewer ChatMessage 契约的 Go 形态。Kind/TaskID 是
+// 任务书归因（message_kind=task 的提交消息）——nil 表示普通消息。
 type chatMessage struct {
 	TS        string  `json:"ts"`
 	StepID    string  `json:"step_id"`
+	Kind      *string `json:"kind"`
+	TaskID    *string `json:"task_id"`
 	From      string  `json:"from"`
 	To        string  `json:"to"`
 	Content   string  `json:"content"`
@@ -64,6 +67,14 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request, id *identity
 			From:    m.From,
 			To:      m.To,
 			Content: m.Content,
+		}
+		if m.Kind != "" {
+			k := m.Kind
+			cm.Kind = &k
+		}
+		if m.TaskID != "" {
+			tid := m.TaskID
+			cm.TaskID = &tid
 		}
 		if m.ReplyTo != "" {
 			rt := m.ReplyTo

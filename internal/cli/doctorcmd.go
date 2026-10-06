@@ -362,13 +362,24 @@ func (c *CLI) doctorSensors(identityName string) *doctorCheck {
 // doctorPolicy 执行策略开关现状——支持对话时先看这个。
 func doctorPolicy() *doctorCheck {
 	ck := &doctorCheck{name: "执行策略"}
-	mode := os.Getenv("MINDLOOP_EXEC_POLICY")
-	if mode == "" {
-		mode = "ask（缺省）"
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("MINDLOOP_EXEC_POLICY")))
+	switch mode {
+	case "":
+		mode = "auto（缺省：分级放行——删除/外发发布/提权/凭据/系统改动才需审批）"
+	case "auto":
+		mode = "auto（分级放行——命中需审批类才等待给出批准）"
+	case "ask":
+		mode = "ask（全审：除非脚本可证明只读，一律等待批准）"
+	case "trusted":
+		mode = "trusted（全部直接执行）"
+	case "deny":
+		mode = "deny（禁止脚本执行）"
+	default:
+		mode = os.Getenv("MINDLOOP_EXEC_POLICY") + "（无法识别，按 ask 全审执行）"
 	}
 	detail := mode
 	if os.Getenv("MINDLOOP_EXEC_POLICY_AUTO") == "0" {
-		detail += "；只读自动放行已关闭"
+		detail += "；ask 档只读自动放行已关闭"
 	}
 	if os.Getenv("MINDLOOP_EXEC_TRIPWIRE") == "0" {
 		detail += "；不可逆操作守卫已关闭"

@@ -3,6 +3,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { NuqsTestingAdapter } from "nuqs/adapters/testing";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -74,11 +75,13 @@ function renderTasks() {
   });
   return render(
     <MemoryRouter initialEntries={["/talk/ada/tasks"]}>
-      <QueryClientProvider client={client}>
-        <Routes>
-          <Route path="/talk/:identityId/tasks" element={<TasksPage />} />
-        </Routes>
-      </QueryClientProvider>
+      <NuqsTestingAdapter>
+        <QueryClientProvider client={client}>
+          <Routes>
+            <Route path="/talk/:identityId/tasks" element={<TasksPage />} />
+          </Routes>
+        </QueryClientProvider>
+      </NuqsTestingAdapter>
     </MemoryRouter>
   );
 }
@@ -117,7 +120,7 @@ describe("tasks page", () => {
     expect(screen.getByText("已完成")).toBeDefined();
     expect(screen.getByText("周报已生成：weekly.md")).toBeDefined();
     const link = screen.getByRole("link", { name: "运行记录" });
-    expect(link.getAttribute("href")).toBe("/i/ada/log");
+    expect(link.getAttribute("href")).toBe("/i/ada/log?run=run-77");
   });
 
   it("空态给出回到对话创建任务的指引", async () => {

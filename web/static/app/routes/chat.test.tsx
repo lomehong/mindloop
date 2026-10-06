@@ -7,7 +7,9 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ChatPage from "~/routes/chat";
+import * as api from "~/lib/api";
 import type {
+  AgentTask,
   ChatLog,
   Config,
   IdentityActivity,
@@ -82,6 +84,7 @@ vi.mock("~/lib/api", async (importOriginal) => {
         outcomes: {},
       })
     ),
+    fetchTasks: vi.fn(async (): Promise<AgentTask[]> => []),
     sendChat: (...args: Parameters<typeof sendChat>) => sendChat(...args),
   };
 });
@@ -143,5 +146,58 @@ describe("chat composer", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(sendChat).not.toHaveBeenCalled();
     expect((box as HTMLTextAreaElement).value).toBe("unfinished");
+  });
+});
+
+describe("chat task entries", () => {
+  it("任务书消息带「任务」徽章与查看任务入口；「转为任务」只留给普通消息", async () => {
+    // 持久 mock：桌面 chat 的查询键随 config 加载会从 myName="" 换到
+    // "you" 一次（两次请求都要拿到同一份数据，Once 会被换键吃掉）。
+    const fetchChatMock = vi.mocked(api.fetchChat);
+    fetchChatMock.mockResolvedValue({
+      identity: { id: "ada", name: "ada" },
+      live: false,
+      messages: [
+        {
+          ts: "2026-10-06T02:00:00Z",
+          step_id: "s-task-1",
+          kind: "task",
+          task_id: "t-abc",
+          from: "you",
+          to: "ada",
+          content: "任务书正文",
+          reply_to: null,
+          filename: null,
+          source_url: null,
+        },
+        {
+          ts: "2026-10-06T02:01:00Z",
+          step_id: "s-plain-1",
+          kind: null,
+          task_id: null,
+          from: "you",
+          to: "ada",
+          content: "普通消息",
+          reply_to: null,
+          filename: null,
+          source_url: null,
+        },
+      ],
+      outcomes: {},
+    });
+    renderChatPage();
+    // 任务书消息：徽章 + 任务页深链（带任务定位）。
+    expect(await screen.findByText("任务")).toBeDefined();
+    const link = screen.getByRole("link", { name: "查看任务 →" });
+    expect(link.getAttribute("href")).toBe("/i/ada/tasks?task=t-abc");
+    // 任务书本身就是任务：不提供「转为任务」；普通消息仍保留一个。
+    expect(screen.getAllByText("转为任务").length).toBe(1);
+    // 恢复默认空回报，避免污染后续用例。
+    fetchChatMock.mockResolvedValue({
+      identity: { id: "ada", name: "ada" },
+      live: false,
+      messages: [],
+      outcomes: {},
+    });
   });
 });

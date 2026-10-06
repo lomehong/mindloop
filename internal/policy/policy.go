@@ -1,7 +1,13 @@
-// Package policy 是生成脚本的执行授权策略——ask / trusted / deny
-// 三档，以及 ask 模式下的审批等待（文件控制面）。它是
+// Package policy 是生成脚本的执行授权策略——auto / ask / trusted /
+// deny 四档，以及需要人工过目时的审批等待（文件控制面）。它是
 // runner.BeforeExecute 的统一实现：CLI run、显式任务与自主行动共用
 // 同一控制点，等待期间不调用模型。
+//
+// auto 是缺省档（分级放行）：只有命中「需审批类」（approval_class.go：
+// 删除 / 外发发布 / 提权 / 凭据 / 系统改动）的脚本才展示正文等待
+// 批准，其余自动执行并记审计。ask 是显式严格档：除可证明只读外
+// 一律等待。整脚本全审会把无人照看的任务拖死在审批等待上——脚本
+// 一变就得重新批，10 分钟不批整任务失败（2026-10-06 真实事故）。
 //
 // 边界说明：本包只决定"这一个脚本此刻能不能执行"，不做沙箱隔离
 // ——trusted 是启动授权约定，不是操作系统访问隔离；脚本仍以当前
@@ -29,8 +35,12 @@ import (
 type Mode string
 
 const (
-	// Ask：缺省策略。每个脚本执行前展示正文、工作目录与运行归属，
-	// 等待明确批准。
+	// Auto：缺省策略。分级放行——脚本命中「需审批类」（删除 /
+	// 外发发布 / 提权 / 凭据 / 系统改动，见 approval_class.go）才
+	// 展示正文等待批准；其余免审批直接执行并记审计（decision=auto）。
+	Auto Mode = "auto"
+	// Ask：显式严格档。只有可证明只读的脚本免批，其余一律等待
+	// 明确批准——"每个脚本执行前展示正文"的原始定义。
 	Ask Mode = "ask"
 	// Trusted：用户显式选择。直接执行——宿主机权限风险由用户承担。
 	Trusted Mode = "trusted"
@@ -46,10 +56,15 @@ var (
 	ErrTimeout = errors.New("policy: 审批超时（未获批准，脚本未执行）")
 )
 
-// ParseMode 解析策略文本：空与未知值都落到最保守的 ask，绝不
-// 因配置拼写错误静默放行。
+// ParseMode 解析策略文本：空串落到缺省 auto；无法识别的非空值落到
+// 保守的 ask——配置拼写错误绝不静默放宽（auto 比 ask 宽松，宽松的
+// 缺省不能把"拼错"也接走）。
 func ParseMode(s string) Mode {
 	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "auto":
+		return Auto
+	case "ask":
+		return Ask
 	case "trusted":
 		return Trusted
 	case "deny":
@@ -59,11 +74,12 @@ func ParseMode(s string) Mode {
 	}
 }
 
-// ModeFromEnv 读取 MINDLOOP_EXEC_POLICY（未设置即 ask）。
+// ModeFromEnv 读取 MINDLOOP_EXEC_POLICY（未设置即缺省 auto）。
 func ModeFromEnv() Mode { return ParseMode(os.Getenv("MINDLOOP_EXEC_POLICY")) }
 
 // AutoReadOnlyFromEnv 读取 MINDLOOP_EXEC_POLICY_AUTO：值 "0" 关闭
-// ask 策略的只读自动放行档，其余（含未设置）开启。
+// ask 档的只读自动放行，其余（含未设置）开启。auto 档天然覆盖只读，
+// 不受此开关影响。
 func AutoReadOnlyFromEnv() bool { return os.Getenv("MINDLOOP_EXEC_POLICY_AUTO") != "0" }
 
 // Dir 返回一条轨迹的审批控制面目录（沿用 mind 控制面的 run/ 位置）。
@@ -76,22 +92,24 @@ func ScriptHash(script string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Gate 实现 runner.BeforeExecute：策略判定 + ask 模式的文件控制面
-// 等待。批准缓存只存在于实例内（进程生命周期）且带有效期——重启、
-// 超时、换脚本、换工作目录、换运行都会让旧批准失效。
+// Gate 实现 runner.BeforeExecute：策略判定 + ask / auto 模式的文件
+// 控制面等待。批准缓存只存在于实例内（进程生命周期）且带有效期
+// ——重启、超时、换脚本、换工作目录、换运行都会让旧批准失效。
 type Gate struct {
 	dir  string
 	mode Mode
 
-	// AutoReadOnly 开启 ask 策略的自动放行档：脚本逐命令可证明
-	// 只读时免审批直接执行（仍记审计）。wiring 侧用
-	// AutoReadOnlyFromEnv 赋值；零值（关闭）是测试与新调用方的
-	// 安全缺省——白名单只能增加便利，绕不过任何未知构造。
+	// AutoReadOnly 开启 ask 档的自动放行：脚本逐命令可证明只读时
+	// 免审批直接执行（仍记审计）。wiring 侧用 AutoReadOnlyFromEnv
+	// 赋值；零值（关闭）是测试与新调用方的安全缺省——白名单只能
+	// 增加便利，绕不过任何未知构造。auto 档不受此开关影响（分级
+	// 放行天然覆盖只读）。
 	AutoReadOnly bool
 
 	// Tripwire 开启不可逆操作守卫：trusted 策略下命中灾难模式
-	// （见 tripwire.go）直接拒绝并记审计；ask 策略下命中只作为
-	// 风险提示进待批请求。wiring 侧用 TripwireFromEnv 赋值。
+	// （见 tripwire.go）直接拒绝并记审计；auto / ask 策略下命中作为
+	// 风险提示进待批请求（auto 档下命中也进审批名单）。wiring 侧用
+	// TripwireFromEnv 赋值。
 	Tripwire bool
 
 	// PollInterval 是等待决定的轮询间隔（默认 150ms）。
@@ -111,7 +129,7 @@ type Gate struct {
 }
 
 // NewGate 构造一个门。dir 传 policy.Dir(轨迹目录)；mode 传解析后的
-// 策略（缺省 ask）。
+// 策略（缺省 auto）。
 func NewGate(dir string, mode Mode) *Gate {
 	return &Gate{dir: dir, mode: mode, now: time.Now, cache: map[string]time.Time{}}
 }
@@ -119,8 +137,9 @@ func NewGate(dir string, mode Mode) *Gate {
 // Mode 返回门的当前策略。
 func (g *Gate) Mode() Mode { return g.mode }
 
-// Authorize 是统一授权入口：trusted 直接放行；deny 直接拒绝；ask
-// 在批准缓存命中且未过期时放行，否则进入等待。
+// Authorize 是统一授权入口：trusted 直接放行；deny 直接拒绝；auto
+// 命中需审批类才等待（其余放行并记审计）；ask 只有可证明只读免批、
+// 其余一律等待。auto 与 ask 共用批准缓存。
 func (g *Gate) Authorize(ctx context.Context, ex runner.Execution) error {
 	// 守卫先于策略：trusted 无人值守，灾难命令没有人能拦，守卫
 	// 就是最后一个人。拒绝以可审计为前提，审计目录建不出来也照样拒。
@@ -150,8 +169,27 @@ func (g *Gate) Authorize(ctx context.Context, ex runner.Execution) error {
 		}
 		delete(g.cache, key)
 	}
-	// ask 的自动放行档（防审批疲劳把 ask 逼成 trusted）：脚本逐
-	// 命令可证明只读时免审批，但豁免以可审计为前提——审计目录建
+	// auto（缺省）：分级放行——命中需审批类（tripwire 已并入
+	// ApprovalClassHits）才等待；放行以可审计为前提，审计目录建不
+	// 出来就回退到等待（宁多问一次，不放行无凭据的执行）。
+	if g.mode == Auto {
+		if hits := ApprovalClassHits(ex.Script); len(hits) > 0 {
+			return g.wait(ctx, hash, ex, mergeRisks(RiskNotes(ex.Script), hits))
+		}
+		if err := os.MkdirAll(g.dir, 0o755); err == nil {
+			g.audit(PendingRequest{
+				Hash: hash, WorkDir: ex.WorkDir, RunID: ex.RunID,
+				TaskID: ex.TaskID, Attempt: ex.Attempt,
+			}, "auto")
+			if g.Logger != nil {
+				g.Logger("未命中审批名单，分级放行（hash %s；MINDLOOP_EXEC_POLICY=ask 可回到全审）", short(hash))
+			}
+			return nil
+		}
+		return g.wait(ctx, hash, ex, RiskNotes(ex.Script))
+	}
+	// ask 严格档的自动放行档（防审批疲劳把 ask 逼成 trusted）：脚本
+	// 逐命令可证明只读时免审批，但豁免以可审计为前提——审计目录建
 	// 不出来就回退到正常等待。
 	if g.AutoReadOnly && risk.ReadOnly(ex.Script) {
 		if err := os.MkdirAll(g.dir, 0o755); err == nil {
@@ -165,7 +203,7 @@ func (g *Gate) Authorize(ctx context.Context, ex runner.Execution) error {
 			return nil
 		}
 	}
-	return g.wait(ctx, hash, ex)
+	return g.wait(ctx, hash, ex, mergeRisks(RiskNotes(ex.Script), TripwireHits(ex.Script)))
 }
 
 // approvalKey 是批准缓存的键：脚本 + 工作目录 + 运行——三者任一
@@ -189,9 +227,10 @@ func (g *Gate) ttl() time.Duration {
 }
 
 // wait 进入审批等待：写待批请求文件（展示面），轮询决定文件，最后
-// 消费两个文件并写审计。所有出口（批准/拒绝/超时/取消）都保证
-// 清理现场，不留拖尾状态。
-func (g *Gate) wait(ctx context.Context, hash string, ex runner.Execution) error {
+// 消费两个文件并写审计。risks 是给操作员读的命中理由（auto 档为
+// 审批名单命中，ask 档为展示提示）。所有出口（批准/拒绝/超时/取消）
+// 都保证清理现场，不留拖尾状态。
+func (g *Gate) wait(ctx context.Context, hash string, ex runner.Execution, risks []string) error {
 	if err := os.MkdirAll(g.dir, 0o755); err != nil {
 		return fmt.Errorf("policy: 建审批目录: %w", err)
 	}
@@ -200,13 +239,13 @@ func (g *Gate) wait(ctx context.Context, hash string, ex runner.Execution) error
 		Hash: hash, Script: ex.Script, WorkDir: ex.WorkDir,
 		RunID: ex.RunID, TaskID: ex.TaskID, Attempt: ex.Attempt,
 		Created: now.UTC(), Expires: now.Add(g.ttl()).UTC(),
-		Risks: mergeRisks(RiskNotes(ex.Script), TripwireHits(ex.Script)),
+		Risks: risks,
 	}
 	if err := writeJSONAtomic(g.requestPath(hash), p); err != nil {
 		return fmt.Errorf("policy: 写待批请求: %w", err)
 	}
 	if g.Logger != nil {
-		Announce(p, g.Logger)
+		Announce(p, g.mode, g.Logger)
 	}
 	if g.WaitHook != nil {
 		g.WaitHook(ex, true)
@@ -289,10 +328,14 @@ func short(hash string) string {
 
 // Announce 把待批请求渲染成等人处理的提示：脚本正文、工作目录、
 // 任务/运行归属、风险提示与批准指引。正文完整展示——"执行前展示
-// 正文"是 ask 策略的定义。
-func Announce(p PendingRequest, logf func(format string, args ...any)) {
+// 正文"是等待批准的定义。
+func Announce(p PendingRequest, mode Mode, logf func(format string, args ...any)) {
 	var b strings.Builder
-	b.WriteString("━━ 脚本等待执行批准（MINDLOOP_EXEC_POLICY=ask）━━\n")
+	if mode == Auto {
+		b.WriteString("━━ 脚本等待执行批准（MINDLOOP_EXEC_POLICY=auto：命中需审批类）━━\n")
+	} else {
+		b.WriteString("━━ 脚本等待执行批准（MINDLOOP_EXEC_POLICY=ask：非只读全审）━━\n")
+	}
 	fmt.Fprintf(&b, "hash: %s\n", short(p.Hash))
 	fmt.Fprintf(&b, "工作目录: %s\n", p.WorkDir)
 	if p.TaskID != "" {
