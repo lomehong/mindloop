@@ -123,6 +123,8 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, identitySummary(s.cfg.Root, id))
 	case "activity":
 		s.handleActivity(w, r, id, rest)
+	case "task-assist":
+		s.handleTaskAssist(w, r, id, rest)
 	case "mindlog":
 		if len(rest) > 0 && rest[0] == "search" {
 			s.handleMindlogSearch(w, r, id, rest[1:])

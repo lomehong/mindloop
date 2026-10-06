@@ -657,6 +657,17 @@ export function submitTask(
   );
 }
 
+/** AI 辅助创建任务：把粗糙草稿起草为完整、可执行的任务书。
+ * 失败（未配 LLM/超时）由调用方 toast 呈现，不阻塞手动创建。 */
+export function taskAssist(
+  identityId: string,
+  draft: string
+): Promise<{ task: string }> {
+  return postJson(`/api/identities/${encodeURIComponent(identityId)}/task-assist`, {
+    draft,
+  });
+}
+
 export function cancelTask(
   identityId: string,
   taskId: string,
