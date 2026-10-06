@@ -332,8 +332,10 @@ internal 库，渠道适配子包可例外），届时单独评审。
 - 连接：wss 建连 → `aibot_subscribe{bot_id, secret}`；单连接互踢
   （§6.1）；断线指数退避重连后重新订阅；心跳按官方要求（30s 级）；
 - 入站：`aibot_msg_callback` → 取 `body.from.userid`、文本内容、
-  `body.msgid`；幂等键 `wecom:<msgid>`；MVP 只处理文本（图片/语音/
-  文件不落轨迹，留待需要时评估）；
+  `body.msgid`；幂等键 `wecom:<msgid>`；文本与语音均落轨迹——语音
+  平台已在回调前转写（官方协议·接收消息：`voice.content` 即转写
+  文本，2026-10-06 接入），桥按文本同义消费；图片/文件/视频为
+  媒体引用，不落轨迹，留待需要时评估；
 - 出站：统一 `aibot_send_msg`（chatid=userid、单聊、msgtype=markdown）。
   **不用 req_id 回复通道**——`aibot_respond_msg` 需透传回调 req_id、
   在 bridge 内维护会话状态，破坏出站泵的纯日志谓词；`aibot_send_msg`

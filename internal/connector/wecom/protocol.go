@@ -54,7 +54,9 @@ type envelope struct {
 }
 
 // callbackBody 是 aibot_msg_callback 的载荷子集——本桥消费的字段
-// （msgid、发送者 userid、文本内容）；图片/语音等不解析不透传。
+// （msgid、发送者 userid、文本内容）；图片/文件等媒体引用不解析
+// 不透传。语音消息平台已在回调前转写：voice.content 即转写文本
+// （官方协议·接收消息的语音结构体），与 text.content 同义消费。
 type callbackBody struct {
 	Msgid    string `json:"msgid"`
 	Chattype string `json:"chattype"`
@@ -64,6 +66,9 @@ type callbackBody struct {
 	Text struct {
 		Content string `json:"content"`
 	} `json:"text"`
+	Voice struct {
+		Content string `json:"content"`
+	} `json:"voice"`
 }
 
 // eventBody 是 aibot_event_callback 的载荷子集：互踢检测与审批卡

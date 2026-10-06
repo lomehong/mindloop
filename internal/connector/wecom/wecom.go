@@ -10,7 +10,8 @@
 //     （SDK maxMissedPong）判连接死亡，断开重连；
 //   - 单连接互踢：aibot_event_callback 的 event.eventtype =
 //     disconnected_event——以 ErrKicked 终止，不做双连竞争；
-//   - 入站只处理文本（图片/语音不落轨迹）；幂等键 wecom:<msgid>，
+//   - 入站处理文本与语音（语音平台已转写，voice.content 随文本同义
+//     消费）；图片/文件等媒体引用不落轨迹。幂等键 wecom:<msgid>，
 //     保守假设服务端可能重推，重推由幂等键吸收；
 //   - 出站统一 aibot_send_msg（chatid=userid 单聊），不用 req_id
 //     回复通道——chatid 是无状态映射，与"路由即数据"吻合；前提是
@@ -468,9 +469,14 @@ func (b *Bridge) handleCallback(ctx context.Context, reqID string, body callback
 		b.logf("白名单外用户 %q 的消息已丢弃（不落轨迹）", userid)
 		return
 	}
+	// 语音消息由平台转写后经 voice.content 入站（官方协议：语音
+	// 结构体的 content 即转写文本），与 text.content 同义消费。
 	content := strings.TrimSpace(body.Text.Content)
+	if content == "" {
+		content = strings.TrimSpace(body.Voice.Content)
+	}
 	if content == "" || body.Msgid == "" {
-		b.logf("跳过非文本或无 msgid 的回调")
+		b.logf("跳过无文本内容或无 msgid 的回调")
 		return
 	}
 	// 感知降档：命中的入站写 event 步骤（s0 只沉淀不叫醒）——

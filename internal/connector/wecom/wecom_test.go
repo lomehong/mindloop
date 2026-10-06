@@ -323,6 +323,71 @@ func TestInboundIdempotencyAndKick(t *testing.T) {
 	}
 }
 
+// TestInboundVoiceTranscribed 钉死语音入站：平台在回调前已转写
+// （voice.content 即文本，官方协议·接收消息），桥与 text.content
+// 同义落盘；同 msgid 重推由幂等键吸收；图片等无文本内容的媒体
+// 回调不落轨迹。末条文本消息做哨兵——单读循环顺序处理，哨兵落盘
+// 即证明其前所有帧已处理完，计数断言不靠竞速。
+func TestInboundVoiceTranscribed(t *testing.T) {
+	b, tl, frames := newTestBridge(t, func(conn net.Conn, serverFrames chan<- []byte) {
+		br := bufio.NewReader(conn)
+		_, reqID, raw := readClientJSON(t, br)
+		serverFrames <- raw
+		writeServerText(t, conn, ackFrame(reqID, 0, "ok"))
+		// 认证回执被消费前推送会被"认证前忽略"（同主测试的帧序约束）。
+		time.Sleep(80 * time.Millisecond)
+		voice := []byte(`{"cmd":"aibot_msg_callback","headers":{"req_id":"srv1"},"body":{"msgid":"m9","chattype":"single","from":{"userid":"lisi"},"msgtype":"voice","voice":{"content":"这是语音转成文本的内容"}}}`)
+		writeServerText(t, conn, voice)
+		writeServerText(t, conn, voice) // 重推：幂等键吸收
+		writeServerText(t, conn, []byte(`{"cmd":"aibot_msg_callback","headers":{"req_id":"srv2"},"body":{"msgid":"m10","chattype":"single","from":{"userid":"lisi"},"msgtype":"image","image":{"url":"https://example.invalid/x"}}}`))
+		writeServerText(t, conn, []byte(`{"cmd":"aibot_msg_callback","headers":{"req_id":"srv3"},"body":{"msgid":"m11","from":{"userid":"lisi"},"text":{"content":"哨兵"}}}`))
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = b.Run(ctx) }()
+	waitFrame(t, frames)
+
+	deadline := time.Now().Add(10 * time.Second)
+	var msgs []traj.Step
+	for time.Now().Before(deadline) {
+		steps, err := tl.Steps()
+		if err != nil {
+			t.Fatal(err)
+		}
+		msgs = msgs[:0]
+		for _, s := range steps {
+			if s.Type == traj.TypeMessage {
+				msgs = append(msgs, s)
+			}
+		}
+		if len(msgs) >= 2 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("应恰好 2 条入站消息（语音+哨兵；重推吸收、图片跳过）: %d", len(msgs))
+	}
+	cids := map[string]int{}
+	for _, m := range msgs {
+		cid, _ := m.Field("client_message_id")
+		cids[cid]++
+	}
+	if cids["wecom:m9"] != 1 || cids["wecom:m11"] != 1 {
+		t.Fatalf("幂等/跳过语义不符: cids=%v", cids)
+	}
+	for _, m := range msgs {
+		if cid, _ := m.Field("client_message_id"); cid != "wecom:m9" {
+			continue
+		}
+		content, _ := m.Field("content")
+		from, _ := m.Field("from")
+		if content != "这是语音转成文本的内容" || from != "wecom:lisi" {
+			t.Fatalf("语音入站字段不符: content=%q from=%s", content, from)
+		}
+	}
+}
+
 // TestAuthFailureExhausted 钉死凭证判死：连续 5 次认证回执
 // errcode!=0 → Run 以 ErrAuthFailed 终止（不再无限重连）。
 func TestAuthFailureExhausted(t *testing.T) {
