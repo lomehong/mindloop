@@ -1,13 +1,19 @@
 // 任务卡：显式委托的真实状态呈现——状态徽章、attempt 代次、运行链接、
 // 结果或失败原因、来源关联与按状态给出的操作（取消/重试）。状态一律
 // 来自任务 API 的事实投影（task.Store），不从 SSE 事件推断。
+// 长内容默认折叠（任务书全文可上千字，一屏要能扫多个任务）；展开/收起
+// 是纯本地视图状态（2026-10-06 长列表导航）。
 
+import { useState } from "react";
 import { Link } from "react-router";
 
 import { Button } from "~/components/ui/button";
 import { formatRelativeTime } from "~/lib/format";
 import type { AgentTask, TaskState } from "~/lib/types";
 import { cn } from "~/lib/utils";
+
+/** 折叠门槛：内容或结果/理由超过该长度才给展开钮（短卡片不添噪声）。 */
+const COLLAPSE_THRESHOLD = 120;
 
 /** 状态 → 中文标签与配色（叶绿=在正轨、树脂=需留意、陶土=失败、
  * 线色=中性；与健康页结果徽标同一枚芯片语言）。 */
@@ -79,6 +85,14 @@ export function TaskCard({
     label: task.status,
     className: "border-line-strong text-muted-foreground",
   };
+  const [expanded, setExpanded] = useState(false);
+  const result = task.status === "succeeded" ? task.result : null;
+  const reason = task.status !== "succeeded" ? task.reason : null;
+  const long =
+    (task.content?.trim().length ?? 0) > COLLAPSE_THRESHOLD ||
+    (result?.trim().length ?? 0) > COLLAPSE_THRESHOLD ||
+    (reason?.trim().length ?? 0) > COLLAPSE_THRESHOLD;
+  const clamped = !expanded && long;
   return (
     <div
       className="rounded-xl border border-line bg-card p-3"
@@ -113,20 +127,44 @@ export function TaskCard({
           {formatRelativeTime(task.updated_at)}
         </span>
       </div>
-      <div className="mt-1.5 whitespace-pre-wrap break-words text-sm">
+      <div
+        className={cn(
+          "mt-1.5 whitespace-pre-wrap break-words text-sm",
+          clamped && "line-clamp-2"
+        )}
+      >
         {task.content}
       </div>
-      {task.status === "succeeded" && task.result && (
-        <div className="mt-1.5 whitespace-pre-wrap break-words rounded-md bg-muted/50 px-2 py-1.5 text-xs">
-          {task.result}
+      {result && (
+        <div
+          className={cn(
+            "mt-1.5 whitespace-pre-wrap break-words rounded-md bg-muted/50 px-2 py-1.5 text-xs",
+            clamped && "line-clamp-2"
+          )}
+        >
+          {result}
         </div>
       )}
-      {task.status !== "succeeded" && task.reason && (
-        <div className="mt-1.5 whitespace-pre-wrap break-words text-xs text-muted-foreground">
-          {task.reason}
+      {reason && (
+        <div
+          className={cn(
+            "mt-1.5 whitespace-pre-wrap break-words text-xs text-muted-foreground",
+            clamped && "line-clamp-2"
+          )}
+        >
+          {reason}
         </div>
       )}
       <div className="mt-2 flex items-center gap-2">
+        {long && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? "收起" : "展开"}
+          </Button>
+        )}
         {task.run_id && (
           <Link
             to={`/i/${encodeURIComponent(task.identity_id)}/log?run=${encodeURIComponent(task.run_id)}`}

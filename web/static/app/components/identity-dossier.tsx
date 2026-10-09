@@ -84,6 +84,9 @@ export function IdentityDossier() {
     admission && admission.daily_limit > 0
       ? Math.min(1, admission.used_today / admission.daily_limit)
       : null;
+  // 身处「运行」分区时不显示底部快捷链接：子段（思考者/日程/健康/用量）
+  // 就在同屏，底部再出现同一组入口是同屏重复（且「思考者」同物异名）。
+  const inRunSection = pathname.split("/")[3] === "run";
 
   return (
     <aside className="hidden w-[276px] shrink-0 flex-col gap-3 overflow-y-auto rounded-2xl border border-border bg-card p-3 xl:flex">
@@ -176,18 +179,21 @@ export function IdentityDossier() {
         </div>
       </section>
 
-      {/* 深入链接 */}
-      <div className="mt-auto flex gap-2 px-1 pt-1 text-[12px]">
-        <Link className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" to={`/i/${encodeURIComponent(identityId)}/run/health`}>
-          健康
-        </Link>
-        <Link className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" to={`/i/${encodeURIComponent(identityId)}/run/usage`}>
-          用量
-        </Link>
-        <Link className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" to={`/i/${encodeURIComponent(identityId)}/run/thinkers`}>
-          思考者管理
-        </Link>
-      </div>
+      {/* 深入链接：从其他分区直达运行面常用页；在运行分区内由子段
+          承担，不重复展示（见 inRunSection）。 */}
+      {!inRunSection && (
+        <div className="mt-auto flex gap-2 px-1 pt-1 text-[12px]">
+          <Link className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" to={`/i/${encodeURIComponent(identityId)}/run/health`}>
+            健康
+          </Link>
+          <Link className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" to={`/i/${encodeURIComponent(identityId)}/run/usage`}>
+            用量
+          </Link>
+          <Link className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" to={`/i/${encodeURIComponent(identityId)}/run/thinkers`}>
+            思考者
+          </Link>
+        </div>
+      )}
     </aside>
   );
 }

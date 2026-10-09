@@ -5,7 +5,6 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Link, useLocation, useNavigationType } from "react-router";
 import { toast } from "sonner";
 
-import { CredentialControl } from "~/components/credential-control";
 import { NewTaskDialog } from "~/components/new-task-dialog";
 import { useControlsEnabled } from "~/components/thinker-controls";
 import { Button } from "~/components/ui/button";
@@ -485,9 +484,9 @@ export function NavRail() {
           collapsed ? "items-center gap-1" : "items-start gap-0.5"
         }`}
       >
-        <div className={collapsed ? "" : "px-1.5"}>
-          <CredentialControl compact={collapsed} />
-        </div>
+        {/* 访问凭据入口不在此列：桌面壳与仪表盘走回环、不带 token（壳拉
+            起后端也不传），这里曾是纯噪音；token 部署的录入口在手机/PWA
+            面（talk 路由）与 ?token= 地址吸收（2026-10-06 用户裁决）。 */}
         {config?.git_commit && !collapsed && (
           <div className="px-1.5"><BuildMenu config={config} /></div>
         )}

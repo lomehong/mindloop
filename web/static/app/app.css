@@ -88,7 +88,13 @@
 
 html {
   min-height: 100%;
-  /* Keep layout width stable whether or not a scrollbar is present */
+}
+
+/* 稳定滚动条槽位只留给文档级滚动的页面（talk/PWA，如手机任务页），
+   避免滚动条出现/消失时布局跳动；桌面壳与仪表盘是 h-screen 分栏
+   布局、文档不滚动——槽位在这里只是右缘死区（2026-10-06 反馈：
+   右卡边框离窗沿多出一截）。doc-scroll 由 root.tsx 按 talkMode 挂。 */
+html.doc-scroll {
   scrollbar-gutter: stable;
 }
 

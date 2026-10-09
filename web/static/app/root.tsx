@@ -142,6 +142,12 @@ export default function App() {
     document.documentElement.classList.toggle("in-shell", inShell && !petMode);
   }, [inShell, petMode]);
 
+  // 滚动条稳定槽位只挂在文档级滚动的面（talk/PWA）；桌面壳与仪表盘
+  // 是 h-screen 分栏、文档不滚动，槽位在这里只是右缘死区（见 app.css）。
+  useEffect(() => {
+    document.documentElement.classList.toggle("doc-scroll", talkMode && !petMode);
+  }, [talkMode, petMode]);
+
   useEffect(() => {
     if (petMode) return;
     if ("serviceWorker" in navigator) {
@@ -193,7 +199,10 @@ export default function App() {
               <div className="flex min-w-0 flex-1 flex-col bg-background p-2 pt-11">
                 <div className="flex min-h-0 flex-1 gap-2">
                   <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card">
-                    <div className="flex-1 overflow-y-auto px-5 pt-4 pb-4 sm:px-6">
+                    {/* 无 pt-4：滚动容器的上内边距在吸附头钉住时盖不住，
+                        滚动内容会从这条缝里透上来（身份壳头区"字影"，
+                        2026-10-08 实测）——顶部留白并进头自己的 pt。 */}
+                    <div className="flex-1 overflow-y-auto px-5 pb-4 sm:px-6">
                       {canvas}
                     </div>
                     <StatusDock />

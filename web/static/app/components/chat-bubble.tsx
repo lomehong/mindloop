@@ -31,6 +31,7 @@ export function ChatBubble({
   fromMind,
   onConvertToTask,
   taskHref,
+  domId,
 }: {
   message: ChatMessage;
   mine: boolean;
@@ -44,6 +45,8 @@ export function ChatBubble({
   /** 任务书消息（kind=task）的「查看任务」入口目标；缺省只显示
    * 「任务」徽章（无任务面的宿主）。 */
   taskHref?: string;
+  /** 目录/深链的定位锚点（对话回合大纲用）。 */
+  domId?: string;
 }) {
   const talk = variant === "talk";
   const isTask = message.kind === "task";
@@ -69,7 +72,7 @@ export function ChatBubble({
   if (!talk) {
     const mind = fromMind ?? !mine;
     return (
-      <div className="mb-5">
+      <div className="mb-5" id={domId}>
         <div className="mb-1.5 flex items-baseline gap-2 font-mono text-[10.5px] text-faint">
           <span className="text-muted-foreground">{message.from}</span>
           <span>{messageTime(message.ts)}</span>
@@ -119,7 +122,7 @@ export function ChatBubble({
   }
 
   return (
-    <div className={cn("msg-in flex", mine ? "justify-end" : "justify-start")}>
+    <div className={cn("msg-in flex", mine ? "justify-end" : "justify-start")} id={domId}>
       <div
         className={cn(
           "max-w-[85%] rounded-2xl px-3.5 py-2",

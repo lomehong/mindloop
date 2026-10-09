@@ -139,7 +139,9 @@ export default function IdentityShell() {
 
   return (
     <>
-      <div className="sticky top-0 z-40 -mx-5 -mt-4 mb-4 border-b border-border/70 bg-card/95 px-5 backdrop-blur sm:-mx-6 sm:px-6">
+      {/* 吸附头必须不透明（/95+blur 会透字），且不做 -mt-4 负边距抵消——
+         首屏视觉完全等同，钉住时头能盖满卡片顶带（滚动容器的 pt 已撤）。 */}
+      <div className="sticky top-0 z-40 -mx-5 mb-4 border-b border-border/70 bg-card px-5 pt-3 sm:-mx-6 sm:px-6">
         {/* 搜索在 masthead 行（而非 tab 行）：1280 宽下 7 tab + 视图段 +
             搜索同挤一行会把 tab 压成竖排两字——搜索上移后两行各得其所。 */}
         <div className="flex items-center gap-3 pt-3">

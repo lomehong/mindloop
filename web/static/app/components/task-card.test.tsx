@@ -121,4 +121,16 @@ describe("TaskCard", () => {
     renderCard(<TaskCard task={task({ source_step_id: "s-9" })} />);
     expect(screen.getByText("从消息转来")).toBeDefined();
   });
+
+  it("长内容默认折叠：给出展开钮，点开后变收起", () => {
+    const long = "很长的任务书正文。".repeat(40);
+    renderCard(<TaskCard task={task({ content: long })} />);
+    fireEvent.click(screen.getByRole("button", { name: "展开" }));
+    expect(screen.getByRole("button", { name: "收起" })).toBeDefined();
+  });
+
+  it("短内容不出现展开钮（不添噪声）", () => {
+    renderCard(<TaskCard task={task()} />);
+    expect(screen.queryByRole("button", { name: "展开" })).toBeNull();
+  });
 });

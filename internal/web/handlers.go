@@ -125,6 +125,8 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 		s.handleActivity(w, r, id, rest)
 	case "task-assist":
 		s.handleTaskAssist(w, r, id, rest)
+	case "budget":
+		s.handleBudget(w, r, id, rest)
 	case "mindlog":
 		if len(rest) > 0 && rest[0] == "search" {
 			s.handleMindlogSearch(w, r, id, rest[1:])

@@ -179,7 +179,7 @@ export default function MemoriesPage() {
 
   if (isError) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <QueryErrorBanner error={error} onRetry={() => void refetch()} />
       </div>
     );
@@ -187,7 +187,7 @@ export default function MemoriesPage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 lg:flex-row">
+      <div className="mx-auto flex w-full max-w-7xl 2xl:max-w-[1600px] flex-col gap-4 lg:flex-row">
         <div className="shrink-0 space-y-2 lg:w-80">
           <Skeleton className="h-9 w-full" />
           {Array.from({ length: 6 }).map((_, i) => (
@@ -206,7 +206,7 @@ export default function MemoriesPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl">
+    <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
       {!memories || memories.length === 0 ? (
         <Empty>
           <EmptyHeader>

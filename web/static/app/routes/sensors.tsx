@@ -260,7 +260,7 @@ export default function SensorsPage() {
 
   if (isError) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <QueryErrorBanner error={error} onRetry={() => void refetch()} />
       </div>
     );
@@ -268,7 +268,7 @@ export default function SensorsPage() {
 
   if (isLoading || !view) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <div className="mx-auto w-full max-w-4xl space-y-3.5 pb-10">
           <Skeleton className="h-7 w-56" />
           <Skeleton className="h-40 w-full rounded-xl" />
@@ -293,7 +293,7 @@ export default function SensorsPage() {
       0;
 
   return (
-    <div className="mx-auto w-full max-w-7xl">
+    <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
       <div className="mx-auto w-full max-w-4xl pb-10">
         <div className="mb-4 flex flex-wrap items-baseline gap-3">
           <h1 className="font-note text-[22px] font-semibold tracking-[0.01em]">

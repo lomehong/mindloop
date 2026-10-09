@@ -123,7 +123,7 @@ export default function RecapPage() {
 
   if (isError) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <div className="mx-auto w-full max-w-4xl pb-10">
           <QueryErrorBanner error={error} onRetry={() => void refetch()} />
         </div>
@@ -151,7 +151,7 @@ export default function RecapPage() {
 
   if (!recap.available) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <Empty>
           <EmptyHeader>
             <EmptyTitle>暂无摘要</EmptyTitle>
@@ -179,7 +179,7 @@ export default function RecapPage() {
   const episodes = recap.episodes ?? [];
 
   return (
-    <div className="mx-auto w-full max-w-7xl">
+    <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
       <div className="mx-auto w-full max-w-4xl space-y-8 pb-10">
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs text-muted-foreground">

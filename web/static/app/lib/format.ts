@@ -79,3 +79,22 @@ export function formatDateTime(ts: string): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
+
+/** ISO 时间戳 → 本地日期键（YYYY-MM-DD）。ts 缺失或不可解析返回 null。 */
+export function localDay(ts: string | null | undefined): string | null {
+  if (!ts) return null;
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return null;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** 日期键 → 分组标题：今天/昨天/MM-DD（跨年含年）。 */
+export function dayLabel(day: string, now = new Date()): string {
+  const [y, m, d] = day.split("-").map(Number);
+  const today = localDay(now.toISOString());
+  const yest = localDay(new Date(now.getTime() - 86400_000).toISOString());
+  if (day === today) return "今天";
+  if (day === yest) return "昨天";
+  return y === now.getFullYear() ? `${m}-${d}` : day;
+}

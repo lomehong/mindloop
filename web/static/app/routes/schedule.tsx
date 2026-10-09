@@ -111,7 +111,7 @@ export default function SchedulePage() {
 
   if (isError) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <div className="mx-auto w-full max-w-4xl pb-10">
           <QueryErrorBanner error={error} onRetry={() => void refetch()} />
         </div>
@@ -121,7 +121,7 @@ export default function SchedulePage() {
 
   if (isLoading || !view) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <div className="mx-auto w-full max-w-4xl space-y-4 pb-10">
           <Skeleton className="h-7 w-44" />
           <Skeleton className="h-28 w-full rounded-xl" />
@@ -132,7 +132,7 @@ export default function SchedulePage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl">
+    <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
       <div className="mx-auto w-full max-w-4xl space-y-4 pb-10">
         <div className="flex flex-wrap items-baseline gap-3">
           <h1 className="font-note text-[22px] font-semibold tracking-[0.01em]">

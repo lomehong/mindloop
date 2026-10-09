@@ -31,9 +31,10 @@ import {
   SelectValue,
 } from "~/components/ui/select";
 import { fetchIdentityStatus } from "~/lib/api";
+import { dayLabel, formatClock, localDay } from "~/lib/format";
 import { TrajContext } from "~/lib/traj-context";
 import { useMindlog } from "~/lib/use-mindlog";
-import type { NormalizedStep } from "~/lib/types";
+import type { NormalizedStep, RunGroup } from "~/lib/types";
 
 export function meta() {
   return [{ title: "mindloop · 日志流" }];
@@ -75,6 +76,15 @@ function LogSkeleton() {
   );
 }
 
+/** 运行跳转项标签：MM-DD HH:MM · 思考者 · N 步。 */
+function runOptionLabel(r: RunGroup): string {
+  const day = localDay(r.started_ts);
+  const when = day
+    ? `${dayLabel(day)} ${formatClock(r.started_ts).slice(0, 5)}`
+    : r.started_ts.slice(0, 16);
+  return `${when} · ${r.launched_by ?? "—"} · ${r.step_ids.length}步`;
+}
+
 export default function LogPage() {
   const { identityId = "" } = useParams();
   const [hideParam, setHideParam] = useQueryState(
@@ -86,7 +96,7 @@ export default function LogPage() {
     parseAsString.withDefault("all")
   );
   // 深链（?step=）：分集与搜索命中直接定位到日志流中的一步。
-  const [stepParam] = useQueryState("step", parseAsString.withDefault(""));
+  const [stepParam, setStepParam] = useQueryState("step", parseAsString.withDefault(""));
   const [expandAll, setExpandAll] = useState(false);
 
   const { data: status } = useQuery({
@@ -161,7 +171,7 @@ export default function LogPage() {
   // 大日志渲染慢，重试到元素出现；即时定位 + 600ms 再校准一次——
   // 盖过 FollowPin 首次加载的跳尾与迟到布局。找不到（窗口外的旧运行）
   // 静默放弃。
-  const [runParam] = useQueryState("run", parseAsString.withDefault(""));
+  const [runParam, setRunParam] = useQueryState("run", parseAsString.withDefault(""));
   useEffect(() => {
     if (!runParam || !mindlog) return;
     let tries = 0;
@@ -225,6 +235,35 @@ export default function LogPage() {
     });
   }, [stream, hidden, sourceFilter]);
 
+  // 跳转器（长日志定位，2026-10-06）：日期 → 该日首步；运行 → 运行组
+  // 锚点。两者都走既有 ?step= / ?run= 深链（滚动+闪烁；窗口外步骤自动
+  // 退化为取单步弹窗）。
+  const jumpDays = useMemo(() => {
+    const seen = new Set<string>();
+    const days: string[] = [];
+    for (const s of mindlog?.steps ?? []) {
+      const d = localDay(s.ts);
+      if (d && !seen.has(d)) {
+        seen.add(d);
+        days.push(d);
+      }
+    }
+    return days.sort().reverse();
+  }, [mindlog]);
+  const jumpRuns = useMemo(
+    () =>
+      [...(mindlog?.runs ?? [])].sort((a, b) =>
+        (b.started_ts ?? "").localeCompare(a.started_ts ?? "")
+      ),
+    [mindlog]
+  );
+  const jumpToDay = (day: string) => {
+    const first = (mindlog?.steps ?? []).find(
+      (s) => s.step_id && localDay(s.ts) === day
+    );
+    if (first?.step_id) setStepParam(first.step_id);
+  };
+
   const toggleType = (type: string) => {
     const next = new Set(hidden);
     if (next.has(type)) next.delete(type);
@@ -234,7 +273,7 @@ export default function LogPage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <LogSkeleton />
       </div>
     );
@@ -242,7 +281,7 @@ export default function LogPage() {
 
   if (isError) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <QueryErrorBanner error={error} onRetry={() => void refetch()} />
       </div>
     );
@@ -250,7 +289,7 @@ export default function LogPage() {
 
   if (!mindlog) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <Empty>
           <EmptyHeader>
             <EmptyTitle>暂无轨迹</EmptyTitle>
@@ -263,7 +302,7 @@ export default function LogPage() {
 
   return (
     <TrajContext.Provider value={{ identityId, trajId: mindlog.traj_id }}>
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <span className="font-mono text-xs text-muted-foreground">
             {hiddenOlder > 0
@@ -295,6 +334,43 @@ export default function LogPage() {
         <div className="flex gap-4">
           <aside className="hidden w-52 shrink-0 md:block">
             <div className="sticky top-28 max-h-[calc(100vh-8rem)] space-y-5 overflow-y-auto pb-4">
+              {/* 长日志跳转器：放吸附左栏（翻到哪都在）——放在页头会随
+                  滚动划走，等于没有（2026-10-08 反馈）。 */}
+              <div>
+                <h3 className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-faint">
+                  跳转
+                </h3>
+                <div className="space-y-1.5">
+                  <Select onValueChange={(v) => jumpToDay(v)}>
+                    <SelectTrigger className="h-8 w-full font-mono text-xs">
+                      <SelectValue placeholder="跳到日期…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {jumpDays.map((d) => (
+                        <SelectItem key={d} value={d} className="font-mono text-xs">
+                          {dayLabel(d)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select onValueChange={(v) => setRunParam(v)}>
+                    <SelectTrigger className="h-8 w-full font-mono text-xs">
+                      <SelectValue placeholder="跳到运行…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {jumpRuns.map((r) => (
+                        <SelectItem
+                          key={r.run_id}
+                          value={r.run_id}
+                          className="font-mono text-xs"
+                        >
+                          {runOptionLabel(r)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
               <div>
                 <h3 className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-faint">
                   步骤类型

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SendHorizontal } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
@@ -9,6 +9,7 @@ import {
   PendingChatBubble,
   StreamingChatBubble,
 } from "~/components/chat-bubble";
+import { ChatOutline } from "~/components/chat-outline";
 import { isTaskActive } from "~/components/task-card";
 import { WorkingCard } from "~/components/working-card";
 import { QueryErrorBanner } from "~/components/query-error-banner";
@@ -21,6 +22,7 @@ import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/loading-skeleton";
 import { Textarea } from "~/components/ui/textarea";
 import { useAutosizeTextarea } from "~/hooks/use-autosize-textarea";
+import { dayLabel, localDay } from "~/lib/format";
 import {
   IN_PROGRESS_POLL_MS,
   fetchConfig,
@@ -67,6 +69,8 @@ export default function ChatPage() {
   const [draft, setDraft] = useState("");
   const [myName, setMyName] = useState(storedName);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // 「目录」浮层与滚动联动高亮的挂靠面（消息滚动容器）。
+  const scrollRef = useRef<HTMLDivElement>(null);
   const draftRef = useAutosizeTextarea(draft);
 
   // Seed the from-field default from the CLI (chatrc default_send_from) unless
@@ -180,7 +184,7 @@ export default function ChatPage() {
   }, [itemCount, reply?.text.length, chatActivity.length]);
 
   return (
-    <div className="mx-auto w-full max-w-7xl">
+    <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
       <div className="mx-auto flex w-full max-w-3xl flex-col">
 
       {controlsEnabled && !dispatcherRunning && (
@@ -194,7 +198,11 @@ export default function ChatPage() {
         </div>
       )}
 
-      <div className="flex max-h-[68vh] min-h-[40vh] flex-col overflow-y-auto px-1 py-2">
+      <div className="relative">
+      <div
+        ref={scrollRef}
+        className="flex max-h-[68vh] min-h-[40vh] flex-col overflow-y-auto px-1 py-2"
+      >
         {isLoading ? (
           <div className="space-y-5 py-6">
             <div className="space-y-2">
@@ -218,28 +226,40 @@ export default function ChatPage() {
           </div>
         ) : (
           <>
-            {messages.map((message, idx) => (
+            {messages.map((message, idx) => {
+              const prev = messages[idx - 1];
+              const day = message.ts ? localDay(message.ts) : null;
+              const showDay = day !== null && localDay(prev?.ts ?? null) !== day;
               // "you" was the hardcoded sender before default_send_from existed,
               // so that history is always ours regardless of the current name.
-              <ChatBubble
-                key={message.step_id ?? idx}
-                message={message}
-                mine={message.from === myName || message.from === "you"}
-                fromMind={message.from === identityName}
-                taskHref={
-                  message.kind === "task"
-                    ? `/i/${encodeURIComponent(identityId)}/tasks${
-                        message.task_id
-                          ? `?task=${encodeURIComponent(message.task_id)}`
-                          : ""
-                      }`
-                    : undefined
-                }
-                onConvertToTask={() => {
-                  if (!convertMutation.isPending) convertMutation.mutate(message);
-                }}
-              />
-            ))}
+              return (
+                <Fragment key={message.step_id ?? idx}>
+                  {showDay && (
+                    <div className="my-3 text-center font-mono text-[10px] tracking-[0.12em] text-muted-foreground/60">
+                      {dayLabel(day)}
+                    </div>
+                  )}
+                  <ChatBubble
+                    message={message}
+                    mine={message.from === myName || message.from === "you"}
+                    fromMind={message.from === identityName}
+                    domId={message.step_id ? `msg-${message.step_id}` : undefined}
+                    taskHref={
+                      message.kind === "task"
+                        ? `/i/${encodeURIComponent(identityId)}/tasks${
+                            message.task_id
+                              ? `?task=${encodeURIComponent(message.task_id)}`
+                              : ""
+                          }`
+                        : undefined
+                    }
+                    onConvertToTask={() => {
+                      if (!convertMutation.isPending) convertMutation.mutate(message);
+                    }}
+                  />
+                </Fragment>
+              );
+            })}
             {pending.map((message) => (
               <PendingChatBubble
                 key={`pending-${message.key}`}
@@ -264,6 +284,9 @@ export default function ChatPage() {
           tasksHref={`/i/${encodeURIComponent(identityId)}/tasks`}
         />
         <div ref={bottomRef} />
+      </div>
+      {/* 目录：长对话的回合大纲（按钮 + 浮层，按钮浮于消息区右上） */}
+      <ChatOutline messages={messages} myName={myName} scrollerRef={scrollRef} />
       </div>
 
       {controlsEnabled && (

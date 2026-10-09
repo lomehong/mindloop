@@ -82,7 +82,7 @@ export default function SubTrajPage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <SubTrajSkeleton />
       </div>
     );
@@ -91,7 +91,7 @@ export default function SubTrajPage() {
   // 404 = 轨迹不存在（走"未找到"空态）；其它错误才是故障。
   if (isError && !(error instanceof HttpError && error.status === 404)) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <QueryErrorBanner error={error} onRetry={() => void refetch()} />
       </div>
     );
@@ -99,7 +99,7 @@ export default function SubTrajPage() {
 
   if (!traj) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <Empty>
           <EmptyHeader>
             <EmptyTitle>未找到轨迹</EmptyTitle>
@@ -114,7 +114,7 @@ export default function SubTrajPage() {
 
   return (
     <TrajContext.Provider value={{ identityId, trajId: traj.traj_id }}>
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <span className="flex flex-wrap items-center gap-1.5 font-mono text-xs text-muted-foreground">
             <Link

@@ -20,7 +20,42 @@ import {
   fetchTasks,
   retryTask,
 } from "~/lib/api";
+import { dayLabel, localDay } from "~/lib/format";
 import type { AgentTask, PendingApproval } from "~/lib/types";
+
+/** 任务分组：在途置顶，终态按本地日期（新在前，组内 updated_at 降序）
+ * ——长列表导航（2026-10-06）。 */
+export interface TaskGroup {
+  key: string;
+  label: string;
+  items: AgentTask[];
+}
+
+export function groupTasks(items: AgentTask[]): TaskGroup[] {
+  const desc = (a: AgentTask, b: AgentTask) =>
+    (b.updated_at ?? "").localeCompare(a.updated_at ?? "");
+  const groups: TaskGroup[] = [];
+  const active = items.filter((i) => isTaskActive(i.status)).sort(desc);
+  if (active.length > 0) {
+    groups.push({ key: "active", label: "在途", items: active });
+  }
+  const byDay = new Map<string, AgentTask[]>();
+  for (const item of items) {
+    if (isTaskActive(item.status)) continue;
+    const day = localDay(item.updated_at) ?? "更早";
+    const list = byDay.get(day);
+    if (list) list.push(item);
+    else byDay.set(day, [item]);
+  }
+  for (const day of [...byDay.keys()].sort().reverse()) {
+    groups.push({
+      key: day,
+      label: day === "更早" ? "更早" : dayLabel(day),
+      items: byDay.get(day)!.sort(desc),
+    });
+  }
+  return groups;
+}
 
 export function TasksBoard({
   identityId,
@@ -145,15 +180,24 @@ export function TasksBoard({
           {emptyHint ?? "还没有任务。"}
         </div>
       ) : (
-        items.map((item) => (
-          <TaskCard
-            key={item.task_id}
-            task={item}
-            busy={command.isPending}
-            onCancel={(task) => command.mutate({ task, op: "cancel" })}
-            onRetry={(task) => command.mutate({ task, op: "retry" })}
-          />
-        ))
+        <div className="space-y-4">
+          {groupTasks(items).map((group) => (
+            <section key={group.key} className="space-y-2">
+              <h2 className="px-1 text-xs font-medium text-muted-foreground">
+                {group.label}
+              </h2>
+              {group.items.map((item) => (
+                <TaskCard
+                  key={item.task_id}
+                  task={item}
+                  busy={command.isPending}
+                  onCancel={(task) => command.mutate({ task, op: "cancel" })}
+                  onRetry={(task) => command.mutate({ task, op: "retry" })}
+                />
+              ))}
+            </section>
+          ))}
+        </div>
       )}
     </div>
   );

@@ -896,7 +896,7 @@ export default function Home() {
   }
 
   return (
-    <div className="space-y-3.5">
+    <div className="space-y-3.5 pt-4">
       {masthead}
       <NeedYou rows={signals} pending={signalsPending} />
       {slots.length <= 6 ? (

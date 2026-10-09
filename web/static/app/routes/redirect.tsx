@@ -31,7 +31,7 @@ export default function LegacyRedirect() {
   const target = TARGET[seg];
   if (!target) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <Empty>
           <EmptyHeader>
             <EmptyTitle>404 · 请求的页面不存在</EmptyTitle>

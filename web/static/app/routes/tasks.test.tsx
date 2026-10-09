@@ -8,6 +8,7 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentTask, PendingApproval } from "~/lib/types";
+import { groupTasks } from "~/components/tasks-board";
 import TasksPage from "~/routes/tasks";
 
 function task(overrides: Partial<AgentTask> = {}): AgentTask {
@@ -119,6 +120,8 @@ describe("tasks page", () => {
     expect(screen.getByText("第 2 次执行")).toBeDefined();
     expect(screen.getByText("已完成")).toBeDefined();
     expect(screen.getByText("周报已生成：weekly.md")).toBeDefined();
+    // 分组头：在途置顶（终态按日期分组）。
+    expect(screen.getByText("在途")).toBeDefined();
     const link = screen.getByRole("link", { name: "运行记录" });
     expect(link.getAttribute("href")).toBe("/i/ada/log?run=run-77");
   });
@@ -173,5 +176,30 @@ describe("tasks page", () => {
     renderTasks();
     await screen.findByText(/还没有任务/);
     expect(screen.queryByText("等待批准")).toBeNull();
+  });
+});
+
+describe("groupTasks", () => {
+  it("在途置顶；终态按日期分组、日期新在前", () => {
+    const groups = groupTasks([
+      task({ task_id: "old", status: "succeeded", updated_at: "2026-09-25T10:00:00Z" }),
+      task({ task_id: "run", status: "running", updated_at: "2026-09-25T10:00:00Z" }),
+      task({ task_id: "new", status: "failed", updated_at: "2026-10-06T02:00:00Z" }),
+    ]);
+    expect(groups[0].key).toBe("active");
+    expect(groups[0].label).toBe("在途");
+    expect(groups[0].items.map((t) => t.task_id)).toEqual(["run"]);
+    // 终态两个日期组：新日期在前
+    expect(groups.length).toBe(3);
+    expect(groups[1].items.map((t) => t.task_id)).toEqual(["new"]);
+    expect(groups[2].items.map((t) => t.task_id)).toEqual(["old"]);
+  });
+
+  it("组内按 updated_at 降序（新在前）", () => {
+    const groups = groupTasks([
+      task({ task_id: "a", status: "failed", updated_at: "2026-10-06T01:00:00Z" }),
+      task({ task_id: "b", status: "failed", updated_at: "2026-10-06T03:00:00Z" }),
+    ]);
+    expect(groups[0].items.map((t) => t.task_id)).toEqual(["b", "a"]);
   });
 });

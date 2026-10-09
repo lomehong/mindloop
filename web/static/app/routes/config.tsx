@@ -434,7 +434,7 @@ export default function ConfigPage() {
 
   if (isError) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <QueryErrorBanner error={error} onRetry={() => void refetch()} />
       </div>
     );
@@ -442,7 +442,7 @@ export default function ConfigPage() {
 
   if (isLoading || !env) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <div className="mx-auto w-full max-w-4xl space-y-4 pb-10">
           <Skeleton className="h-7 w-40" />
           <Skeleton className="h-36 w-full rounded-xl" />
@@ -454,7 +454,7 @@ export default function ConfigPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl">
+    <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
       <div className="mx-auto w-full max-w-4xl space-y-4 pb-10">
         <div className="flex flex-wrap items-baseline gap-3">
           <h1 className="font-note text-[22px] font-semibold tracking-[0.01em]">

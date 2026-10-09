@@ -432,7 +432,7 @@ export default function UsagePage() {
 
   if (isError) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <QueryErrorBanner error={error} onRetry={() => void refetch()} />
       </div>
     );
@@ -440,7 +440,7 @@ export default function UsagePage() {
 
   if (isLoading || !usage) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <div className="mx-auto w-full max-w-4xl space-y-3.5 pb-10">
           <Skeleton className="h-7 w-52" />
           <Skeleton className="h-20 w-full rounded-xl" />
@@ -452,7 +452,7 @@ export default function UsagePage() {
 
   if (!usage.available) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <Empty>
           <EmptyHeader>
             <EmptyTitle>暂无用量数据</EmptyTitle>
@@ -520,7 +520,7 @@ export default function UsagePage() {
         : `输入/输出/思考 token。${ledgerSince} 起为每次模型调用（用量台账）；此前只有代理运行（token 标在 reasoning 步骤上），那几天的快速回复与其他思考者调用缺席。`;
 
   return (
-    <div className="mx-auto w-full max-w-7xl">
+    <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
       <div className="mx-auto w-full max-w-4xl pb-10">
         <div className="mb-1.5 flex flex-wrap items-baseline gap-3">
           <h1 className="font-note text-[22px] font-semibold tracking-[0.01em]">

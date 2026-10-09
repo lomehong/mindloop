@@ -572,7 +572,7 @@ export default function ThinkersPage() {
 
   if (isError) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <QueryErrorBanner error={error} onRetry={() => void refetch()} />
       </div>
     );
@@ -580,7 +580,7 @@ export default function ThinkersPage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <div className="mb-6 space-y-3">
           <Skeleton className="h-12 w-full rounded-xl" />
           <Skeleton className="h-24 w-full rounded-xl" />
@@ -595,7 +595,7 @@ export default function ThinkersPage() {
     .filter((name) => name !== "dispatcher.log");
 
   return (
-    <div className="mx-auto w-full max-w-7xl">
+    <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
       <StatusPanel identityId={identityId} />
       {!logs || logs.length === 0 ? (
         <Empty>

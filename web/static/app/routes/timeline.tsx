@@ -107,7 +107,7 @@ export default function TimelinePage() {
 
   if (isError) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <QueryErrorBanner error={error} onRetry={() => void refetch()} />
       </div>
     );
@@ -115,7 +115,7 @@ export default function TimelinePage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <TimelineSkeleton />
       </div>
     );
@@ -123,7 +123,7 @@ export default function TimelinePage() {
 
   if (!mindlog || !layout) {
     return (
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <Empty>
           <EmptyHeader>
             <EmptyTitle>暂无轨迹</EmptyTitle>
@@ -138,7 +138,7 @@ export default function TimelinePage() {
 
   return (
     <TrajContext.Provider value={{ identityId, trajId: mindlog.traj_id }}>
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
         <VitalStrip
           steps={mindlog.steps}
           live={live}
