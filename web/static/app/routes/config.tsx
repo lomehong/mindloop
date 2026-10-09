@@ -5,6 +5,7 @@ import { useParams } from "react-router";
 import { toast } from "sonner";
 
 import { ModelConfigSection } from "~/components/model-config";
+import { BudgetConfig } from "~/components/budget-config";
 import { ProviderProfilesSection } from "~/components/provider-profiles";
 import { QueryErrorBanner } from "~/components/query-error-banner";
 import { AuthenticatedDownload } from "~/components/authenticated-download";
@@ -466,6 +467,8 @@ export default function ConfigPage() {
         </div>
 
         <ProviderProfilesSection identityId={identityId} />
+
+        <BudgetConfig identityId={identityId} />
 
         <ModelConfigSection identityId={identityId} env={env} />
 
