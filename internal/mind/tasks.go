@@ -128,7 +128,7 @@ func (m *monolith) executeTask(ctx context.Context, item task.Task) Outcome {
 		result, runErr = runner.Run(runCtx, runner.Options{
 			Timeline: m.opts.Timeline, Thinker: thinker, Task: item.Content,
 			TaskID: item.ID, Attempt: item.Attempt, RunID: item.RunID,
-			SystemPrompt: m.systemPrompt() + "\n\n当前为显式委托：只完成当前完整任务，不继续其他任务，也不将普通聊天视为授权。最终结果通过 FINAL 回传。",
+			SystemPrompt: m.systemPrompt(item.Content, Wake{}) + "\n\n当前为显式委托：只完成当前完整任务，不继续其他任务，也不将普通聊天视为授权。最终结果通过 FINAL 回传。",
 			LaunchedBy:   m.Name(), MaxIterations: m.opts.TaskMaxIterations,
 			Timeout: m.opts.Timeout, IdleTimeout: m.opts.IdleTimeout,
 			MaxOutputBytes: m.opts.MaxOutputBytes, ExtraEnv: m.opts.ExtraEnv,

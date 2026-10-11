@@ -231,3 +231,66 @@ func TestRemove(t *testing.T) {
 		t.Fatal("删除后应不存在")
 	}
 }
+
+// makeSkill 是定向夹具：name/description 简写生成 SKILL.md。
+func makeSkill(t *testing.T, dir, name, desc string) {
+	t.Helper()
+	body := "---\nname: " + name + "\ndescription: " + desc + "\n---\n\n正文：" + name
+	writeSkill(t, filepath.Join(dir, name), body)
+}
+
+// TestPromptSectionFiltered：技能超限时索引按相关性裁剪——命中的
+// 排前全列，其余折叠为 find 提示；技能不超限时全量同形。
+func TestPromptSectionFiltered(t *testing.T) {
+	dir := t.TempDir()
+	makeSkill(t, dir, "weekly-report", "每周聚合生成周报")
+	makeSkill(t, dir, "health-check", "系统健康巡检")
+	makeSkill(t, dir, "weather-pull", "拉取天气预报")
+	store := Store{Dirs: []string{dir}}
+
+	// 不超限：全量（无 find 提示）。
+	section := store.PromptSectionFiltered("周报", 12)
+	if strings.Contains(section, "另有") || strings.Contains(section, "skills find") {
+		t.Fatalf("不超限不应折叠:\n%s", section)
+	}
+	if !strings.Contains(section, "weekly-report") {
+		t.Fatalf("全量索引缺技能:\n%s", section)
+	}
+
+	// 超限 + 命中：命中的在技能清单区排前（相对顺序，不用绝对字节
+	// ——协议头文字本身就超 400 字节），其余折叠。
+	section = store.PromptSectionFiltered("周报", 2)
+	idxWR := strings.Index(section, "weekly-report")
+	idxHC := strings.Index(section, "health-check")
+	if idxWR == -1 || idxHC == -1 || idxWR > idxHC {
+		t.Fatalf("命中技能应排前:\n%s", section)
+	}
+	if !strings.Contains(section, "另有 1 个技能") || !strings.Contains(section, "skills find") {
+		t.Fatalf("超限应折叠为 find 提示:\n%s", section)
+	}
+
+	// 超限 + 无命中：保持 List 原序（os.ReadDir 字母序）取前 N——
+	// 字母序末位的 weekly-report 被折叠。
+	section = store.PromptSectionFiltered("量子物理", 2)
+	if strings.Contains(section, "weekly-report") {
+		t.Fatalf("无命中时字母序末位技能应被折叠:\n%s", section)
+	}
+}
+
+// TestFind：name/description 的不区分大小写子串匹配；空查询返回全部。
+func TestFind(t *testing.T) {
+	dir := t.TempDir()
+	makeSkill(t, dir, "weekly-report", "每周聚合生成周报")
+	makeSkill(t, dir, "health-check", "系统健康巡检")
+	store := Store{Dirs: []string{dir}}
+
+	if got := len(store.Find("")); got != 2 {
+		t.Fatalf("空查询应返回全部: %d", got)
+	}
+	if got := store.Find("HEALTH"); len(got) != 1 || got[0].Name != "health-check" {
+		t.Fatalf("大小写不敏感匹配失败: %+v", got)
+	}
+	if got := store.Find("周报"); len(got) != 1 || got[0].Name != "weekly-report" {
+		t.Fatalf("description 匹配失败: %+v", got)
+	}
+}

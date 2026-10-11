@@ -47,6 +47,7 @@ markdown 正文）。索引进系统提示，正文由模型按需读取。
 
 	cmd.AddCommand(
 		c.newSkillsListCmd(),
+		c.newSkillsFindCmd(),
 		c.newSkillsShowCmd(),
 		c.newSkillsPromptCmd(),
 		c.newSkillsInstallCmd(),
@@ -54,6 +55,33 @@ markdown 正文）。索引进系统提示，正文由模型按需读取。
 		c.newSkillsRemoveCmd(),
 	)
 	return cmd
+}
+
+// newSkillsFindCmd 是渐进披露第二层的探索口（scene 之外的按需工具
+// 面）：系统提示的技能索引超过阈值只列相关 topN，模型临场缺能力时
+// 经本命令检索全量目录。
+func (c *CLI) newSkillsFindCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "find <关键词>",
+		Short: "按关键词检索技能目录（name/description 子串匹配）",
+		Args:  exactArgs(1, "用法: mindloop skills find <关键词>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store, _, err := c.skillsStore(cmd)
+			if err != nil {
+				return c.fail(err)
+			}
+			items := store.Find(args[0])
+			if len(items) == 0 {
+				fmt.Fprintf(c.stdout, "（没有匹配 %q 的技能）\n", args[0])
+				return nil
+			}
+			for _, it := range items {
+				fmt.Fprintf(c.stdout, "%-20s %-8s %s\n  dir: %s\n",
+					it.Name, it.Source, traj.OneLine(it.Description, 70), it.Dir)
+			}
+			return nil
+		},
+	}
 }
 
 func (c *CLI) newSkillsListCmd() *cobra.Command {

@@ -337,6 +337,65 @@ func (s Store) PromptSection() string {
 	if len(items) == 0 {
 		return ""
 	}
+	return renderSkillSection(items, -1, nil)
+}
+
+// PromptSectionFiltered 是按需披露形态（query 非空且技能数超过 max
+// 时生效）：与当前任务相关的技能排前全列，其余折叠为一条 find
+// 提示——技能目录增长后索引段不再线性膨胀，模型临场缺能力时经
+// `skills find` 补全（渐进披露的第二层）。max <= 0 或技能不超限时
+// 与 PromptSection 全量同形。
+func (s Store) PromptSectionFiltered(query string, max int) string {
+	items, _ := s.List()
+	if len(items) == 0 {
+		return ""
+	}
+	if max <= 0 || len(items) <= max {
+		return renderSkillSection(items, -1, nil)
+	}
+	ranked := rankByRelevance(items, query)
+	return renderSkillSection(ranked[:max], len(items)-max, ranked[max:])
+}
+
+// Find 按关键词过滤技能（`skills find` 的实现）：name/description
+// 的不区分大小写子串匹配，命中在前。query 为空返回全部。
+func (s Store) Find(query string) []Skill {
+	items, _ := s.List()
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return items
+	}
+	var hits []Skill
+	for _, it := range items {
+		if strings.Contains(strings.ToLower(it.Name), q) ||
+			strings.Contains(strings.ToLower(it.Description), q) {
+			hits = append(hits, it)
+		}
+	}
+	return hits
+}
+
+// rankByRelevance 把技能按与 query 的相关性排序（稳定的两档：name
+// 或 description 命中在前，其余保序在后）。子串匹配而非分词——技能
+// 目录量级小，简单规则的可预测性优于评分模型的表面精度。
+func rankByRelevance(items []Skill, query string) []Skill {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return items
+	}
+	var hit, rest []Skill
+	for _, it := range items {
+		if strings.Contains(strings.ToLower(it.Name), q) ||
+			strings.Contains(strings.ToLower(it.Description), q) {
+			hit = append(hit, it)
+		} else {
+			rest = append(rest, it)
+		}
+	}
+	return append(hit, rest...)
+}
+
+func renderSkillSection(items []Skill, hidden int, hiddenItems []Skill) string {
 	var b strings.Builder
 	b.WriteString("## Skills\n\n")
 	b.WriteString("Reusable instruction packs (Agent Skills standard) are available. ")
@@ -348,6 +407,13 @@ func (s Store) PromptSection() string {
 	b.WriteString("Available skills (dir is the path to read):\n")
 	for _, it := range items {
 		fmt.Fprintf(&b, "- %s — %s\n  dir: %s\n", it.Name, it.Description, it.Dir)
+	}
+	// 折叠提示只报数量不报名字——列名字会让提示随技能数膨胀，违背
+	// 折叠初衷；find 的存在已足够引导探索。
+	if hidden > 0 {
+		fmt.Fprintf(&b,
+			"\n另有 %d 个技能未列出——需要时运行 `$MINDLOOP_EXE skills find <关键词>` 检索全部技能目录。\n",
+			hidden)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

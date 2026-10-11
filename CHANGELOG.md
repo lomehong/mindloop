@@ -23,6 +23,21 @@
 
 ### 新增
 
+- **话题线索模型（BaiLongma threads/commitments 的最小形态）**：
+  `internal/thread` + `mindloop thread add|update|list`——话题级的
+  工作指针（弱线索：还没到任务量级但不能忘），状态落
+  `<身份目录>/threads.json`（原子写），心智自组合维护（mem add 同
+  款哲学）。与既有层分工钉死：task=强承诺（状态机）、mem=长期事实、
+  recap=历史、thread=话题指针。wakeTask 注入"开放线索"段（open/
+  parked 新→旧至多 6 条，带 ID/状态/活跃时长/备注，2KB 预算）——
+  "进度怎么样""那个事"的指代解析靠线索清单在眼前，而不是靠模型
+  记住；id 支持唯一前缀（多义拒绝，与 policy.ResolveHash 同款）。
+- **按需技能披露（渐进披露第二层，BaiLongma find_tool 的对应物）**：
+  `skills.PromptSectionFiltered(query, max)`——技能目录超过 12 个时
+  系统提示的技能索引按唤醒任务相关性裁剪（name/description 子串
+  匹配排序，命中的排前全列，其余折叠为一条"另有 N 个"提示）；
+  `mindloop skills find <关键词>` 是临场探索口。技能少时（当前常态）
+  索引全列，零行为变化。
 - **记忆召回台账（参考 BaiLongma 记忆审计）**：monolith 与
   responder 的每次 BM25 记忆检索落一行到
   `<身份目录>/usage/mem-recall.jsonl`（source/查询摘要/命中明细

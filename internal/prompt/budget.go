@@ -29,6 +29,9 @@ const (
 	// DefaultSceneBudget 是界面场景 manifest 段（卡片清单）的上限：
 	// 只含 id/kind/摘要/intent，data 全文不回注。
 	DefaultSceneBudget = 2 * 1024
+	// DefaultThreadBudget 是开放线索段（话题指针）的上限：每条一行，
+	// 至多 6 条——更多靠 recap 的历史粗层。
+	DefaultThreadBudget = 2 * 1024
 )
 
 // Budget 是单次请求的预算账本。非并发安全——一次请求一份。

@@ -17,6 +17,7 @@ import (
 	"github.com/lomehong/mindloop/internal/runner"
 	"github.com/lomehong/mindloop/internal/skills"
 	"github.com/lomehong/mindloop/internal/task"
+	"github.com/lomehong/mindloop/internal/thread"
 	"github.com/lomehong/mindloop/internal/traj"
 )
 
@@ -103,6 +104,10 @@ type MonolithOptions struct {
 	WorkLogBytes int
 	// SceneBytes 是界面场景 manifest 段上限（0 取 DefaultSceneBudget）。
 	SceneBytes int
+	// ThreadDir 是话题线索文件所在目录（<身份目录>）；空 = 不注入。
+	ThreadDir string
+	// ThreadBytes 是开放线索段上限（0 取 DefaultThreadBudget）。
+	ThreadBytes int
 	// RequestThinker 是请求档思考者（可选；nil = 单档）。反应式
 	// 唤醒——外部步骤触发（观察/合并，通常是 responder 报告人类
 	// 来话或外部产物）——用它；自发的定时/watchdog 空唤醒用
@@ -260,7 +265,7 @@ func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
 		Timeline:       m.opts.Timeline,
 		Thinker:        thinker,
 		Task:           m.wakeTask(ctx, reason, w),
-		SystemPrompt:   m.systemPrompt(),
+		SystemPrompt:   m.systemPrompt(reason, w),
 		ContextBudget:  m.opts.ContextBudget,
 		LaunchedBy:     m.Name(),
 		MaxIterations:  m.opts.MaxIterations,
@@ -413,15 +418,22 @@ func (m *monolith) classify(ctx context.Context, res runner.Result, err error) (
 	return ClassWork, fmt.Sprintf("完成一步（%d 轮）: %s", res.Iterations, traj.OneLine(final, 80))
 }
 
+// skillIndexMax 是系统提示技能索引的全量上限：超过即按相关性裁剪
+// （渐进披露第二层——find 兜底）。技能少时（当前常态）索引全列，
+// 无行为变化。
+const skillIndexMax = 12
+
 // systemPrompt 组装人格、循环协议与扩展能力段（技能索引 + MCP
 // 服务器清单——渐进披露：只进"有什么、怎么探索"，不进正文或
-// 工具全表）。人格在前——它是"你是谁"，协议是"你怎么做"。
-func (m *monolith) systemPrompt() string {
+// 工具全表）。人格在前——它是"你是谁"，协议是"你怎么做"。query 是
+// 本次唤醒的任务/消息内容：技能目录超过上限时索引按相关性裁剪，
+// 模型临场缺能力经 `skills find` 补全。
+func (m *monolith) systemPrompt(query string, w Wake) string {
 	base := MonolithSystemPrompt
 	if m.opts.Persona != "" {
 		base = m.opts.Persona + "\n\n---\n\n" + MonolithSystemPrompt
 	}
-	if s := (skills.Store{Dirs: m.opts.SkillsDirs}).PromptSection(); s != "" {
+	if s := (skills.Store{Dirs: m.opts.SkillsDirs}).PromptSectionFiltered(query, skillIndexMax); s != "" {
 		base += "\n\n" + s
 	}
 	if len(m.opts.MCPServers) > 0 {
@@ -524,6 +536,17 @@ func (m *monolith) wakeTask(ctx context.Context, reason string, w Wake) string {
 			b.WriteString(seg)
 		}
 	}
+	// 开放线索（thread）：话题级的工作指针——"进度怎么样""那个事"
+	// 的指代解析靠线索清单在眼前。与任务看板相邻：taskboard 是强
+	// 承诺的状态，thread 是弱线索的上下文，一个回答"要我做什么"、
+	// 一个回答"我们在聊什么"。
+	if m.opts.ThreadDir != "" {
+		if seg := budget.TakeCapped("threads",
+			thread.Manifest(m.opts.ThreadDir, time.Now()), threadCap(m.opts.ThreadBytes)); seg != "" {
+			b.WriteString("\n\n")
+			b.WriteString(seg)
+		}
+	}
 	if m.opts.MemDir != "" {
 		if related := m.relatedMemories(w); len(related) > 0 {
 			var rel strings.Builder
@@ -571,6 +594,14 @@ func workLogCap(v int) int {
 func sceneCap(v int) int {
 	if v <= 0 {
 		return prompt.DefaultSceneBudget
+	}
+	return v
+}
+
+// threadCap 折算开放线索段上限（0 取默认，负值同）。
+func threadCap(v int) int {
+	if v <= 0 {
+		return prompt.DefaultThreadBudget
 	}
 	return v
 }

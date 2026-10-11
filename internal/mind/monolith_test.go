@@ -126,13 +126,13 @@ func TestSystemPromptConnectorDisclosure(t *testing.T) {
 		Timeline:           &traj.Timeline{},
 		ConnectorAddresses: []string{"wecom:HongYan"},
 	}).(*monolith)
-	prompt := m.systemPrompt()
+	prompt := m.systemPrompt("", Wake{})
 	if !strings.Contains(prompt, "Delivery channels") || !strings.Contains(prompt, "wecom:HongYan") {
 		t.Fatalf("披露段缺失: %q", prompt[len(prompt)-300:])
 	}
 
 	empty := NewMonolith(MonolithOptions{Timeline: &traj.Timeline{}}).(*monolith)
-	if strings.Contains(empty.systemPrompt(), "Delivery channels") {
+	if strings.Contains(empty.systemPrompt("", Wake{}), "Delivery channels") {
 		t.Fatal("未配置渠道不应出现披露段")
 	}
 }
