@@ -60,6 +60,11 @@ type OutboundOptions struct {
 	Poll time.Duration
 	// Logger 注入诊断（首启/续读、rewound、投递失败）。
 	Logger func(format string, args ...any)
+	// Ready 在游标三态定位完成后回调（Run 的起跑线）："首启不重放"
+	// 的 EOF 从此刻起算——调用方在此之前写入的消息会被跳过，之后
+	// 写入的才会投递。测试用它在启动与写入之间建立确定性；bridge
+	// 生产路径用它对齐入站泵的启动次序。
+	Ready func()
 }
 
 // Outbound 是出站泵：tail 根轨迹，把 self 发往认领地址的 message
@@ -101,6 +106,9 @@ func (o *Outbound) Run(ctx context.Context) error {
 		o.logf("出站泵续读（offset %d）", cur.Offset())
 	} else {
 		o.logf("出站泵从 EOF 起步（首启或游标损坏，不重放历史）")
+	}
+	if o.opts.Ready != nil {
+		o.opts.Ready()
 	}
 	tick := time.NewTicker(o.opts.Poll)
 	defer tick.Stop()

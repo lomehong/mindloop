@@ -58,16 +58,22 @@ func appendMessage(t *testing.T, tl *traj.Timeline, from, to, content string) tr
 	return s
 }
 
-// startOutbound 启动出站泵，并在测试收尾时等它退出。测试的
-// defer cancel 先于 t.Cleanup 执行，泵收到取消后返回；不等待的话
-// 游标可能还在异步落盘，TempDir 清理与之赛跑（Linux 实证翻车：
-// directory not empty）。泵中途意外死亡（返回非取消错误）在
-// cleanup 报真因——此前泵死了测试只会傻等投递超时，把"goroutine
-// 死亡"误诊成"调度饥饿"。
-func startOutbound(t *testing.T, ob *Outbound, ctx context.Context) {
+// startOutbound 启动出站泵并等它过起跑线（Options.Ready：游标
+// 三态定位完成）。不等待的话"首启不重放"的 EOF 位置不确定——
+// 慢机器上主 goroutine 的 appendMessage 可能先于泵的 LoadCursorAtEnd
+// 完成，测试消息被当成历史跳过（90s 零投递假红的真根因，CI 实证）；
+// 本地快机 goroutine 先跑所以从不复现。收尾语义：defer cancel 先于
+// t.Cleanup 执行，泵收到取消后返回并落盘游标（不等会与 TempDir
+// 清理赛跑）；中途意外死亡（非取消错误）报真因。
+func startOutbound(t *testing.T, ob *Outbound, ready <-chan struct{}, ctx context.Context) {
 	t.Helper()
 	done := make(chan error, 1)
 	go func() { done <- ob.Run(ctx) }()
+	select {
+	case <-ready:
+	case <-time.After(30 * time.Second):
+		t.Fatal("等待出站泵就绪超时")
+	}
 	t.Cleanup(func() {
 		select {
 		case err := <-done:
@@ -119,16 +125,18 @@ func TestOutboundDeliversClaimedOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := &fakeDelivery{}
+	ready := make(chan struct{})
 	ob, err := NewOutbound(OutboundOptions{
 		Path: tl.Path, CursorPath: filepath.Join(dir, "out.cursor"),
 		Self: "ada", Addresses: []string{"wecom:zhangsan"}, Deliver: d, Poll: 20 * time.Millisecond,
+		Ready: func() { close(ready) },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	startOutbound(t, ob, ctx)
+	startOutbound(t, ob, ready, ctx)
 
 	appendMessage(t, tl, "ada", "wecom:zhangsan", "你好")   // 认领：投
 	appendMessage(t, tl, "ada", "operator", "本地对话流")      // 不认领：不投
@@ -163,9 +171,11 @@ func TestOutboundCursorThreeStatesAndRewound(t *testing.T) {
 	appendMessage(t, tl, "ada", "wecom:zhangsan", "历史消息")
 
 	first := &fakeDelivery{}
+	ready := make(chan struct{})
 	ob, _ := NewOutbound(OutboundOptions{
 		Path: tl.Path, CursorPath: cursor,
 		Self: "ada", Addresses: []string{"wecom:zhangsan"}, Deliver: first, Poll: 20 * time.Millisecond,
+		Ready: func() { close(ready) },
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	go ob.Run(ctx)
@@ -176,14 +186,17 @@ func TestOutboundCursorThreeStatesAndRewound(t *testing.T) {
 		t.Fatalf("首启重投了 %d 条历史消息，应为 0", n)
 	}
 
-	// 重启：游标有效 → 续读，只投新消息。
+	// 重启：游标有效 → 续读，只投新消息。同样等起跑线——append 在
+	// LoadCursorAtEnd 之前完成的话消息会被续读 offset 跳过。
 	restart := &fakeDelivery{}
+	ready2 := make(chan struct{})
 	ob2, _ := NewOutbound(OutboundOptions{
 		Path: tl.Path, CursorPath: cursor,
 		Self: "ada", Addresses: []string{"wecom:zhangsan"}, Deliver: restart, Poll: 20 * time.Millisecond,
+		Ready: func() { close(ready2) },
 	})
 	ctx2, cancel2 := context.WithCancel(context.Background())
-	go ob2.Run(ctx2)
+	startOutbound(t, ob2, ready2, ctx2)
 	appendMessage(t, tl, "ada", "wecom:zhangsan", "重启后的新消息")
 	waitForDelivery(t, restart, 1)
 	sent := restart.snapshot()
@@ -201,13 +214,15 @@ func TestOutboundCursorThreeStatesAndRewound(t *testing.T) {
 		t.Fatal(err)
 	}
 	after := &fakeDelivery{}
+	ready3 := make(chan struct{})
 	ob3, _ := NewOutbound(OutboundOptions{
 		Path: tl.Path, CursorPath: cursor,
 		Self: "ada", Addresses: []string{"wecom:zhangsan"}, Deliver: after, Poll: 20 * time.Millisecond,
+		Ready: func() { close(ready3) },
 	})
 	ctx3, cancel3 := context.WithCancel(context.Background())
 	defer cancel3()
-	startOutbound(t, ob3, ctx3)
+	startOutbound(t, ob3, ready3, ctx3)
 	time.Sleep(300 * time.Millisecond) // rewound 弃批消费窗
 	appendMessage(t, tl, "ada", "wecom:zhangsan", "替换后的新消息")
 	waitForDelivery(t, after, 1)
@@ -227,14 +242,16 @@ func TestOutboundRetryExhaustedDrops(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := &fakeDelivery{failN: 1}
+	ready := make(chan struct{})
 	ob, _ := NewOutbound(OutboundOptions{
 		Path: tl.Path, CursorPath: filepath.Join(dir, "out.cursor"),
 		Self: "ada", Addresses: []string{"wecom:zhangsan"}, Deliver: d,
 		Retry: 1, Poll: 20 * time.Millisecond,
+		Ready: func() { close(ready) },
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	startOutbound(t, ob, ctx)
+	startOutbound(t, ob, ready, ctx)
 
 	appendMessage(t, tl, "ada", "wecom:zhangsan", "第一条（将失败丢弃）")
 	waitForDelivery(t, d, 1)
@@ -299,9 +316,11 @@ func TestOutboundSavesCursorEvenWithoutDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	cursor := filepath.Join(dir, "not-created-subdir", "out.cursor")
+	ready := make(chan struct{})
 	ob, err := NewOutbound(OutboundOptions{
 		Path: tl.Path, CursorPath: cursor,
 		Self: "ada", Addresses: []string{"wecom:u"}, Deliver: &fakeDelivery{}, Poll: 20 * time.Millisecond,
+		Ready: func() { close(ready) },
 	})
 	if err != nil {
 		t.Fatal(err)
