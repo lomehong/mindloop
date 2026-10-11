@@ -61,15 +61,22 @@ func appendMessage(t *testing.T, tl *traj.Timeline, from, to, content string) tr
 // startOutbound 启动出站泵，并在测试收尾时等它退出。测试的
 // defer cancel 先于 t.Cleanup 执行，泵收到取消后返回；不等待的话
 // 游标可能还在异步落盘，TempDir 清理与之赛跑（Linux 实证翻车：
-// directory not empty）。
+// directory not empty）。泵中途意外死亡（返回非取消错误）在
+// cleanup 报真因——此前泵死了测试只会傻等投递超时，把"goroutine
+// 死亡"误诊成"调度饥饿"。
 func startOutbound(t *testing.T, ob *Outbound, ctx context.Context) {
 	t.Helper()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_ = ob.Run(ctx)
-	}()
-	t.Cleanup(func() { <-done })
+	done := make(chan error, 1)
+	go func() { done <- ob.Run(ctx) }()
+	t.Cleanup(func() {
+		select {
+		case err := <-done:
+			if err != nil && !errors.Is(err, context.Canceled) {
+				t.Fatalf("出站泵意外退出: %v", err)
+			}
+		default:
+		}
+	})
 }
 
 // waitForDelivery 轮询等待投递数达到 n。

@@ -112,7 +112,13 @@ func (o *Outbound) Run(ctx context.Context) error {
 		case <-tick.C:
 			steps, rewound, err := cur.ReadNewWithRewind()
 			if err != nil {
-				return err
+				// 读取暂时性失败（写者并发/AV 扫描/短暂共享冲突）：
+				// 记日志、本拍跳过、下拍重试。泵绝不能因一次读失败
+				// 静默死亡——那是桥接断供事故源（CI 满负载实证：
+				// goroutine 死后测试只见零投递，傻等 90s 超时）。
+				// 游标未推进，重试语义安全。
+				o.logf("读取轨迹失败（本拍跳过，下拍重试）: %v", err)
+				continue
 			}
 			if rewound {
 				// 轨迹被替换/截断：本批是重放，弃批——readNew 已把
