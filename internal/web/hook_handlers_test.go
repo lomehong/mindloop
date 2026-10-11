@@ -37,15 +37,27 @@ type hookClient struct {
 	events func() []traj.Step
 }
 
+// hookNameSeq 是 hook 测试身份的唯一序号：hookStates 是包级全局
+// （键 = 身份/感官，跨测试存活），同名身份的同载荷会命中上一轮的
+// 去重指纹（-count=2 实证假红）——身份名唯一 + cleanup 清槽双保险。
+var hookNameSeq int
+
 // setupHook 建一个带 webhook 感官（id=hook1）的身份 + 测试服务器。
 func setupHook(t *testing.T, sensorCfg string) hookClient {
 	t.Helper()
+	hookNameSeq++
+	name := fmt.Sprintf("hook-%d", hookNameSeq)
 	home := t.TempDir()
 	t.Setenv("MINDLOOP_HOME", home)
-	id, err := identity.Create(context.Background(), "ada")
+	id, err := identity.Create(context.Background(), name)
 	if err != nil {
 		t.Fatalf("Create identity: %v", err)
 	}
+	t.Cleanup(func() {
+		hookStatesMu.Lock()
+		delete(hookStates, name+"/hook1")
+		hookStatesMu.Unlock()
+	})
 	cfg := fmt.Sprintf(`{"version":1,"sensors":[%s]}`, sensorCfg)
 	if err := os.WriteFile(filepath.Join(id.Dir, "sensors.json"), []byte(cfg), 0o644); err != nil {
 		t.Fatalf("写 sensors.json: %v", err)
@@ -53,7 +65,7 @@ func setupHook(t *testing.T, sensorCfg string) hookClient {
 	ts, _ := newTestServer(t, home, "")
 	c := hookClient{base: ts.URL}
 	c.post = func(sensorPath, body, tsStr, sig string) *http.Response {
-		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/hook/ada/"+sensorPath, strings.NewReader(body))
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/hook/"+name+"/"+sensorPath, strings.NewReader(body))
 		req.Header.Set("X-Mindloop-Timestamp", tsStr)
 		req.Header.Set("X-Mindloop-Signature", "sha256="+sig)
 		resp, err := http.DefaultClient.Do(req)
