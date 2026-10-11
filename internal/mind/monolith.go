@@ -101,6 +101,8 @@ type MonolithOptions struct {
 	PrefetchBytes int
 	// WorkLogBytes 是最近工作段上限（0 取 DefaultWorkLogBudget）。
 	WorkLogBytes int
+	// SceneBytes 是界面场景 manifest 段上限（0 取 DefaultSceneBudget）。
+	SceneBytes int
 	// RequestThinker 是请求档思考者（可选；nil = 单档）。反应式
 	// 唤醒——外部步骤触发（观察/合并，通常是 responder 报告人类
 	// 来话或外部产物）——用它；自发的定时/watchdog 空唤醒用
@@ -510,6 +512,18 @@ func (m *monolith) wakeTask(ctx context.Context, reason string, w Wake) string {
 			b.WriteString(seg)
 		}
 	}
+	// 界面场景 manifest（scene.md §5.2）：注入"舞台上有什么"
+	//（id/kind/一行摘要/intent），绝不注入 data 全文——模型据此按
+	// id 引用更新、主动清场、感知画面密度。scene 步骤原文已在渲染
+	// 层排除（prompt.dropProtocolSteps），此段是模型看到卡片的唯一
+	// 通道。scene 步骤的 payload 只由 ui set（模型自己/审批钩子）
+	// 写入，信任级与自主产物一致，回注是"用户看得到这些"的对齐。
+	if scene := m.sceneManifest(); scene != "" {
+		if seg := budget.TakeCapped("scene", scene, sceneCap(m.opts.SceneBytes)); seg != "" {
+			b.WriteString("\n\n")
+			b.WriteString(seg)
+		}
+	}
 	if m.opts.MemDir != "" {
 		if related := m.relatedMemories(w); len(related) > 0 {
 			var rel strings.Builder
@@ -551,6 +565,28 @@ func workLogCap(v int) int {
 		return prompt.DefaultWorkLogBudget
 	}
 	return v
+}
+
+// sceneCap 折算界面场景 manifest 段上限（0 取默认，负值同）。
+func sceneCap(v int) int {
+	if v <= 0 {
+		return prompt.DefaultSceneBudget
+	}
+	return v
+}
+
+// sceneManifest 从轨迹折叠出当前场景的 manifest 段（现场 replay：
+// 每次唤醒一次全量折叠，MB 级轨迹毫秒级，与 relatedMemories 的读取
+// 同量级；不维护长驻 Store——判重在 ui set 的 CLI 进程做，这里只
+// 派生只读视图）。
+func (m *monolith) sceneManifest() string {
+	steps, err := m.opts.Timeline.Steps()
+	if err != nil {
+		return ""
+	}
+	store := NewSceneStore()
+	store.Replay(steps)
+	return store.Manifest()
 }
 
 // workLogWindow 是最近工作段的时间窗：更早的工作结论由 recap 分集

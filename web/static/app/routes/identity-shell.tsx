@@ -7,6 +7,7 @@ import { fetchIdentities } from "~/lib/api";
 import { phaseFor } from "~/lib/pet-state";
 import type { SearchHit } from "~/lib/types";
 import { cn } from "~/lib/utils";
+import { SceneLayer } from "~/components/scene-layer";
 
 // 身份页骨架（docs/designs/ui-language.md §5/§6）：单头 masthead（生物 ·
 // 名字 · 状态芯片）+ 7 tab（轨迹/对话/任务/记忆/运行/感知/设置）+ 子页段；
@@ -178,6 +179,7 @@ export default function IdentityShell() {
         </div>
       </div>
       <Outlet />
+      <SceneLayer identityId={identityId} />
     </>
   );
 }

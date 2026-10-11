@@ -125,9 +125,16 @@ func (h *streamHub) unsubscribe(sub *streamSub) {
 			close(sub.ch)
 		}
 	}
-	empty := len(w.subs) == 0
+	empty := len(w.subs) == 0 && len(w.sceneSubs) == 0
 	if empty && !w.stopped {
 		w.stopped = true
+		// 场景订阅者随观察器一并弃用：重连走全量快照，不丢状态。
+		for s := range w.sceneSubs {
+			delete(w.sceneSubs, s)
+			if !s.lagged {
+				close(s.ch)
+			}
+		}
 		close(w.done)
 	}
 	w.mu.Unlock()
@@ -217,6 +224,11 @@ type identityWatcher struct {
 	sizes       map[string]int64
 	tlOffset    int64
 	tlPending   []byte
+
+	// 场景折叠状态与订阅者（scene_stream.go）：scene 步骤经
+	// pollTrail 逐行流入 applySceneLine 折叠广播。
+	scene     *sceneSurfaces
+	sceneSubs map[*sceneSub]bool
 
 	// 事件日志：序号 + 环形缓冲（断线续接的窗口）
 	seq     int64
@@ -469,6 +481,11 @@ func (w *identityWatcher) emitStepLocked(line []byte) {
 	}
 	if json.Unmarshal(line, &raw) != nil {
 		return
+	}
+	if raw.Type == traj.TypeScene {
+		// 界面场景步骤：折叠进场景状态并广播 patch（scene_stream.go）
+		// ——同时照常走 step 帧下发（时间线端的展示由前端决定）。
+		w.applySceneLine(line)
 	}
 	switch raw.Type {
 	case traj.TypeTrajectory, traj.TypeRun, traj.TypePrompt:

@@ -26,6 +26,9 @@ const (
 	// DefaultWorkLogBudget 是最近工作段（唤醒级工作结论清单）的上限：
 	// 每条一行式摘要，防跨唤醒重复执行同等工作。
 	DefaultWorkLogBudget = 4 * 1024
+	// DefaultSceneBudget 是界面场景 manifest 段（卡片清单）的上限：
+	// 只含 id/kind/摘要/intent，data 全文不回注。
+	DefaultSceneBudget = 2 * 1024
 )
 
 // Budget 是单次请求的预算账本。非并发安全——一次请求一份。

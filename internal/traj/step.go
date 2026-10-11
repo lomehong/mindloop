@@ -57,14 +57,24 @@ const (
 	// 身份目录 screens/ 不进轨迹（append-only JSONL 不背二进制）；
 	// runner 把运行内的最新 screen 步骤转成 llm 图片消息（视觉回
 	// 路的轨迹溯源：哪一轮看了哪张屏，路径在此）。
+	TypeScene = "scene" // 界面场景声明（ui set 写入，scene.md §3）：
+	// op=upsert|remove + surface id/kind/intent/summary/data——
+	// "场景即数据"：轨迹是唯一事实源，投影端折叠步骤流即得当前
+	// 场景；渲染层排除原文（manifest 回注代替，防止 data 全文重放）。
+	TypeIntent = "intent" // 界面意图回流（scene/intent 端点写入）：
+	// surface + name + data——用户在卡片上的有语义交互（v1 只有
+	// choice→审批一条闭环，其余只落轨迹作上下文，不叫醒心智）。
 )
 
 // reservedTypes 是结构性步骤类型，它们永远不会从环境继承 run id
 // （与 Headlong 的 trajectory / shellm-run 规则相同，防止嵌套运行
-// 被打上启动者的簿记标记）。
+// 被打上启动者的簿记标记）。scene/intent 是界面协议的声明与回流，
+// 与运行循环无关，同为结构性类型。
 var reservedTypes = map[string]bool{
 	TypeTrajectory: true,
 	TypeRun:        true,
+	TypeScene:      true,
+	TypeIntent:     true,
 }
 
 // IsReservedType 报告 typ 是否为结构性步骤类型。

@@ -93,7 +93,9 @@ const API_URL_RE =
 // mimosa-ignore: ssrf — 浏览器端 fetch：同源校验 + 字符白名单双重
 // 收口，重定向已禁用（redirect: "error"）；目标是用户自己的仪表盘
 // 源，私网可达是自托管的产品语义，不是 SSRF 攻击面。
-async function apiRequest(url: string, init: RequestInit = {}): Promise<Response> {
+/** apiRequest 供同目录的流客户端复用（scene.ts）：鉴权头、同源守卫、
+ * 凭据注入都是同一套——scene 流不是第二条通道。 */
+export async function apiRequest(url: string, init: RequestInit = {}): Promise<Response> {
   if (typeof window !== "undefined") {
     const target = new URL(url, window.location.href);
     const base = new URL(`${API_BASE}/api/`, window.location.href);

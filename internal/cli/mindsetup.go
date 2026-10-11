@@ -90,7 +90,7 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 	}
 
 	// 上下文字节预算：总量 + 分段上限（未配置取默认语义）。
-	ctxBytes, memBytes, sumBytes, preBytes, workBytes := contextBudgets()
+	ctxBytes, memBytes, sumBytes, preBytes, workBytes, sceneBytes := contextBudgets()
 
 	// 执行授权：自主行动与显式任务共用同一门（policy.Gate 实现
 	// runner.BeforeExecute）；等待审批时经 WaitHook 同步任务
@@ -122,6 +122,7 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 		SummaryBytes:       sumBytes,
 		PrefetchBytes:      preBytes,
 		WorkLogBytes:       workBytes,
+		SceneBytes:         sceneBytes,
 		EnableRecap:        true,
 		Snapshots:          snapshotsFromEnv(),
 		SkillsDirs:         skillsDirs,
@@ -168,12 +169,13 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 // contextBudgets 读取上下文预算环境变量：MINDLOOP_CONTEXT_BYTES
 // （单次请求输入总量）、MINDLOOP_MEMORY_BYTES（相关记忆段）、
 // MINDLOOP_SUMMARY_BYTES（摘要/分集段）、MINDLOOP_PREFETCH_BYTES
-// （预热缓存段）、MINDLOOP_WORKLOG_BYTES（最近工作段）。未设置或
-// 非法返回 0——默认语义，不因配置错误拦启动。
-func contextBudgets() (total, memory, summary, prefetch, worklog int) {
+// （预热缓存段）、MINDLOOP_WORKLOG_BYTES（最近工作段）、
+// MINDLOOP_SCENE_BYTES（界面场景 manifest 段）。未设置或非法返回
+// 0——默认语义，不因配置错误拦启动。
+func contextBudgets() (total, memory, summary, prefetch, worklog, scene int) {
 	return envBytes("MINDLOOP_CONTEXT_BYTES"), envBytes("MINDLOOP_MEMORY_BYTES"),
 		envBytes("MINDLOOP_SUMMARY_BYTES"), envBytes("MINDLOOP_PREFETCH_BYTES"),
-		envBytes("MINDLOOP_WORKLOG_BYTES")
+		envBytes("MINDLOOP_WORKLOG_BYTES"), envBytes("MINDLOOP_SCENE_BYTES")
 }
 
 // envBytes 解析正整数字节配置（空/非法/非正值均返回 0）。

@@ -23,6 +23,18 @@
 
 ### 新增
 
+- **Scene Protocol（Agent 驱动界面，Phase 1 协议骨架，设计
+  docs/designs/scene.md）**：心智以"声明状态"驱动仪表盘卡片面——
+  `UI = f(scene)`，core 不碰像素，投影端只渲染。轨迹即场景：
+  `type=scene` 步骤（upsert/remove + id/kind/intent/summary/data）是
+  唯一事实源，web watcher 折叠广播 SSE patch，断线重连发全量快照
+  （状态漂移在数学上不可能）。工具面 `mindloop ui set|list`（幂等
+  upsert：同 id 同内容判重不落轨迹；密度上限 8 张；data ≤16KB）；
+  manifest 回注唤醒提示（id/kind/一行摘要/intent，data 全文绝不
+  回注——prompt.Render 同步排除 scene 步骤原文，红线"注入舞台上
+  有什么，绝不注入长什么样"）。前端 SceneLayer 浮层 + SurfaceView
+  kind 注册表（text/progress + 未知 kind 降级占位），confront 卡
+  居中聚焦（Phase 2 接审批闭环）。
 - **最近工作段（行动日志摘要，参考 BaiLongma action log）**：唤醒
   提示新增"最近完成的工作"清单——action 步骤（唤醒级工作结论）的
   一行式摘要，新→旧、7 天窗口、至多 8 条，受预算保护（

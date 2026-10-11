@@ -228,6 +228,7 @@ func (o Options) limitFor(i, n int) int {
 // 空行合并，满足 provider 对 user/assistant 交替的要求。
 func Render(steps []traj.Step, opts Options) []Message {
 	opts = opts.withDefaults()
+	steps = dropProtocolSteps(steps)
 	n := len(steps)
 	if n == 0 {
 		return nil
@@ -295,6 +296,21 @@ func Render(steps []traj.Step, opts Options) []Message {
 		msgs = fitBudget(steps, opts, msgs)
 	}
 	return msgs
+}
+
+// dropProtocolSteps 过滤界面协议步骤（scene/intent，scene.md §5.2
+// 渲染排除）：卡片 data 全文回放是上下文浪费且违背"注入舞台上
+// 有什么、绝不注入长什么样"的红线——模型侧由 manifest 回注段代替
+// （mind.SceneStore 派生），intent 面向人。原文永远可 traj show 取回。
+func dropProtocolSteps(steps []traj.Step) []traj.Step {
+	out := steps[:0:0]
+	for _, s := range steps {
+		if s.Type == traj.TypeScene || s.Type == traj.TypeIntent {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // resolvePins 把 id 前缀解析为步骤下标（每个前缀取首个命中）。
