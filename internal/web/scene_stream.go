@@ -209,6 +209,10 @@ func (s *Server) routeScene(w http.ResponseWriter, r *http.Request, id *identity
 		s.handleSceneStream(w, r, id)
 		return
 	}
+	if len(rest) == 1 && rest[0] == "intent" {
+		s.handleSceneIntent(w, r, id)
+		return
+	}
 	writeError(w, http.StatusNotFound, "未知 scene 端点")
 }
 

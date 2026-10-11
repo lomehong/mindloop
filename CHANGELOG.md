@@ -23,6 +23,15 @@
 
 ### 新增
 
+- **Scene Protocol Phase 2（choice 卡 + 审批桌面化，confront 闭环）**：
+  approval 模式的待批脚本现在在仪表盘上有一张 confront 聚焦卡——
+  gate 装配层的 sceneApprovalHook 在阻塞等待前发卡（choice：允许/
+  拒绝，脚本全文与工作目录随卡可见），离开等待（批准/拒绝/超时/
+  取消）撤卡；前端点击选项经 `POST /scene/intent` 回流（intent
+  步骤落轨迹），后端按 `approve-<hash8>` 前缀经 policy.ResolveHash
+  换回完整 hash 走 policy.Decide——gate 轮询消费决策文件放行/拒绝。
+  与企微审批卡共存同一待批队列（先点的生效，决定晚到不残留）；
+  非审批 intent 只落轨迹作上下文，永不叫醒心智。
 - **Scene Protocol（Agent 驱动界面，Phase 1 协议骨架，设计
   docs/designs/scene.md）**：心智以"声明状态"驱动仪表盘卡片面——
   `UI = f(scene)`，core 不碰像素，投影端只渲染。轨迹即场景：

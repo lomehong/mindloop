@@ -126,3 +126,24 @@ export async function openSceneStream(
   handleLine(buffer); // 流尾的未决事件
   dispatch();
 }
+
+/** intent 上行（scene.md §3.4）：surface + name + 载荷。choice 卡
+ * 的 select 由后端换回审批 hash 走 policy.Decide；其余意图只落轨迹
+ * 作上下文。 */
+export async function postSceneIntent(
+  identityId: string,
+  intent: { surface: string; name: string; data?: Record<string, unknown> }
+): Promise<void> {
+  const response = await apiRequest(
+    `${API_BASE}/api/identities/${encodeURIComponent(identityId)}/scene/intent`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(intent),
+    }
+  );
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`intent 上行失败（${response.status}）：${text.slice(0, 200)}`);
+  }
+}

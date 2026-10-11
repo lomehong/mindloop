@@ -94,12 +94,14 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 
 	// 执行授权：自主行动与显式任务共用同一门（policy.Gate 实现
 	// runner.BeforeExecute）；等待审批时经 WaitHook 同步任务
-	// awaiting_approval 状态，chat 场景的审批提示经 o.logger 进终端。
+	// awaiting_approval 状态、发仪表盘 confront 审批卡（scene.md §6），
+	// chat 场景的审批提示经 o.logger 进终端。
 	gate := policy.NewGate(policy.Dir(id.Timeline.Dir), policy.ModeFromEnv())
 	gate.AutoReadOnly = policy.AutoReadOnlyFromEnv()
 	gate.Tripwire = policy.TripwireFromEnv()
 	gate.Logger = o.logger
-	gate.WaitHook = taskApprovalHook(id.Timeline, id.Name)
+	gate.WaitHook = composeWaitHooks(taskApprovalHook(id.Timeline, id.Name),
+		sceneApprovalHook(id.Timeline, o.logger))
 
 	dispatcher := mind.NewDispatcher(id.Timeline, o.poll)
 	dispatcher.SetLogger(o.logger)
@@ -328,6 +330,62 @@ func taskApprovalHook(tl *traj.Timeline, owner string) func(runner.Execution, bo
 		}
 		_, _ = store.Advance(ctx, ex.TaskID, task.Event{State: state, Attempt: ex.Attempt, RunID: ex.RunID})
 	}
+}
+
+// sceneApprovalHook 把审批等待投影成仪表盘的 confront 卡（scene.md
+// §6）：进入等待发 choice 卡（confront + focus），离开等待（批准/
+// 拒绝/超时/取消——WaitHook 的离开回调覆盖所有结局）撤卡。surface
+// id = approve-<hash 前 8 位>：intent 回流按前缀经 policy.ResolveHash
+// 换回完整 hash。落盘失败静默——卡片是增强，审批主体是决策文件
+// 机制，卡片缺席不能反过来打断授权流。
+func sceneApprovalHook(tl *traj.Timeline, logger func(string, ...any)) func(runner.Execution, bool) {
+	return func(ex runner.Execution, waiting bool) {
+		surfaceID := "approve-" + policy.ScriptHash(ex.Script)[:8]
+		if !waiting {
+			if err := appendSceneStep(tl, map[string]any{"op": "remove", "id": surfaceID}); err != nil && logger != nil {
+				logger("审批卡撤销失败: %v", err)
+			}
+			return
+		}
+		data, _ := json.Marshal(map[string]any{
+			"prompt": "允许执行以下脚本？",
+			"options": []map[string]any{
+				{"value": "approve", "label": "允许", "tone": "primary"},
+				{"value": "deny", "label": "拒绝", "tone": "danger"},
+			},
+			"context": map[string]any{"script": ex.Script, "work_dir": ex.WorkDir},
+		})
+		fields := map[string]any{
+			"op": "upsert", "id": surfaceID, "kind": "choice",
+			"intent": "confront", "focus": "true",
+			"summary": oneLineOf(ex.Script), "data": string(data),
+		}
+		if err := appendSceneStep(tl, fields); err != nil && logger != nil {
+			logger("审批卡发送失败: %v", err)
+		}
+	}
+}
+
+// composeWaitHooks 顺序组合多个 WaitHook——任务状态与场景卡的更新
+// 互不依赖，单一失败不应短路其他钩子。
+func composeWaitHooks(hooks ...func(runner.Execution, bool)) func(runner.Execution, bool) {
+	return func(ex runner.Execution, waiting bool) {
+		for _, h := range hooks {
+			if h != nil {
+				h(ex, waiting)
+			}
+		}
+	}
+}
+
+// oneLineOf 取脚本首个非空行（审批卡摘要）。
+func oneLineOf(script string) string {
+	for _, line := range strings.Split(script, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			return traj.OneLine(trimmed, 80)
+		}
+	}
+	return "(空脚本)"
 }
 
 // clearStopFlag 消费残留的停机标志：上次会话可能带着未消费的

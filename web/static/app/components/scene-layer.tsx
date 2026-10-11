@@ -5,7 +5,7 @@
  * kind 注册表：不认识的 kind 降级为 text 占位（title=kind），不得
  * 崩溃——对应协议"shell 不认识的 kind 应当降级渲染或忽略"。 */
 import { useEffect, useRef, useState } from "react";
-import { openSceneStream, type SceneSurface, type SceneState } from "~/lib/scene";
+import { openSceneStream, postSceneIntent, type SceneSurface, type SceneState } from "~/lib/scene";
 import { cn } from "~/lib/utils";
 
 const EMPTY_SCENE: SceneState = { rev: 0, surfaces: [] };
@@ -46,8 +46,11 @@ function useSceneStream(identityId: string): SceneState {
 
 /** SurfaceCard 是 kind 注册表：每种 kind 一个渲染函数。data 是纯
  * 展示数据——组件不 eval、不注入 DOM，React 默认转义即达标。 */
-function SurfaceCard({ surface }: { surface: SceneSurface }) {
+function SurfaceCard({ surface, identityId }: { surface: SceneSurface; identityId: string }) {
   const { kind, data, summary } = surface;
+  if (kind === "choice") {
+    return <ChoiceCard surface={surface} identityId={identityId} />;
+  }
   if (kind === "text") {
     return (
       <div>
@@ -104,6 +107,74 @@ function SurfaceCard({ surface }: { surface: SceneSurface }) {
   );
 }
 
+/** ChoiceCard 是 confront 决策卡（scene.md §6 审批桌面化）：选项
+ * 点击即 intent 回流（POST /scene/intent），审批类 surface 由后端
+ * 换回 hash 走 policy.Decide。点击后本地锁定（"已提交，等待执行"
+ *）——卡片本身的消失由服务端撤卡驱动（WaitHook 离开回调），前端
+ * 不猜测结果。 */
+function ChoiceCard({ surface, identityId }: { surface: SceneSurface; identityId: string }) {
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const options = Array.isArray(surface.data?.options)
+    ? (surface.data?.options as Array<{ value: string; label: string; tone?: string }>)
+    : [];
+  const promptText =
+    typeof surface.data?.prompt === "string" && surface.data?.prompt
+      ? (surface.data?.prompt as string)
+      : surface.summary;
+
+  const submit = async (value: string) => {
+    if (pending) return;
+    setPending(value);
+    try {
+      await postSceneIntent(identityId, {
+        surface: surface.id,
+        name: "select",
+        data: { value },
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setPending(null);
+    }
+  };
+
+  return (
+    <div>
+      <div className="mb-2 text-[13px] font-medium text-foreground">{promptText}</div>
+      {typeof (surface.data?.context as Record<string, unknown> | undefined)?.script === "string" && (
+        <pre className="mb-3 max-h-40 overflow-auto rounded-md bg-muted p-2 text-[11px] leading-relaxed text-foreground/80">
+          {(surface.data?.context as Record<string, unknown>).script as string}
+        </pre>
+      )}
+      <div className="flex gap-2">
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            disabled={pending !== null}
+            onClick={() => submit(o.value)}
+            className={cn(
+              "flex-1 rounded-lg border px-3 py-1.5 text-[13px] transition-colors disabled:opacity-50",
+              o.tone === "danger"
+                ? "border-destructive/40 text-destructive hover:bg-destructive/10"
+                : "border-primary/40 text-primary hover:bg-primary/10",
+              pending === o.value && "bg-primary/10"
+            )}
+          >
+            {pending === o.value ? "已提交…" : o.label}
+          </button>
+        ))}
+      </div>
+      {pending !== null && (
+        <div className="mt-2 text-[11px] text-muted-foreground">
+          已提交，等待心智继续执行；卡片会在决策生效后自动消失
+        </div>
+      )}
+      {error && <div className="mt-2 text-[11px] text-destructive">{error}</div>}
+    </div>
+  );
+}
+
 /** SceneLayer 是身份页的全局卡片面：挂在 identity-shell 的 Outlet
  * 旁，任何 tab 都在场。confront 卡居中聚焦（遮罩），其余右上角
  * 堆叠；同一时刻至多一张 confront（协议约束 focus 唯一）。 */
@@ -131,7 +202,7 @@ export function SceneLayer({ identityId }: { identityId: string }) {
                 s.intent === "ambient" && "opacity-75"
               )}
             >
-              <SurfaceCard surface={s} />
+              <SurfaceCard surface={s} identityId={identityId} />
             </div>
           ))}
         </div>
@@ -139,7 +210,7 @@ export function SceneLayer({ identityId }: { identityId: string }) {
       {confront && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
           <div className="mx-4 w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-2xl">
-            <SurfaceCard surface={confront} />
+            <SurfaceCard surface={confront} identityId={identityId} />
           </div>
         </div>
       )}
