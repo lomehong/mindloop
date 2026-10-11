@@ -33,7 +33,13 @@ func (c *CLI) newScheduleCmd() *cobra.Command {
 
 quiet 窗口（"HH:MM-HH:MM"，允许跨午夜）只约束 task 条目：at 条目
 到点落在窗口内则顺延到窗口终点；巡检条目窗口内直接蒸发（错过的
-检查不补）；exec 条目不受 quiet 限制。`,
+检查不补）；exec 条目不受 quiet 限制。
+
+预热缓存（ACI）：every+exec 条目成功执行的 stdout 自动落为
+<身份目录>/prefetch/<id>.json，心智组装上下文时把有效期内（=every
+周期）的产物注入提示——模型开口前信息已备好，不必重查。缺省开启；
+大而无用输出的条目（如备份脚本）加 "prefetch": false 关闭。手动
+mindloop schedule run 同样刷新缓存。`,
 	}
 	cmd.AddCommand(
 		c.newScheduleListCmd(),

@@ -62,6 +62,11 @@ type Item struct {
 	// Days 限定星期（逗号分隔 mon/tue/wed/thu/fri/sat/sun，如
 	// "mon"）；空 = 每天。周报类条目用它与 at 组成"每周一 HH:MM"。
 	Days string `json:"days,omitempty"`
+	// Prefetch 控制成功执行的 stdout 是否落为预热缓存（ACI：
+	// 产物在有效期=every 周期内注入心智上下文，模型开口前系统已
+	// 备好信息）。nil 视为 true（零配置预热）；false 显式关闭——
+	// 备份类脚本的大而无用输出不该吃上下文预算。仅 exec 条目有效。
+	Prefetch *bool `json:"prefetch,omitempty"`
 }
 
 // File 是 schedule.json 的结构。
@@ -100,6 +105,8 @@ type Parsed struct {
 	// 指定星期触发（周报类）；空 = 每天。
 	HasDays bool
 	Days    [7]bool
+	// Prefetch 是预热开关的折叠值（仅 exec 条目可能为 true）。
+	Prefetch bool
 }
 
 // Parse 解析并逐条校验日程文件：文件级语法错误返回 err；条目级问题
@@ -129,7 +136,8 @@ func Parse(data []byte) ([]Parsed, []string, error) {
 		}
 		seen[it.ID] = true
 
-		p := Parsed{Item: it, Enabled: it.Enabled == nil || *it.Enabled}
+		p := Parsed{Item: it, Enabled: it.Enabled == nil || *it.Enabled,
+			Prefetch: it.Prefetch == nil || *it.Prefetch}
 		hasEvery := strings.TrimSpace(it.Every) != ""
 		hasAt := strings.TrimSpace(it.At) != ""
 		hasExec := strings.TrimSpace(it.Exec) != ""
@@ -454,6 +462,10 @@ type Options struct {
 	ReportTo string
 	// Execute 是 exec 条目的执行器；nil 时用沙箱默认实现（测试注入用）。
 	Execute func(ctx context.Context, p Parsed) ExecOutcome
+	// PrefetchDir 是预热缓存目录（ACI：exec 成功输出的落盘处，心智
+	// 侧按有效期注入上下文）。空 = 不落盘（向后兼容；CLI 与 web 的
+	// 手动执行同走此选项）。目录由本包按需创建。
+	PrefetchDir string
 	// Logger 注入重要事件（失败、警告）；成功执行只进文件。
 	Logger func(format string, args ...any)
 }
@@ -464,6 +476,9 @@ type ExecOutcome struct {
 	Duration time.Duration
 	Err      error
 	Detail   string // 失败时的输出尾部（单行化）
+	// Output 是成功执行的 stdout（截断到 maxPrefetchBytes）。预热
+	// 缓存的原料：失败路径为空（失败走 Alert，不进上下文）。
+	Output string
 }
 
 // ItemState 是单个条目的状态投影。
@@ -664,8 +679,10 @@ func (r *Runtime) tickPatrol(ctx context.Context, p Parsed, now time.Time) {
 	r.submitFire(ctx, p, Fire{Planned: planned, At: now}, now)
 }
 
-// recordExec 记一次 exec 执行的结果（日志 + 状态投影 + 失败告警）。
+// recordExec 记一次 exec 执行的结果（日志 + 状态投影 + 失败告警 +
+// 预热缓存落点）。
 func (r *Runtime) recordExec(p Parsed, now time.Time, o ExecOutcome) {
+	r.recordPrefetch(p, now, o)
 	if o.Err != nil {
 		suffix := ""
 		if o.Detail != "" {

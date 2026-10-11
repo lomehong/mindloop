@@ -42,15 +42,21 @@ func (r *Runtime) executeSandbox(ctx context.Context, p Parsed) ExecOutcome {
 			detail = strings.TrimSpace(res.Stdout)
 		}
 		out.Detail = oneLine(detail, 2000)
+	} else {
+		// 成功输出是预热缓存的原料（ACI）：TrimRight 掉尾部换行，
+		// 空输出保持空——recordPrefetch 据此清掉旧缓存（宁缺毋假）。
+		out.Output = strings.TrimRight(res.Stdout, "\n")
 	}
 	return out
 }
 
 // ExecuteNow 手动执行一个 exec 条目（CLI schedule run）：同步执行、
 // 结果原样返回；只落一行日志，不动调度状态投影——手动触发不是
-// 日程节拍的一部分。
+// 日程节拍的一部分。预热缓存照常刷新：内容过时想让模型拿到新数据
+// 时，手动 run 是显式刷新入口。
 func (r *Runtime) ExecuteNow(ctx context.Context, p Parsed) ExecOutcome {
 	out := r.opts.Execute(ctx, p)
+	r.recordPrefetch(p, time.Now(), out)
 	if out.Err != nil {
 		suffix := ""
 		if out.Detail != "" {

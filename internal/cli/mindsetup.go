@@ -89,8 +89,8 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 		return nil, fmt.Errorf("mind: 加载 persona（人格残缺时拒绝启动心智）: %w", err)
 	}
 
-	// 上下文字节预算：总量 + 两个分段上限（未配置取默认语义）。
-	ctxBytes, memBytes, sumBytes := contextBudgets()
+	// 上下文字节预算：总量 + 三个分段上限（未配置取默认语义）。
+	ctxBytes, memBytes, sumBytes, preBytes := contextBudgets()
 
 	// 执行授权：自主行动与显式任务共用同一门（policy.Gate 实现
 	// runner.BeforeExecute）；等待审批时经 WaitHook 同步任务
@@ -116,9 +116,11 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 		Persona:            persona,
 		SelfName:           id.Name, // 轮次耗尽的工作摘要以身份名署名投递 operator
 		MemDir:             filepath.Join(id.Dir, "memories"),
+		PrefetchSeg:        func() string { return schedule.RenderPrefetch(prefetchDir(id), time.Now()) },
 		ContextBudget:      ctxBytes,
 		MemoryBytes:        memBytes,
 		SummaryBytes:       sumBytes,
+		PrefetchBytes:      preBytes,
 		EnableRecap:        true,
 		Snapshots:          snapshotsFromEnv(),
 		SkillsDirs:         skillsDirs,
@@ -164,10 +166,12 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 
 // contextBudgets 读取上下文预算环境变量：MINDLOOP_CONTEXT_BYTES
 // （单次请求输入总量）、MINDLOOP_MEMORY_BYTES（相关记忆段）、
-// MINDLOOP_SUMMARY_BYTES（摘要/分集段）。未设置或非法返回 0——
-// 默认语义，不因配置错误拦启动。
-func contextBudgets() (total, memory, summary int) {
-	return envBytes("MINDLOOP_CONTEXT_BYTES"), envBytes("MINDLOOP_MEMORY_BYTES"), envBytes("MINDLOOP_SUMMARY_BYTES")
+// MINDLOOP_SUMMARY_BYTES（摘要/分集段）、MINDLOOP_PREFETCH_BYTES
+// （预热缓存段）。未设置或非法返回 0——默认语义，不因配置错误
+// 拦启动。
+func contextBudgets() (total, memory, summary, prefetch int) {
+	return envBytes("MINDLOOP_CONTEXT_BYTES"), envBytes("MINDLOOP_MEMORY_BYTES"),
+		envBytes("MINDLOOP_SUMMARY_BYTES"), envBytes("MINDLOOP_PREFETCH_BYTES")
 }
 
 // envBytes 解析正整数字节配置（空/非法/非正值均返回 0）。
@@ -239,16 +243,23 @@ func schedulePaths(id *identity.Identity) (schedulePath, logPath, statePath stri
 func assembleSchedule(id *identity.Identity, extraEnv []string, logger func(string, ...any)) *schedule.Runtime {
 	schedulePath, logPath, statePath := schedulePaths(id)
 	return schedule.New(schedule.Options{
-		Path:      schedulePath,
-		Dir:       id.Dir,
-		LogPath:   logPath,
-		StatePath: statePath,
-		Env:       extraEnv,
-		ReportTo:  reportTo(),
-		Logger:    logger,
-		Submit:    scheduleSubmitter(id),
-		Alert:     scheduleAlerter(id, logger),
+		Path:        schedulePath,
+		Dir:         id.Dir,
+		LogPath:     logPath,
+		StatePath:   statePath,
+		Env:         extraEnv,
+		ReportTo:    reportTo(),
+		PrefetchDir: prefetchDir(id),
+		Logger:      logger,
+		Submit:      scheduleSubmitter(id),
+		Alert:       scheduleAlerter(id, logger),
 	})
+}
+
+// prefetchDir 是身份预热缓存目录（ACI）：exec 条目成功输出的落盘处，
+// monolith 经 PrefetchSeg 闭包读取同一路径——写读两侧共用一个约定。
+func prefetchDir(id *identity.Identity) string {
+	return filepath.Join(id.Dir, "prefetch")
 }
 
 // scheduleAlerter 返回 exec 失败告警的写出口：alert 步骤是代码写入

@@ -20,6 +20,9 @@ const (
 	DefaultContextBudget = 128 * 1024
 	DefaultMemoryBudget  = 8 * 1024
 	DefaultSummaryBudget = 16 * 1024
+	// DefaultPrefetchBudget 是预热缓存段（日程 exec 产物）的上限：
+	// 周期性只读命令的 stdout，价值密度低于记忆，超限按新鲜度截断。
+	DefaultPrefetchBudget = 6 * 1024
 )
 
 // Budget 是单次请求的预算账本。非并发安全——一次请求一份。

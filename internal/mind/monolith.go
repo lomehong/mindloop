@@ -92,6 +92,13 @@ type MonolithOptions struct {
 	// EnableRecap 开启分层上下文：每次唤醒先补齐缺失的情节摘要
 	//（每次至多 2 条，成本阀），并把"人生分集"作为上下文粗层。
 	EnableRecap bool
+	// PrefetchSeg 返回预热缓存注入段（ACI：日程 exec 条目的周期性
+	// 只读产物，系统在模型开口前已备好）。nil = 未启用。装配层闭包
+	// 调 schedule.RenderPrefetch——mind 不 import schedule（与
+	// Schedule 接口同一依赖倒置）。段按预算裁剪，为空则不注入。
+	PrefetchSeg func() string
+	// PrefetchBytes 是预热缓存段上限（0 取 DefaultPrefetchBudget）。
+	PrefetchBytes int
 	// RequestThinker 是请求档思考者（可选；nil = 单档）。反应式
 	// 唤醒——外部步骤触发（观察/合并，通常是 responder 报告人类
 	// 来话或外部产物）——用它；自发的定时/watchdog 空唤醒用
@@ -473,6 +480,15 @@ func (m *monolith) wakeTask(ctx context.Context, reason string, w Wake) string {
 			b.WriteString(seg)
 		}
 	}
+	// 预热缓存（ACI）：日程 exec 条目的周期性产物已备好，模型直接
+	// 引用即可，省掉"想起来要查→调工具→等结果"的整条链路。段在
+	// 任务看板之后、人生分集之前——它是环境信息，不是自传。
+	if m.opts.PrefetchSeg != nil {
+		if seg := budget.TakeCapped("prefetch", m.opts.PrefetchSeg(), prefetchCap(m.opts.PrefetchBytes)); seg != "" {
+			b.WriteString("\n\n")
+			b.WriteString(seg)
+		}
+	}
 	if m.opts.EnableRecap {
 		if life, err := recap.RenderAutonomousLife(m.opts.Timeline.Dir, 20); err == nil && life != "" {
 			if seg := budget.TakeCapped("recap", life, summaryCap(m.opts.SummaryBytes)); seg != "" {
@@ -504,6 +520,14 @@ func (m *monolith) wakeTask(ctx context.Context, reason string, w Wake) string {
 func memoryCap(v int) int {
 	if v <= 0 {
 		return prompt.DefaultMemoryBudget
+	}
+	return v
+}
+
+// prefetchCap 折算预热缓存段上限（0 取默认，负值同）。
+func prefetchCap(v int) int {
+	if v <= 0 {
+		return prompt.DefaultPrefetchBudget
 	}
 	return v
 }
