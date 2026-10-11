@@ -11,6 +11,7 @@ import (
 	"github.com/lomehong/mindloop/internal/ids"
 	"github.com/lomehong/mindloop/internal/llm"
 	"github.com/lomehong/mindloop/internal/mem"
+	"github.com/lomehong/mindloop/internal/profile"
 	"github.com/lomehong/mindloop/internal/obs"
 	"github.com/lomehong/mindloop/internal/prompt"
 	"github.com/lomehong/mindloop/internal/recap"
@@ -108,6 +109,10 @@ type MonolithOptions struct {
 	ThreadDir string
 	// ThreadBytes 是开放线索段上限（0 取 DefaultThreadBudget）。
 	ThreadBytes int
+	// ProfileDir 是操作员画像文件所在目录（<身份目录>）；空 = 不注入。
+	ProfileDir string
+	// ProfileBytes 是用户画像段上限（0 取 DefaultProfileBudget）。
+	ProfileBytes int
 	// RequestThinker 是请求档思考者（可选；nil = 单档）。反应式
 	// 唤醒——外部步骤触发（观察/合并，通常是 responder 报告人类
 	// 来话或外部产物）——用它；自发的定时/watchdog 空唤醒用
@@ -547,6 +552,15 @@ func (m *monolith) wakeTask(ctx context.Context, reason string, w Wake) string {
 			b.WriteString(seg)
 		}
 	}
+	// 用户画像（常驻蒸馏层）：沟通风格/偏好等稳定特征——不依赖
+	// BM25 命中，永远在场。放注入段末尾：它是背景中的背景。
+	if m.opts.ProfileDir != "" {
+		if seg := budget.TakeCapped("profile",
+			profile.Manifest(m.opts.ProfileDir), profileCap(m.opts.ProfileBytes)); seg != "" {
+			b.WriteString("\n\n")
+			b.WriteString(seg)
+		}
+	}
 	if m.opts.MemDir != "" {
 		if related := m.relatedMemories(w); len(related) > 0 {
 			var rel strings.Builder
@@ -602,6 +616,14 @@ func sceneCap(v int) int {
 func threadCap(v int) int {
 	if v <= 0 {
 		return prompt.DefaultThreadBudget
+	}
+	return v
+}
+
+// profileCap 折算用户画像段上限（0 取默认，负值同）。
+func profileCap(v int) int {
+	if v <= 0 {
+		return prompt.DefaultProfileBudget
 	}
 	return v
 }

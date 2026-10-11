@@ -32,6 +32,8 @@ const (
 	// DefaultThreadBudget 是开放线索段（话题指针）的上限：每条一行，
 	// 至多 6 条——更多靠 recap 的历史粗层。
 	DefaultThreadBudget = 2 * 1024
+	// DefaultProfileBudget 是用户画像段的上限：蒸馏属性常驻上下文。
+	DefaultProfileBudget = 2 * 1024
 )
 
 // Budget 是单次请求的预算账本。非并发安全——一次请求一份。

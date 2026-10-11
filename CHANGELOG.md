@@ -46,6 +46,13 @@
   `GET /mem-recall?limit=N` 读台账尾部；记忆页顶部加召回统计卡
   （命中合计/注入与无命中次数/平均耗时）。台账是观测面不是事实源：
   坏行跳过、写失败不影响召回。
+- **操作员画像（常驻蒸馏层，BaiLongma 用户画像的最小形态）**：
+  `internal/profile` + `mindloop profile set|list|remove`——稳定特征
+  （沟通风格/技术领域/偏好）落 `<身份目录>/profile.json`（属性 +
+  证据来源步骤，原子写），心智自组合维护。与 mem 的分工：mem 是
+  可检索层（BM25 命中才出现），画像是常驻层（每次唤醒/回复都在）。
+  wakeTask/responder 注入"用户画像"段（按 key 排序，2KB 预算，
+  MINDLOOP_PROFILE_BYTES），与最新对话冲突时以对话为准。
 - **Scene Protocol Phase 2（choice 卡 + 审批桌面化，confront 闭环）**：
   approval 模式的待批脚本现在在仪表盘上有一张 confront 聚焦卡——
   gate 装配层的 sceneApprovalHook 在阻塞等待前发卡（choice：允许/

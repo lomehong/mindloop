@@ -10,6 +10,7 @@ import (
 	"github.com/lomehong/mindloop/internal/llm"
 	"github.com/lomehong/mindloop/internal/mem"
 	"github.com/lomehong/mindloop/internal/obs"
+	"github.com/lomehong/mindloop/internal/profile"
 	"github.com/lomehong/mindloop/internal/prompt"
 	"github.com/lomehong/mindloop/internal/runner"
 	"github.com/lomehong/mindloop/internal/traj"
@@ -53,6 +54,11 @@ type ResponderOptions struct {
 	// SummaryBudget 是工作摘要段（progressDigest）的字节上限
 	// （0 取 prompt.DefaultSummaryBudget）。
 	SummaryBudget int
+	// ProfileDir 是操作员画像目录（<身份目录>）；非空时注入用户
+	// 画像段（常驻蒸馏层，与 monolith 同源）。
+	ProfileDir string
+	// ProfileBytes 是用户画像段上限（0 取默认）。
+	ProfileBytes int
 	// MemDir 是记忆目录。非空时把与本次消息 BM25 相关的记忆注入
 	// 系统提示（与 monolith 同款：线索而非已验证事实，ID 与来源
 	// 步骤供追溯）——responder 此前对记忆全盲，agent 会在对话里
@@ -365,6 +371,14 @@ func (r *Responder) compose(ctx context.Context, person, inbound string, stream 
 	}
 	if err := budget.TakeProtected("user", inbound); err != nil {
 		return "", err
+	}
+	// 用户画像（常驻蒸馏层）：对话面的语气与详略据此调整——与
+	// monolith 同一来源（profile.json），口径不漂移。
+	if r.opts.ProfileDir != "" {
+		if seg := budget.TakeCapped("profile",
+			profile.Manifest(r.opts.ProfileDir), profileCap(r.opts.ProfileBytes)); seg != "" {
+			system += "\n\n" + seg
+		}
 	}
 	system += budget.TakeCapped("digest", r.progressDigest(), summaryCap(r.opts.SummaryBudget))
 	if seg := budget.TakeCapped("memory", r.relatedMemories(inbound), memoryCap(r.opts.MemoryBytes)); seg != "" {
