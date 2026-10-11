@@ -21,8 +21,8 @@ func TestWakeTaskIncludesPrefetchSegment(t *testing.T) {
 
 	seg := "预取缓存（日程预热产物，系统已备好——需要时直接引用，不必重查；过期后由日程自动刷新）：\n- [weather] 刚刚\n  北京 晴 18°C"
 	m := NewMonolith(MonolithOptions{
-		Timeline: tl,
-		Thinker:  &scriptThinker{responses: []string{fence(`FINAL="IDLE"`)}},
+		Timeline:    tl,
+		Thinker:     &scriptThinker{responses: []string{fence(`FINAL="IDLE"`)}},
 		PrefetchSeg: func() string { return seg },
 	}).(*monolith)
 

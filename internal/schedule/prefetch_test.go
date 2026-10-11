@@ -72,8 +72,8 @@ func TestRecordPrefetchWritesOnSuccess(t *testing.T) {
 func TestRecordPrefetchClearsOnFailureDisableEmpty(t *testing.T) {
 	// 三种"不该有缓存"的情形都清掉旧文件：宁缺毋假。
 	for name, outcome := range map[string]ExecOutcome{
-		"执行失败":  {ExitCode: 1, Err: errors.New("退出码 1")},
-		"输出为空":   {ExitCode: 0, Output: ""},
+		"执行失败": {ExitCode: 1, Err: errors.New("退出码 1")},
+		"输出为空": {ExitCode: 0, Output: ""},
 	} {
 		rt, dir := newPrefetchRuntime(t, `{"items":[{"id":"w","every":"30m","exec":"x"}]}`)
 		parseItems(t, rt, `{"items":[{"id":"w","every":"30m","exec":"x"}]}`)

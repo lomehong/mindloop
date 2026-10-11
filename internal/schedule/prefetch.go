@@ -28,7 +28,7 @@ const maxPrefetchBytes = 8 * 1024
 // PrefetchEntry 是预热缓存文件的落盘形态。
 type PrefetchEntry struct {
 	ID      string `json:"id"`
-	At      string `json:"at"` // RFC3339，采集时刻（本地时区）
+	At      string `json:"at"`      // RFC3339，采集时刻（本地时区）
 	Seconds int    `json:"seconds"` // 采集周期（= 缓存有效期）
 	Content string `json:"content"`
 }
