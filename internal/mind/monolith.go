@@ -99,6 +99,8 @@ type MonolithOptions struct {
 	PrefetchSeg func() string
 	// PrefetchBytes 是预热缓存段上限（0 取 DefaultPrefetchBudget）。
 	PrefetchBytes int
+	// WorkLogBytes 是最近工作段上限（0 取 DefaultWorkLogBudget）。
+	WorkLogBytes int
 	// RequestThinker 是请求档思考者（可选；nil = 单档）。反应式
 	// 唤醒——外部步骤触发（观察/合并，通常是 responder 报告人类
 	// 来话或外部产物）——用它；自发的定时/watchdog 空唤醒用
@@ -497,6 +499,17 @@ func (m *monolith) wakeTask(ctx context.Context, reason string, w Wake) string {
 			}
 		}
 	}
+	// 最近工作（行动日志摘要）：唤醒级工作结论的一行式清单。轨迹
+	// 渲染的尾窗只有 50 条，一两次多轮唤醒后更早的 action 步骤就
+	// 滑进省略区——模型看不到"我刚做过什么"就会重复执行同等工作
+	//（BaiLongma 行动日志的动机，action 步骤即 mindloop 的事实源）。
+	// 段受预算保护，绝不随窗口省略。
+	if work := m.recentWork(time.Now()); work != "" {
+		if seg := budget.TakeCapped("worklog", work, workLogCap(m.opts.WorkLogBytes)); seg != "" {
+			b.WriteString("\n\n")
+			b.WriteString(seg)
+		}
+	}
 	if m.opts.MemDir != "" {
 		if related := m.relatedMemories(w); len(related) > 0 {
 			var rel strings.Builder
@@ -530,6 +543,58 @@ func prefetchCap(v int) int {
 		return prompt.DefaultPrefetchBudget
 	}
 	return v
+}
+
+// workLogCap 折算最近工作段上限（0 取默认，负值同）。
+func workLogCap(v int) int {
+	if v <= 0 {
+		return prompt.DefaultWorkLogBudget
+	}
+	return v
+}
+
+// workLogWindow 是最近工作段的时间窗：更早的工作结论由 recap 分集
+// 覆盖（粗层），这里只补"最近一周做过什么"的细粒度，不重复记账。
+const workLogWindow = 7 * 24 * time.Hour
+
+// workLogMax 条数上限：一行式摘要的清单价值在 5-8 条，再多模型
+// 也记不住，纯吃预算。
+const workLogMax = 8
+
+// recentWork 把最近的 action 步骤（唤醒级工作结论）渲染成一行式
+// 清单——新→旧、7 天窗口、至多 8 条。授权边界与 AutonomousSteps
+// 同构：只取 context_kind=autonomous 的步骤——无章的裸 action 不
+// 进自主上下文（防对话/任务流文本借"工作结论"之名重放）。无结论
+// 返回空串。
+func (m *monolith) recentWork(now time.Time) string {
+	steps, err := m.opts.Timeline.Steps()
+	if err != nil {
+		return ""
+	}
+	var lines []string
+	for i := len(steps) - 1; i >= 0 && len(lines) < workLogMax; i-- {
+		s := steps[i]
+		if s.Type != traj.TypeAction {
+			continue
+		}
+		if kind, _ := s.Field("context_kind"); kind != "autonomous" {
+			continue
+		}
+		at, err := time.Parse(traj.TimeFormat, s.TS)
+		if err != nil || now.Sub(at) > workLogWindow {
+			continue
+		}
+		content, _ := s.Field("content")
+		if content == "" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("- [%s] %s", at.Local().Format("01-02 15:04"), traj.OneLine(content, 120)))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "最近完成的工作（唤醒级结论，新→旧；已做过的事不要重复做，可在其上继续）：\n" +
+		strings.Join(lines, "\n")
 }
 
 // relatedMemories 用近期思维流的文本作为查询，检索记忆库。

@@ -23,6 +23,9 @@ const (
 	// DefaultPrefetchBudget 是预热缓存段（日程 exec 产物）的上限：
 	// 周期性只读命令的 stdout，价值密度低于记忆，超限按新鲜度截断。
 	DefaultPrefetchBudget = 6 * 1024
+	// DefaultWorkLogBudget 是最近工作段（唤醒级工作结论清单）的上限：
+	// 每条一行式摘要，防跨唤醒重复执行同等工作。
+	DefaultWorkLogBudget = 4 * 1024
 )
 
 // Budget 是单次请求的预算账本。非并发安全——一次请求一份。
