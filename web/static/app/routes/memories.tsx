@@ -28,6 +28,7 @@ import {
 import {
   fetchIdentityStatus,
   fetchMemories,
+    fetchMemRecall,
   fetchMemory,
   invalidateMemory,
   pollWhileLive,
@@ -115,6 +116,23 @@ export default function MemoriesPage() {
     queryFn: () => fetchMemories(identityId),
     refetchInterval: pollWhileLive(live),
   });
+
+  const { data: recall } = useQuery({
+    queryKey: ["mem-recall", identityId],
+    queryFn: () => fetchMemRecall(identityId, 20),
+    refetchInterval: pollWhileLive(live),
+  });
+
+  const recallStats = useMemo(() => {
+    const rows = recall ?? [];
+    if (rows.length === 0) return null;
+    const totalHits = rows.reduce((a, r) => a + r.hit_count, 0);
+    const injected = rows.filter((r) => r.injected > 0).length;
+    const skipped = rows.filter((r) => r.skipped).length;
+    const avgMs =
+      rows.reduce((a, r) => a + (r.elapsed_ms ?? 0), 0) / rows.length;
+    return { total: rows.length, totalHits, injected, skipped, avgMs };
+  }, [recall]);
 
   const types = useMemo(() => {
     const counts = new Map<string, number>();
@@ -207,6 +225,27 @@ export default function MemoriesPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
+      {recallStats && (
+        <div className="mb-4 rounded-xl border border-line bg-card/60 px-4 py-3">
+          <div className="mb-1 text-[12px] font-medium text-foreground">
+            召回统计（最近 {recallStats.total} 次检索）
+          </div>
+          <div className="flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-muted-foreground">
+            <span>
+              命中合计 <span className="tabular-nums text-foreground">{recallStats.totalHits}</span>
+            </span>
+            <span>
+              注入 {recallStats.injected} 次 · 无命中跳过 {recallStats.skipped} 次
+            </span>
+            <span>
+              平均耗时{" "}
+              <span className="tabular-nums text-foreground">
+                {recallStats.avgMs >= 1 ? `${Math.round(recallStats.avgMs)}ms` : "<1ms"}
+              </span>
+            </span>
+          </div>
+        </div>
+      )}
       {!memories || memories.length === 0 ? (
         <Empty>
           <EmptyHeader>

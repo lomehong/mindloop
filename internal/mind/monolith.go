@@ -652,15 +652,45 @@ func (m *monolith) relatedMemories(w Wake) []string {
 			n++
 		}
 	}
-	hits, err := store.Search(query.String(), 3)
+	return m.searchAndAudit(store, query.String(), "monolith")
+}
+
+// searchAndAudit 是记忆检索的统一出口：检索 + 召回台账一行（obs/
+// mem-recall.jsonl）——命中什么、注入几条、耗时多少从此可观测。
+// 台账写失败不影响召回（观测面是增强）。
+func (m *monolith) searchAndAudit(store mem.Store, query, source string) []string {
+	start := time.Now()
+	hits, err := store.Search(query, 3)
+	elapsed := time.Since(start)
+	row := obs.RecallRow{
+		TS:        time.Now().UTC().Format(time.RFC3339Nano),
+		Source:    source,
+		Query:     obs.RecallQuerySummary(query),
+		QueryLen:  len(query),
+		ElapsedMS: elapsed.Milliseconds(),
+	}
 	if err != nil {
+		row.Skipped = "error"
+		row.Error = err.Error()
+		obs.RecordRecall(m.opts.Timeline.Dir, row, m.opts.SetLogger)
 		return nil
 	}
-	var out []string
+	row.HitCount = len(hits)
 	for _, h := range hits {
-		out = append(out, memoryHitLine(h))
+		row.Hits = append(row.Hits, obs.RecallHit{ID: h.ID, Type: h.Type, Score: h.Score})
 	}
-	return out
+	if len(hits) == 0 {
+		row.Skipped = "no_hits"
+		obs.RecordRecall(m.opts.Timeline.Dir, row, m.opts.SetLogger)
+		return nil
+	}
+	row.Injected = len(hits)
+	obs.RecordRecall(m.opts.Timeline.Dir, row, m.opts.SetLogger)
+	lines := make([]string, 0, len(hits))
+	for _, h := range hits {
+		lines = append(lines, memoryHitLine(h))
+	}
+	return lines
 }
 
 // memoryHitLine 渲染一条检索命中："[type id] summary（来源步骤 x）"。

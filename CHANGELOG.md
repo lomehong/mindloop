@@ -23,6 +23,14 @@
 
 ### 新增
 
+- **记忆召回台账（参考 BaiLongma 记忆审计）**：monolith 与
+  responder 的每次 BM25 记忆检索落一行到
+  `<身份目录>/usage/mem-recall.jsonl`（source/查询摘要/命中明细
+  含 ID 与评分/注入数/耗时/跳过原因）——此前记忆检索是黑盒，现在
+  "命中了什么、注入几条、为什么没注入"可观测。端点
+  `GET /mem-recall?limit=N` 读台账尾部；记忆页顶部加召回统计卡
+  （命中合计/注入与无命中次数/平均耗时）。台账是观测面不是事实源：
+  坏行跳过、写失败不影响召回。
 - **Scene Protocol Phase 2（choice 卡 + 审批桌面化，confront 闭环）**：
   approval 模式的待批脚本现在在仪表盘上有一张 confront 聚焦卡——
   gate 装配层的 sceneApprovalHook 在阻塞等待前发卡（choice：允许/

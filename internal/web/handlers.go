@@ -151,6 +151,8 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 		s.handleChat(w, r, id)
 	case "memories":
 		s.handleMemories(w, r, id, rest)
+	case "mem-recall":
+		s.handleMemRecall(w, r, id)
 	case "replies":
 		s.routeReplies(w, r, id, rest)
 	case "thinkers":

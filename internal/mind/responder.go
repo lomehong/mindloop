@@ -9,6 +9,7 @@ import (
 
 	"github.com/lomehong/mindloop/internal/llm"
 	"github.com/lomehong/mindloop/internal/mem"
+	"github.com/lomehong/mindloop/internal/obs"
 	"github.com/lomehong/mindloop/internal/prompt"
 	"github.com/lomehong/mindloop/internal/runner"
 	"github.com/lomehong/mindloop/internal/traj"
@@ -41,6 +42,8 @@ type ResponderOptions struct {
 	SelfName string
 	// Persona 是人格文本（注入系统提示）。
 	Persona string
+	// Logger 注入观测面失败日志（召回台账写失败喊出来；nil 静默）。
+	Logger func(format string, args ...any)
 	// MaxHistory 是随回复附带的对话条数（默认 20）。
 	MaxHistory int
 	// ContextBudget 是单次回复的输入文本字节预算（0 取
@@ -280,15 +283,38 @@ func (r *Responder) history(person string, max int) []llm.Message {
 // relatedMemories 用本次入站消息检索记忆库，渲染成"- [type id]
 // summary"行串（行格式与 monolith 共用）。查询取人话本身：用户问
 // 什么就召回什么。检索失败或命中为空返回空串——记忆是增强，绝不
-// 挡住回复。
+// 挡住回复。召回台账与 monolith 同一出口（source 区分召回方）。
 func (r *Responder) relatedMemories(inbound string) string {
 	if r.opts.MemDir == "" {
 		return ""
 	}
-	hits, err := mem.Store{Dir: r.opts.MemDir}.Search(inbound, 3)
+	store := mem.Store{Dir: r.opts.MemDir}
+	start := time.Now()
+	hits, err := store.Search(inbound, 3)
+	elapsed := time.Since(start)
+	row := obs.RecallRow{
+		Source:    "responder",
+		Query:     obs.RecallQuerySummary(inbound),
+		QueryLen:  len(inbound),
+		ElapsedMS: elapsed.Milliseconds(),
+	}
 	if err != nil {
+		row.Skipped = "error"
+		row.Error = err.Error()
+		obs.RecordRecall(r.opts.Timeline.Dir, row, r.opts.Logger)
 		return ""
 	}
+	row.HitCount = len(hits)
+	for _, h := range hits {
+		row.Hits = append(row.Hits, obs.RecallHit{ID: h.ID, Type: h.Type, Score: h.Score})
+	}
+	if len(hits) == 0 {
+		row.Skipped = "no_hits"
+		obs.RecordRecall(r.opts.Timeline.Dir, row, r.opts.Logger)
+		return ""
+	}
+	row.Injected = len(hits)
+	obs.RecordRecall(r.opts.Timeline.Dir, row, r.opts.Logger)
 	var b strings.Builder
 	for _, h := range hits {
 		b.WriteString("\n- ")

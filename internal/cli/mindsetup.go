@@ -148,6 +148,7 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 		// 记忆与 monolith 同源：对话里被问到做过的事时，
 		// BM25 召回相关记忆而不凭空否认。
 		MemDir:      filepath.Join(id.Dir, "memories"),
+		Logger:      o.logger,
 		MemoryBytes: memBytes,
 		Streaming:   streamEnabled(),
 		StreamFn:    responderStreamFn(client),

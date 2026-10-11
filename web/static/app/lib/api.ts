@@ -439,6 +439,30 @@ export function fetchMemories(identityId: string): Promise<MemoryInfo[]> {
   return getJson(`/api/identities/${encodeURIComponent(identityId)}/memories`);
 }
 
+/** 记忆召回台账行（usage/mem-recall.jsonl 的投影）：每次检索一行，
+ * 记忆页据此展示召回质量统计（命中分布/注入率/跳过原因）。 */
+export type MemRecallRow = {
+  ts: string;
+  source: "monolith" | "responder";
+  query?: string;
+  query_len?: number;
+  hit_count: number;
+  hits?: Array<{ id: string; type?: string; score: number }>;
+  injected: number;
+  elapsed_ms?: number;
+  skipped?: string;
+  error?: string;
+};
+
+export function fetchMemRecall(
+  identityId: string,
+  limit = 20
+): Promise<MemRecallRow[]> {
+  return getJson(
+    `/api/identities/${encodeURIComponent(identityId)}/mem-recall?limit=${limit}`
+  );
+}
+
 export function fetchMemory(
   identityId: string,
   name: string
