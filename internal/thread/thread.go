@@ -23,7 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lomehong/mindloop/internal/traj"
 )
 
 // Status 是线索的生命周期：open（进行中）→ parked（搁置）→
@@ -107,20 +106,15 @@ func Add(identityDir, title string) (Thread, error) {
 		return Thread{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
+	// ID 用纳秒时间戳：物理唯一，且 ID 之间不构成前缀链（前缀寻址
+	// 的前提——毫秒戳 + "-1" 序号去重会让 a.ID 成为 b.ID 的前缀，
+	// a 从此无法被唯一命中，容器 -race 实证）。
 	t := Thread{
-		ID:     "th-" + traj.NowString(),
+		ID:     fmt.Sprintf("th-%d", time.Now().UnixNano()),
 		Title:  title,
 		Status: Open,
 		Opened: now,
 		Active: now,
-	}
-	// 时间戳精度毫秒级，同毫秒并发加线索时 ID 可能撞——附加序号
-	// 保证唯一（ID 只是键，语义在标题）。
-	for i := 0; i < len(items); i++ {
-		if items[i].ID == t.ID {
-			t.ID = fmt.Sprintf("%s-%d", t.ID, i+1)
-			i = -1 // 重新检查（新 ID 也可能撞的概率可忽略，保险起见）
-		}
 	}
 	items = append(items, t)
 	return t, Save(identityDir, items)

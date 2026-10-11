@@ -61,12 +61,25 @@ func TestAddUpdateManifestLifecycle(t *testing.T) {
 func TestUpdatePrefixAmbiguity(t *testing.T) {
 	dir := t.TempDir()
 	a, _ := Add(dir, "线索一")
-	_, _ = Add(dir, "线索二")
-	// th-<时间戳> 的公共前缀是 "th-"——两线索同毫秒会带序号，不同
-	// 毫秒则前 6 位即分叉；用短前缀制造多义。
-	prefix := "th-"
+	b, _ := Add(dir, "线索二")
+	// 多义前缀：两条线索 ID 的公共前缀（ID = th-<毫秒时间戳>，同
+	// 毫秒附加序号区分）。用第一条与第二条 ID 的公共前缀（截到分叉
+	// 点之前）构造多义——前缀匹配到两条即必须拒绝。
+	prefix := a.ID
+	for len(prefix) > 2 {
+		matches := 0
+		for _, it := range []Thread{a, b} {
+			if strings.HasPrefix(it.ID, prefix) {
+				matches++
+			}
+		}
+		if matches > 1 {
+			break
+		}
+		prefix = prefix[:len(prefix)-1]
+	}
 	if _, err := Update(dir, prefix, Done, ""); err == nil {
-		t.Fatal("多义前缀应拒绝")
+		t.Fatalf("多义前缀 %q 应拒绝", prefix)
 	}
 	// 完整 ID 唯一命中。
 	if _, err := Update(dir, a.ID, Done, ""); err != nil {
