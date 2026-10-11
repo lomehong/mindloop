@@ -223,6 +223,16 @@ func TestParseFileLevelError(t *testing.T) {
 
 // ---------- exec 条目 ----------
 
+// waitExecSettled 等第 n 次 exec 完成**且**其收尾（recordExec 的
+// 日志/状态落盘）也结束——running 释放在记账之后（tickExec 的
+// goroutine 顺序），runningCount 归零即副作用全部落盘。只等
+// ex.count 的话测试会在 recordExec 落盘前退出，TempDir 清理与
+// writeState 的 rename 赛跑（CI 实证：directory not empty）。
+func waitExecSettled(t *testing.T, rt *Runtime, ex *fakeExec, n int) {
+	t.Helper()
+	waitCond(t, func() bool { return ex.count() >= n && rt.runningCount() == 0 })
+}
+
 func TestExecFiresImmediatelyThenAdvances(t *testing.T) {
 	ex, sub := &fakeExec{}, &fakeSubmit{}
 	rt, _ := newRuntime(t, `{"items":[{"id":"s","every":"2m","exec":"echo hi"}]}`, ex, sub)
@@ -230,7 +240,7 @@ func TestExecFiresImmediatelyThenAdvances(t *testing.T) {
 
 	rt.Recover(ctx, t0) // 装载：exec 条目 next = now
 	rt.Tick(ctx, t0)    // 首拍立即触发
-	waitCond(t, func() bool { return ex.count() == 1 })
+	waitExecSettled(t, rt, ex, 1)
 
 	rt.Tick(ctx, t0.Add(time.Minute)) // 周期内不触发
 	time.Sleep(30 * time.Millisecond)
@@ -239,7 +249,7 @@ func TestExecFiresImmediatelyThenAdvances(t *testing.T) {
 	}
 
 	rt.Tick(ctx, t0.Add(2*time.Minute)) // 到点触发
-	waitCond(t, func() bool { return ex.count() == 2 })
+	waitExecSettled(t, rt, ex, 2)
 }
 
 func TestExecNoOverlap(t *testing.T) {
@@ -249,6 +259,8 @@ func TestExecNoOverlap(t *testing.T) {
 
 	rt.Recover(ctx, t0)
 	rt.Tick(ctx, t0)
+	// 第一次只等"开始"：block 故意阻塞住执行，settled（running 归零）
+	// 要到下面 close(block) 才可能满足——这里测的恰恰是它在跑。
 	waitCond(t, func() bool { return ex.count() == 1 })
 
 	rt.Tick(ctx, t0.Add(1*time.Second)) // 上一次仍在跑：跳过
@@ -260,7 +272,7 @@ func TestExecNoOverlap(t *testing.T) {
 	close(ex.block)
 	waitCond(t, func() bool { return rt.runningCount() == 0 })
 	rt.Tick(ctx, t0.Add(2*time.Second)) // 上一次已结束：恢复触发
-	waitCond(t, func() bool { return ex.count() == 2 })
+	waitExecSettled(t, rt, ex, 2)
 }
 
 func TestExecDisabledSkipped(t *testing.T) {
@@ -380,7 +392,7 @@ func TestReloadByMtime(t *testing.T) {
 
 	rt.Recover(ctx, t0)
 	rt.Tick(ctx, t0)
-	waitCond(t, func() bool { return ex.count() == 1 })
+	waitExecSettled(t, rt, ex, 1)
 
 	// 改为禁用并推进 mtime
 	if err := os.WriteFile(path, []byte(`{"items":[{"id":"s","enabled":false,"every":"2m","exec":"echo v2"}]}`), 0o644); err != nil {
@@ -429,7 +441,7 @@ func TestStateFileWritten(t *testing.T) {
 	ctx := context.Background()
 	rt.Recover(ctx, t0)
 	rt.Tick(ctx, t0)
-	waitCond(t, func() bool { return ex.count() == 1 })
+	waitExecSettled(t, rt, ex, 1)
 	waitCond(t, func() bool {
 		data, err := os.ReadFile(filepath.Join(dir, "run", "schedule-state.json"))
 		return err == nil && strings.Contains(string(data), `"s"`)
