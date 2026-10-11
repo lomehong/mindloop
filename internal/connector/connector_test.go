@@ -65,7 +65,7 @@ func appendMessage(t *testing.T, tl *traj.Timeline, from, to, content string) tr
 // 本地快机 goroutine 先跑所以从不复现。收尾语义：defer cancel 先于
 // t.Cleanup 执行，泵收到取消后返回并落盘游标（不等会与 TempDir
 // 清理赛跑）；中途意外死亡（非取消错误）报真因。
-func startOutbound(t *testing.T, ob *Outbound, ready <-chan struct{}, ctx context.Context) func() {
+func startOutbound(t *testing.T, ob *Outbound, ready <-chan struct{}, cancel context.CancelFunc, ctx context.Context) (stopAndWait func()) {
 	t.Helper()
 	done := make(chan error, 1)
 	go func() { done <- ob.Run(ctx) }()
@@ -74,30 +74,36 @@ func startOutbound(t *testing.T, ob *Outbound, ready <-chan struct{}, ctx contex
 	case <-time.After(30 * time.Second):
 		t.Fatal("等待出站泵就绪超时")
 	}
-	t.Cleanup(func() {
-		select {
-		case err := <-done:
-			if err != nil && !errors.Is(err, context.Canceled) {
-				t.Fatalf("出站泵意外退出: %v", err)
+	// stopAndWait 取消（幂等）并等 Run 完全退出（含游标落盘）。
+	// 测试中段对轨迹文件做截断/替换等外科操作前必须先收尾前一任泵
+	// ——退出落盘（旧 offset）晚于文件操作会让下一任读到错位游标
+	//（CI 实证：race 下 Save 慢于截断）；测试尾的落盘晚于 TempDir
+	// RemoveAll 则是 Windows 的 directory-not-empty（CI 实证）。
+	// cleanup 兜底同一收尾：defer stop() 后再触发是 no-op。
+	var once sync.Once
+	var failed bool
+	stopAndWait = func() {
+		once.Do(func() {
+			cancel()
+			select {
+			case err := <-done:
+				if err != nil && !errors.Is(err, context.Canceled) {
+					failed = true
+					t.Fatalf("出站泵意外退出: %v", err)
+				}
+			case <-time.After(30 * time.Second):
+				failed = true
+				t.Fatal("等待出站泵退出超时")
 			}
-		default:
+		})
+	}
+	t.Cleanup(func() {
+		stopAndWait()
+		if failed {
+			return // Fatal 已记录：TempDir 清理会失败，不再雪上加霜
 		}
 	})
-	// stopAndWait 取消泵并等 Run 完全退出（含游标落盘）。测试中段
-	// 对轨迹文件做截断/替换等外科操作前必须先等前一任泵退出——
-	// 否则前一任的退出落盘（旧 offset）可能落在新文件状态之后，
-	// 下一任读到的游标与新文件错位（CI 实证：race 下 Save 慢于
-	// 截断，rewound 弃批语义与投递断言互相踩踏）。
-	return func() {
-		select {
-		case err := <-done:
-			if err != nil && !errors.Is(err, context.Canceled) {
-				t.Fatalf("出站泵意外退出: %v", err)
-			}
-		case <-time.After(30 * time.Second):
-			t.Fatal("等待出站泵退出超时")
-		}
-	}
+	return stopAndWait
 }
 
 // waitForDelivery 轮询等待投递数达到 n。
@@ -151,7 +157,8 @@ func TestOutboundDeliversClaimedOnly(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	_ = startOutbound(t, ob, ready, ctx)
+	stop := startOutbound(t, ob, ready, cancel, ctx)
+	defer stop()
 
 	appendMessage(t, tl, "ada", "wecom:zhangsan", "你好")   // 认领：投
 	appendMessage(t, tl, "ada", "operator", "本地对话流")      // 不认领：不投
@@ -211,7 +218,7 @@ func TestOutboundCursorThreeStatesAndRewound(t *testing.T) {
 		Ready: func() { close(ready2) },
 	})
 	ctx2, cancel2 := context.WithCancel(context.Background())
-	stopOb2 := startOutbound(t, ob2, ready2, ctx2)
+	stopOb2 := startOutbound(t, ob2, ready2, cancel2, ctx2)
 	appendMessage(t, tl, "ada", "wecom:zhangsan", "重启后的新消息")
 	waitForDelivery(t, restart, 1)
 	sent := restart.snapshot()
@@ -238,7 +245,8 @@ func TestOutboundCursorThreeStatesAndRewound(t *testing.T) {
 	})
 	ctx3, cancel3 := context.WithCancel(context.Background())
 	defer cancel3()
-	_ = startOutbound(t, ob3, ready3, ctx3)
+	stopOb3 := startOutbound(t, ob3, ready3, cancel3, ctx3)
+	defer stopOb3()
 	time.Sleep(300 * time.Millisecond) // rewound 弃批消费窗
 	appendMessage(t, tl, "ada", "wecom:zhangsan", "替换后的新消息")
 	waitForDelivery(t, after, 1)
@@ -267,7 +275,8 @@ func TestOutboundRetryExhaustedDrops(t *testing.T) {
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	_ = startOutbound(t, ob, ready, ctx)
+	stop := startOutbound(t, ob, ready, cancel, ctx)
+	defer stop()
 
 	appendMessage(t, tl, "ada", "wecom:zhangsan", "第一条（将失败丢弃）")
 	waitForDelivery(t, d, 1)
