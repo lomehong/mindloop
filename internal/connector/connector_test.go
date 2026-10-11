@@ -65,7 +65,7 @@ func appendMessage(t *testing.T, tl *traj.Timeline, from, to, content string) tr
 // 本地快机 goroutine 先跑所以从不复现。收尾语义：defer cancel 先于
 // t.Cleanup 执行，泵收到取消后返回并落盘游标（不等会与 TempDir
 // 清理赛跑）；中途意外死亡（非取消错误）报真因。
-func startOutbound(t *testing.T, ob *Outbound, ready <-chan struct{}, ctx context.Context) {
+func startOutbound(t *testing.T, ob *Outbound, ready <-chan struct{}, ctx context.Context) func() {
 	t.Helper()
 	done := make(chan error, 1)
 	go func() { done <- ob.Run(ctx) }()
@@ -83,6 +83,21 @@ func startOutbound(t *testing.T, ob *Outbound, ready <-chan struct{}, ctx contex
 		default:
 		}
 	})
+	// stopAndWait 取消泵并等 Run 完全退出（含游标落盘）。测试中段
+	// 对轨迹文件做截断/替换等外科操作前必须先等前一任泵退出——
+	// 否则前一任的退出落盘（旧 offset）可能落在新文件状态之后，
+	// 下一任读到的游标与新文件错位（CI 实证：race 下 Save 慢于
+	// 截断，rewound 弃批语义与投递断言互相踩踏）。
+	return func() {
+		select {
+		case err := <-done:
+			if err != nil && !errors.Is(err, context.Canceled) {
+				t.Fatalf("出站泵意外退出: %v", err)
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatal("等待出站泵退出超时")
+		}
+	}
 }
 
 // waitForDelivery 轮询等待投递数达到 n。
@@ -136,7 +151,7 @@ func TestOutboundDeliversClaimedOnly(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	startOutbound(t, ob, ready, ctx)
+	_ = startOutbound(t, ob, ready, ctx)
 
 	appendMessage(t, tl, "ada", "wecom:zhangsan", "你好")   // 认领：投
 	appendMessage(t, tl, "ada", "operator", "本地对话流")      // 不认领：不投
@@ -196,16 +211,17 @@ func TestOutboundCursorThreeStatesAndRewound(t *testing.T) {
 		Ready: func() { close(ready2) },
 	})
 	ctx2, cancel2 := context.WithCancel(context.Background())
-	startOutbound(t, ob2, ready2, ctx2)
+	stopOb2 := startOutbound(t, ob2, ready2, ctx2)
 	appendMessage(t, tl, "ada", "wecom:zhangsan", "重启后的新消息")
 	waitForDelivery(t, restart, 1)
 	sent := restart.snapshot()
 	if len(sent) != 1 || sent[0].text != "重启后的新消息" {
 		t.Fatalf("重启续读不符: %+v", sent)
 	}
+	// 完全退出（含游标落盘）后再截断：退出落盘与截断的次序颠倒会让
+	// 下一任读到大 offset 游标（race 下的 CI 实证窗口）。
 	cancel2()
-	waitCursor(t, cursor)
-	time.Sleep(50 * time.Millisecond)
+	stopOb2()
 
 	// 轨迹被替换（rewound）：本批是重放，必须弃批——不投任何旧
 	// 消息。先让泵消费掉"空文件的 rewound 批"再追加新消息，保证
@@ -222,7 +238,7 @@ func TestOutboundCursorThreeStatesAndRewound(t *testing.T) {
 	})
 	ctx3, cancel3 := context.WithCancel(context.Background())
 	defer cancel3()
-	startOutbound(t, ob3, ready3, ctx3)
+	_ = startOutbound(t, ob3, ready3, ctx3)
 	time.Sleep(300 * time.Millisecond) // rewound 弃批消费窗
 	appendMessage(t, tl, "ada", "wecom:zhangsan", "替换后的新消息")
 	waitForDelivery(t, after, 1)
@@ -251,7 +267,7 @@ func TestOutboundRetryExhaustedDrops(t *testing.T) {
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	startOutbound(t, ob, ready, ctx)
+	_ = startOutbound(t, ob, ready, ctx)
 
 	appendMessage(t, tl, "ada", "wecom:zhangsan", "第一条（将失败丢弃）")
 	waitForDelivery(t, d, 1)
