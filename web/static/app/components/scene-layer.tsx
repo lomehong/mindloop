@@ -198,7 +198,7 @@ export function SceneStage({
   return (
     <div
       data-testid="scene-stage"
-      className="-mx-5 -mb-4 flex min-h-[calc(100vh-15rem)] flex-col rounded-2xl border border-border/70 bg-card sm:-mx-6"
+      className="-mx-5 -mb-4 flex h-full flex-col rounded-2xl border border-border/70 bg-card sm:-mx-6"
     >
       <div className="flex items-center gap-3 border-b border-border/70 px-5 py-3">
         <span className="font-mono text-[11px] tracking-[0.14em] text-primary">
