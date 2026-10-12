@@ -88,12 +88,13 @@ func TestUISetListRemoveRoundtrip(t *testing.T) {
 		t.Fatalf("重复 remove 应幂等: %s", out)
 	}
 
-	// 轨迹核验：恰好 3 条 scene 步骤（upsert、变更 upsert、remove）。
+	// 轨迹核验：恰好 4 条 scene 步骤（upsert、保留 data 的更新、
+	// 变更 upsert、remove）。
 	id, err := identity.Load("ada")
 	if err != nil {
 		t.Fatal(err)
 	}
-	steps, err := id.Timeline.Steps()
+	steps, err = id.Timeline.Steps()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,8 +105,8 @@ func TestUISetListRemoveRoundtrip(t *testing.T) {
 		}
 		n++
 	}
-	if n != 3 {
-		t.Fatalf("scene 步骤数 = %d，要 3（判重生效）", n)
+	if n != 4 {
+		t.Fatalf("scene 步骤数 = %d，要 4（含保留 data 的更新）", n)
 	}
 }
 
