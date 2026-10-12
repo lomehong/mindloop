@@ -62,6 +62,7 @@ const finalContractPrompt = `收口契约（系统会机械核验，违者 FINAL
 - 每个文件必须已实际落盘且非空。缺件、越出工作目录、格式不符都会被拒绝打回，白费轮次。
 - 无文件交付的完整示例——.mindloop_final 文件内容恰好是这一行（JSON 前后不要有任何文字）：
   {"summary":"已推送测试卡片到仪表盘","deliverables":[]}`
+
 func (m *monolith) taskCallBudget() int {
 	if m.opts.TaskCallBudget > 0 {
 		return m.opts.TaskCallBudget

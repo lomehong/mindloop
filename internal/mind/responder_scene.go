@@ -17,7 +17,7 @@ import (
 var sceneReplyKinds = map[string]bool{"text": true, "progress": true, "choice": true}
 
 // sceneReplyDataMax / sceneReplySummaryMax 与 uicmd 的写入口同一保护
-//（data ≤16KB、summary ≤80 字节）。
+// （data ≤16KB、summary ≤80 字节）。
 const (
 	sceneReplyDataMax    = 16 * 1024
 	sceneReplySummaryMax = 80
