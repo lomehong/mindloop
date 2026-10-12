@@ -350,7 +350,10 @@ func TestDecideUnknownHash(t *testing.T) {
 // TestResolveHashPrefix：CLI/Web 用前缀定位待批请求；歧义必须报错。
 func TestResolveHashPrefix(t *testing.T) {
 	g, dir := testGate(t, Ask)
-	g.ApprovalTTL = 100 * time.Millisecond
+	// TTL 2s（原 100ms）：CI 2 核慢机下 100ms 窗口会在 waitForPending
+	// 首次轮询前关闭——pending 观测不到即假红（10.15s 超时实证）。
+	// 本测试钉的是前缀解析语义，不是 TTL 时延。
+	g.ApprovalTTL = 2 * time.Second
 	if err := g.Authorize(context.Background(), testExec(t, "echo one", "run-1")); !errors.Is(err, ErrTimeout) {
 		t.Fatalf("预期超时: %v", err)
 	}
