@@ -140,6 +140,18 @@ func (st *SceneStore) Upsert(s Surface) (changed bool, err error) {
 	return true, nil
 }
 
+// Get 读取一个 surface（不存在返回 nil）——CLI 的"省略 --data 保留
+// 原有数据"合并语义用它取现状。
+func (st *SceneStore) Get(id string) *Surface {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if s, ok := st.surfaces[id]; ok {
+		copied := *s
+		return &copied
+	}
+	return nil
+}
+
 // Remove 移除一个 surface；不存在返回 changed=false。
 func (st *SceneStore) Remove(id string) (changed bool) {
 	st.mu.Lock()

@@ -95,6 +95,10 @@ func (c *CLI) newUISetCmd() *cobra.Command {
 				} else {
 					data = trimmed
 				}
+			} else if cur := store.Get(surfaceID); cur != nil && len(cur.Data) > 0 {
+				// 省略 --data = 保留卡片原有数据（更新摘要/意图的常见
+				// 形态不该被 shell 转义问题惩罚——真实用户反馈）。
+				data = cur.Data
 			}
 			changed, err := store.Upsert(mind.Surface{
 				ID: surfaceID, Kind: kindP, Intent: intentP,

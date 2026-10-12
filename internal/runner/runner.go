@@ -472,7 +472,9 @@ func (r *run) acceptFinal(ctx context.Context, final, kind string, iteration int
 }
 
 // parseFinalContract 解析 FINAL 文件内容为收口契约；容忍模型把 JSON
-// 包进代码围栏。
+// 包进代码围栏或夹带说明文字——先整体解析，失败再提取文本中第一个
+// 平衡的 {...} 对象重试（模型实证会写"以下是收口：{...}"这类中文
+// 前缀，纯解析被首字节打死）。
 func parseFinalContract(raw string) (string, []string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if fenced := strings.TrimPrefix(trimmed, "```"); fenced != trimmed {
@@ -481,9 +483,54 @@ func parseFinalContract(raw string) (string, []string, error) {
 		trimmed = strings.TrimSpace(fenced)
 	}
 	var c finalContract
-	if err := json.Unmarshal([]byte(trimmed), &c); err != nil {
-		return "", nil, fmt.Errorf("应为 JSON 对象: %v", err)
+	if err := json.Unmarshal([]byte(trimmed), &c); err == nil {
+		return finishContract(&c)
 	}
+	if obj := extractBalancedObject(trimmed); obj != "" {
+		if err := json.Unmarshal([]byte(obj), &c); err == nil {
+			return finishContract(&c)
+		}
+	}
+	return "", nil, fmt.Errorf("应为 JSON 对象（需含 summary 与 deliverables）")
+}
+
+// extractBalancedObject 返回 text 中第一个平衡的 {...} 子串（字符串
+// 内的花括号与引号转义不参与配对）；找不到返回空串。
+func extractBalancedObject(text string) string {
+	start := strings.IndexByte(text, '{')
+	if start < 0 {
+		return ""
+	}
+	depth, inString, escaped := 0, false, false
+	for i := start; i < len(text); i++ {
+		ch := text[i]
+		if inString {
+			switch {
+			case escaped:
+				escaped = false
+			case ch == '\\':
+				escaped = true
+			case ch == '"':
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return text[start : i+1]
+			}
+		}
+	}
+	return ""
+}
+
+func finishContract(c *finalContract) (string, []string, error) {
 	if strings.TrimSpace(c.Summary) == "" {
 		return "", nil, errors.New("缺 summary")
 	}
