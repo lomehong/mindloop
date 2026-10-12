@@ -150,12 +150,16 @@ export default function IdentityShell() {
     scene.surfaces.length > 0 && (!!confront || !stageDismissed);
 
   if (stageActive) {
+    // absolute inset-0：铺满滚动容器可视区（root.tsx 的 relative 锚
+    // + 内边距一并覆盖），与圆角内容卡严丝合缝——舞台高度不靠猜。
     return (
-      <SceneStage
-        surfaces={scene.surfaces}
-        identityId={identityId}
-        onBack={() => setStageDismissed(true)}
-      />
+      <div className="absolute inset-0 z-20">
+        <SceneStage
+          surfaces={scene.surfaces}
+          identityId={identityId}
+          onBack={() => setStageDismissed(true)}
+        />
+      </div>
     );
   }
 

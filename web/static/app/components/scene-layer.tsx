@@ -181,7 +181,9 @@ function ChoiceCard({ surface, identityId }: { surface: SceneSurface; identityId
 /** SceneStage 是仪表盘的舞台形态：Agent 驱动 UI 接管整块内容区——
  * confront 卡居中聚焦（存在感最高），inform/ambient 卡按栅格排布
  * 弱化呈现。舞台自带返回工作区的开关（操作员随时收回视线）。
- * 挂载条件由 identity-shell 决定（confront 抢屏例外在那里判）。 */
+ * 定位：identity-shell 在舞台态以 absolute inset-0 挂本组件——铺满
+ * 滚动容器的可视区（root.tsx 的 relative 锚），与圆角内容卡严丝合
+ * 缝，高度不靠猜（猜必有缝，2026-10-12 实测）。 */
 export function SceneStage({
   surfaces,
   identityId,
@@ -196,10 +198,7 @@ export function SceneStage({
   );
   const others = surfaces.filter((s) => s !== confront);
   return (
-    <div
-      data-testid="scene-stage"
-      className="-mx-5 -mb-4 flex h-full flex-col rounded-2xl border border-border/70 bg-card sm:-mx-6"
-    >
+    <div data-testid="scene-stage" className="flex h-full flex-col bg-card">
       <div className="flex items-center gap-3 border-b border-border/70 px-5 py-3">
         <span className="font-mono text-[11px] tracking-[0.14em] text-primary">
           AGENT 舞台

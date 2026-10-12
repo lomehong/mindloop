@@ -202,7 +202,10 @@ export default function App() {
                     {/* 无 pt-4：滚动容器的上内边距在吸附头钉住时盖不住，
                         滚动内容会从这条缝里透上来（身份壳头区"字影"，
                         2026-10-08 实测）——顶部留白并进头自己的 pt。 */}
-                    <div className="flex-1 overflow-y-auto px-5 pb-4 sm:px-6">
+                    {/* relative 是舞台定位锚：Agent 驱动 UI 接管时，
+                        舞台以 absolute inset-0 精确铺满本可视区——高度
+                        不靠猜（猜必有缝，2026-10-12 实测）。 */}
+                    <div className="relative flex-1 overflow-y-auto px-5 pb-4 sm:px-6">
                       {canvas}
                     </div>
                     <StatusDock />
