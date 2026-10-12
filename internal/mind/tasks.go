@@ -53,6 +53,14 @@ func (m *monolith) Pending(ctx context.Context) (Wake, bool, error) {
 // 上限（含重试）——成本防线，不是建议值。16 轮任务 + 50% 重试余量。
 const defaultTaskCallBudget = 24
 
+// finalContractPrompt 是显式委托的收口契约：runner 对交付物做机械
+// 核验（VerifyDeliverables），模型单方面宣告的完成不再被采信。
+const finalContractPrompt = `收口契约（系统会机械核验，违者 FINAL 无效并打回）：
+完成任务的当轮，写 .mindloop_final 文件收口，内容必须是 JSON：
+{"summary":"一句话结果（过去式、有证据支撑）","deliverables":["交付文件相对路径",...]}
+- deliverables 列全任务书"交付物"要求的所有文件（相对当前工作目录）；没有文件交付时给 []；
+- 每个文件必须已实际落盘且非空。缺件、越出工作目录、格式不符都会被拒绝打回，白费轮次。`
+
 // taskCallBudget 折算生效的任务调用预算：<=0 取默认 24。
 func (m *monolith) taskCallBudget() int {
 	if m.opts.TaskCallBudget > 0 {
@@ -119,6 +127,15 @@ func (m *monolith) executeTask(ctx context.Context, item task.Task) Outcome {
 	}
 	var result runner.Result
 	var runErr error
+	// 任务模式的系统提示 = 基础提示 + 界面 manifest + 显式委托契约。
+	// manifest 与唤醒路径同一语义：scene 步骤已被渲染层排除，这一段
+	// 是模型看到屏上卡片的唯一通道——任务里"更新/撤掉那张卡"的 id
+	// 手柄来自这里，不注入则任务对既有卡片视而不见。
+	taskSystem := m.systemPrompt(item.Content, Wake{})
+	if scene := m.sceneManifest(); scene != "" {
+		taskSystem += "\n\n" + scene
+	}
+	taskSystem += "\n\n当前为显式委托：只完成当前完整任务，不继续其他任务，也不将普通聊天视为授权。\n" + finalContractPrompt
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -128,12 +145,15 @@ func (m *monolith) executeTask(ctx context.Context, item task.Task) Outcome {
 		result, runErr = runner.Run(runCtx, runner.Options{
 			Timeline: m.opts.Timeline, Thinker: thinker, Task: item.Content,
 			TaskID: item.ID, Attempt: item.Attempt, RunID: item.RunID,
-			SystemPrompt: m.systemPrompt(item.Content, Wake{}) + "\n\n当前为显式委托：只完成当前完整任务，不继续其他任务，也不将普通聊天视为授权。最终结果通过 FINAL 回传。",
+			SystemPrompt: taskSystem,
 			LaunchedBy:   m.Name(), MaxIterations: m.opts.TaskMaxIterations,
 			Timeout: m.opts.Timeout, IdleTimeout: m.opts.IdleTimeout,
 			MaxOutputBytes: m.opts.MaxOutputBytes, ExtraEnv: m.opts.ExtraEnv,
 			Snapshots:     m.opts.Snapshots,
 			BeforeExecute: m.opts.BeforeExecute,
+			// 完成线机械验收：任务书的验收标准由 runner 核验交付物，
+			// 不再采信模型单方面宣告的完成。
+			VerifyDeliverables: true,
 		})
 	}()
 	if runCtx.Err() != nil {
@@ -146,10 +166,11 @@ func (m *monolith) executeTask(ctx context.Context, item task.Task) Outcome {
 	finishCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer stop()
 	ev := task.Event{State: task.Succeeded, Attempt: item.Attempt, RunID: item.RunID,
-		Result: result.Final, ResultKind: result.FinalKind, EvidenceStepIDs: result.EvidenceStepIDs}
+		Result: result.Final, ResultKind: result.FinalKind, EvidenceStepIDs: result.EvidenceStepIDs,
+		Deliverables: result.Deliverables}
 	if runErr != nil {
 		ev.State, ev.Reason = task.Failed, runErr.Error()
-		ev.Result, ev.ResultKind, ev.EvidenceStepIDs = "", "", nil
+		ev.Result, ev.ResultKind, ev.EvidenceStepIDs, ev.Deliverables = "", "", nil, nil
 		// 预算类拒绝（任务调用配额 / 身份每日预算）落 budget_exceeded；
 		// 熔断冷却属于瞬时失败（可重试），保持 failed。
 		if errors.Is(runErr, llm.ErrBudgetExceeded) || errors.Is(runErr, llm.ErrDailyBudget) {
@@ -178,7 +199,7 @@ func settleTask(ctx context.Context, store *task.Store, item task.Task, ev task.
 		}
 		if current.State == task.Canceling {
 			ev.State, ev.Reason = task.Canceled, "取消已确认，执行已退出"
-			ev.Result, ev.ResultKind, ev.EvidenceStepIDs = "", "", nil
+			ev.Result, ev.ResultKind, ev.EvidenceStepIDs, ev.Deliverables = "", "", nil, nil
 		}
 		settled, err := store.Advance(ctx, item.ID, ev)
 		if !errors.Is(err, task.ErrTransition) {

@@ -2,6 +2,7 @@ package mind
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -20,6 +21,16 @@ type taskModelFunc func(context.Context, string, []llm.Message) (string, error)
 
 func (f taskModelFunc) Think(ctx context.Context, system string, msgs []llm.Message) (string, error) {
 	return f(ctx, system, msgs)
+}
+
+// taskFinalShell 生成显式委托验收模式的合规收口命令（写契约哨兵
+// 文件）——VerifyDeliverables 开启后，裸文本 FINAL 会被打回。
+func taskFinalShell(summary string) string {
+	contract, err := json.Marshal(map[string]any{"summary": summary, "deliverables": []string{}})
+	if err != nil {
+		panic(err)
+	}
+	return fence(fmt.Sprintf("printf '%%s' %q > .mindloop_final", string(contract)))
 }
 
 func submitTask(t *testing.T, s *task.Store, key string) task.Task {
@@ -62,13 +73,15 @@ func TestMonolithTaskPersistsCorrelatedResult(t *testing.T) {
 			if !strings.Contains(input, want) || strings.Contains(input, forbidden) {
 				t.Errorf("任务上下文串线: %s", input)
 			}
-			return fmt.Sprintf("FINAL=\"结果-%d\"", calls), nil
+			return taskFinalShell(fmt.Sprintf("结果-%d", calls)), nil
 		}),
 	})
 	for i, request := range []task.Task{first, second} {
 		m.Wake(context.Background(), Wake{Step: syntheticStep(monolithWakeType), Kind: WakeScheduled})
 		got := readTask(t, s, request.ID)
-		if got.State != task.Succeeded || got.Result != fmt.Sprintf("结果-%d", i+1) || got.ResultKind != "model-final" || got.RunID == "" || len(got.EvidenceStepIDs) != 1 {
+		// 验收模式下收口走 shell 契约（shell-final），证据 = shell 输出
+		// + final 步骤（每执行轮各计一次，故 ≥2）。
+		if got.State != task.Succeeded || got.Result != fmt.Sprintf("结果-%d", i+1) || got.ResultKind != "shell-final" || got.RunID == "" || len(got.EvidenceStepIDs) < 2 {
 			t.Fatalf("结果未落任务事实: %+v", got)
 		}
 		steps, err := tl.Steps()
@@ -77,12 +90,21 @@ func TestMonolithTaskPersistsCorrelatedResult(t *testing.T) {
 		}
 		found := false
 		for _, step := range steps {
-			if step.StepID != got.EvidenceStepIDs[0] {
+			isEvidence := false
+			for _, id := range got.EvidenceStepIDs {
+				if step.StepID == id {
+					isEvidence = true
+					break
+				}
+			}
+			if !isEvidence {
 				continue
 			}
 			tid, _ := step.Field("task_id")
 			rid, _ := step.Field("run_id")
-			found = step.Type == traj.TypeFinal && tid == got.ID && rid == got.RunID
+			if step.Type == traj.TypeFinal && tid == got.ID && rid == got.RunID {
+				found = true
+			}
 		}
 		if !found {
 			t.Fatal("结果证据未指向对应 task/run")
@@ -127,7 +149,7 @@ func TestDispatcherRecoversOnlyQueuedTasks(t *testing.T) {
 			m := NewMonolith(MonolithOptions{Timeline: tl, SelfName: "ada", Watchdog: time.Hour,
 				Thinker: taskModelFunc(func(context.Context, string, []llm.Message) (string, error) {
 					calls.Add(1)
-					return `FINAL="恢复完成"`, nil
+					return taskFinalShell("恢复完成"), nil
 				}),
 			})
 			d, cancel, done := startTaskDispatcher(t, tl, m)
@@ -157,7 +179,7 @@ func TestDispatcherDrainsOneHundredPersistedTasks(t *testing.T) {
 	m := NewMonolith(MonolithOptions{Timeline: tl, SelfName: "ada", Watchdog: time.Hour,
 		Thinker: taskModelFunc(func(context.Context, string, []llm.Message) (string, error) {
 			calls.Add(1)
-			return `FINAL="已完成"`, nil
+			return taskFinalShell("已完成"), nil
 		}),
 	})
 	d, cancel, done := startTaskDispatcher(t, tl, m)
@@ -200,7 +222,7 @@ func TestTaskCancelWaitsForLateModelExit(t *testing.T) {
 				close(canceled)
 				<-release
 			}
-			return `FINAL="迟归成功不能覆盖取消"`, nil
+			return taskFinalShell("迟归成功不能覆盖取消"), nil
 		}),
 	})
 	d, stop, done := startTaskDispatcher(t, tl, m)

@@ -50,7 +50,10 @@ type Task struct {
 	Result          string   `json:"result,omitempty"`
 	ResultKind      string   `json:"result_kind,omitempty"`
 	EvidenceStepIDs []string `json:"evidence_step_ids,omitempty"`
-	Events          []Event  `json:"events"`
+	// Deliverables 是完成线验收通过的交付文件绝对路径（run 工作区
+	// 内）——"已完成但没产出"从此在数据面上藏不住。
+	Deliverables []string `json:"deliverables,omitempty"`
+	Events       []Event  `json:"events"`
 }
 
 // Event 保存状态变化及幂等控制命令的收据；旧 attempt 的证据不会被覆盖。
@@ -65,6 +68,7 @@ type Event struct {
 	Result          string   `json:"result,omitempty"`
 	ResultKind      string   `json:"result_kind,omitempty"`
 	EvidenceStepIDs []string `json:"evidence_step_ids,omitempty"`
+	Deliverables    []string `json:"deliverables,omitempty"`
 	Operation       string   `json:"operation"`
 	Actor           string   `json:"actor,omitempty"`
 	RequestID       string   `json:"request_id,omitempty"`

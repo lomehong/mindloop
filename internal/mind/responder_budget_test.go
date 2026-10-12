@@ -51,10 +51,13 @@ func TestComposeRejectsProtectedOverflow(t *testing.T) {
 
 // 历史吃剩余预算：装不下的旧回合被丢弃，最新的用户消息绝不丢。
 // （模板+persona 固定开销随产品面增长——2026-10-03 视觉教学行加入
-// 后约 750 字节，预算 1400 给历史留出余量；模板再长时同步调这里。）
+// 后约 750 字节；2026-10-12 场景卡片富回复通道教学段加入后约 1.7KB，
+// 预算 1400→3000 给历史留出余量；模板再长时同步调这里。）
+const composeTrimBudget = 3000
+
 func TestComposeHistoryTrimmedToRemainingBudget(t *testing.T) {
 	r, tl, ct := newBudgetResponder(t, func(o *ResponderOptions) {
-		o.ContextBudget = 1400
+		o.ContextBudget = composeTrimBudget
 	})
 	for i := 0; i < 5; i++ {
 		s := traj.NewStep(traj.TypeMessage)
@@ -81,7 +84,7 @@ func TestComposeHistoryTrimmedToRemainingBudget(t *testing.T) {
 	for _, m := range msgs[:len(msgs)-1] {
 		historyBytes += len(m.Content)
 	}
-	remain := 1400 - len(ct.got()) - len("最新消息")
+	remain := composeTrimBudget - len(ct.got()) - len("最新消息")
 	if historyBytes > remain {
 		t.Fatalf("历史 %d 字节超出剩余预算 %d（system=%d 字节）", historyBytes, remain, len(ct.got()))
 	}

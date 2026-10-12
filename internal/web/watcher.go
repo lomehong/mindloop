@@ -260,7 +260,35 @@ func newIdentityWatcher(h *streamHub, id *identity.Identity) *identityWatcher {
 		w.subCap = 256
 	}
 	w.sampleBaseline()
+	w.primeScene()
 	return w
+}
+
+// primeScene 从轨迹回放既有 scene 步骤（scene.md §2 不变式"重启时
+// 从轨迹 replay 重建"）。观察器尾随从当前 EOF 起步——"历史不重放"
+// 对 replying/working 那类旁路文件成立（当前状态在文件里，订阅时快
+// 照交付），但 scene 的当前状态只存在轨迹步骤里，不回放则订阅者永
+// 远看不到既有卡片。回放经 applyScene 同一折叠路径，rev 与状态语义
+// 与增量完全一致；构造期调用（发布前、无并发）。
+func (w *identityWatcher) primeScene() {
+	steps, err := w.id.Timeline.Steps()
+	if err != nil {
+		return // 历史读不出就空态起步：后续步骤仍由尾随折叠
+	}
+	w.scene = &sceneSurfaces{surfaces: map[string]map[string]any{}}
+	for i := range steps {
+		if steps[i].Type != traj.TypeScene {
+			continue
+		}
+		line := make(map[string]any, len(steps[i].Fields)+1)
+		line["type"] = traj.TypeScene
+		for k, v := range steps[i].Fields {
+			line[k] = v
+		}
+		if raw, err := json.Marshal(line); err == nil {
+			w.scene.applyScene(raw)
+		}
+	}
 }
 
 // sampleBaseline 在不广播的前提下采一次当前状态：已存在的内容由

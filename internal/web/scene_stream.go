@@ -43,7 +43,8 @@ type sceneSurfaces struct {
 
 // applyScene 把一条 scene 步骤折叠进状态，返回要广播的 patch 帧
 // （remove 返回 op=remove，upsert 返回完整 surface）。非 scene 步骤
-// 返回 nil。
+// 返回 nil。帧形与 scene.ts 客户端契约一致：patch 帧带 type 字段，
+// data 字段从轨迹里的 JSON 字符串解码为对象（前端按对象读选项/进度）。
 func (sv *sceneSurfaces) applyScene(line []byte) *sceneFrame {
 	var raw struct {
 		Type string `json:"type"`
@@ -56,7 +57,7 @@ func (sv *sceneSurfaces) applyScene(line []byte) *sceneFrame {
 	sv.rev++
 	if raw.Op == "remove" {
 		delete(sv.surfaces, raw.ID)
-		payload, _ := json.Marshal(map[string]any{"rev": sv.rev, "ops": []map[string]any{{"op": "remove", "id": raw.ID}}})
+		payload, _ := json.Marshal(map[string]any{"type": "scene.patch", "rev": sv.rev, "ops": []map[string]any{{"op": "remove", "id": raw.ID}}})
 		return &sceneFrame{event: "scene.patch", data: string(payload)}
 	}
 	var fields map[string]any
@@ -70,13 +71,22 @@ func (sv *sceneSurfaces) applyScene(line []byte) *sceneFrame {
 			surface[k] = v
 		}
 	}
+	// data 在轨迹里是 JSON 字符串（appendSceneStep 落盘形态），投影端
+	// 解码为对象——客户端按对象读选项与进度值。
+	if s, ok := surface["data"].(string); ok {
+		var decoded any
+		if json.Unmarshal([]byte(s), &decoded) == nil {
+			surface["data"] = decoded
+		}
+	}
 	sv.surfaces[raw.ID] = surface
-	payload, _ := json.Marshal(map[string]any{"rev": sv.rev, "ops": []map[string]any{{"op": "upsert", "surface": surface}}})
+	payload, _ := json.Marshal(map[string]any{"type": "scene.patch", "rev": sv.rev, "ops": []map[string]any{{"op": "upsert", "surface": surface}}})
 	return &sceneFrame{event: "scene.patch", data: string(payload)}
 }
 
 // snapshot 序列化当前折叠态（全量帧）。surfaces 按 id 排序——同一
-// 状态永远产生同一字节序，前端 diff 与测试都稳定。
+// 状态永远产生同一字节序，前端 diff 与测试都稳定。帧形与 scene.ts
+// 客户端契约一致：{type:"scene", state:{rev, surfaces}}。
 func (sv *sceneSurfaces) snapshot() string {
 	ids := make([]string, 0, len(sv.surfaces))
 	for id := range sv.surfaces {
@@ -87,7 +97,10 @@ func (sv *sceneSurfaces) snapshot() string {
 	for _, id := range ids {
 		list = append(list, sv.surfaces[id])
 	}
-	payload, _ := json.Marshal(map[string]any{"rev": sv.rev, "surfaces": list})
+	payload, _ := json.Marshal(map[string]any{
+		"type":  "scene",
+		"state": map[string]any{"rev": sv.rev, "surfaces": list},
+	})
 	return string(payload)
 }
 

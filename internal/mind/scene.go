@@ -11,6 +11,7 @@
 package mind
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -150,8 +151,21 @@ func (st *SceneStore) Remove(id string) (changed bool) {
 	return true
 }
 
+// AppendSceneStep 落一条 scene 步骤——ui set CLI 与 responder 对话
+// 面共用的写入口（字段形态见 scene.md §3.1；结构性步骤，不带
+// launched_by 运行章）。
+func AppendSceneStep(tl *traj.Timeline, fields map[string]any) error {
+	s := traj.NewStep(traj.TypeScene)
+	for k, v := range fields {
+		s.Fields[k] = v
+	}
+	return tl.Append(context.Background(), s)
+}
+
 // Manifest 把当前场景渲染成回注段（scene.md §5.2）：id + kind +
 // 一行摘要 + intent——只注入"舞台上有什么"，绝不注入 data 全文。
+// 段尾带动词教学（BaiLongma 同款）：每轮复习"怎么更新、怎么撤、
+// 背景状态不是触发器"——模型不需要记得用法，用法就在眼前。
 // 空场景返回空串。 confront/focus 卡带 ←焦点 标记。
 func (st *SceneStore) Manifest() string {
 	st.mu.Lock()
@@ -177,5 +191,6 @@ func (st *SceneStore) Manifest() string {
 		}
 		fmt.Fprintf(&b, "\n- %s (%s) 「%s」 %s%s", s.ID, s.Kind, s.Summary, intent, marker)
 	}
+	b.WriteString("\n\n这些是你经 ui set 放上界面的卡片——背景状态，不是触发器，不要仅因屏上有卡就作出反应。更新其中一张：对同一 id 再调 ui set；撤掉一张：ui set <id> --remove。")
 	return b.String()
 }

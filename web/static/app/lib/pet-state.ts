@@ -400,3 +400,18 @@ export function digestAnnouncement(input: DigestInput, now: number): PetAnnounce
     ts: now,
   };
 }
+
+// —— 身份自动选停 ————————————————————————————————————————————
+
+/** 宠物身份自动选停（浮窗与停靠宿主共用）：显式存留的选择优先——
+ * 哪怕是停机心智，那是操作员的明确指定，切换权在人；无存留或存留
+ * 已失效时，优先选第一个运行中的心智。默认跟随列表首位曾把说话写
+ * 进停机身份的真实轨迹（排进死队列，心智下次启动才被处理）。 */
+export function pickPetIdentity(
+  list: readonly { id: string; live?: boolean }[],
+  saved: string | null
+): string | null {
+  if (list.length === 0) return null;
+  if (saved && list.some((it) => it.id === saved)) return saved;
+  return list.find((it) => it.live)?.id ?? list[0].id;
+}

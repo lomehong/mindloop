@@ -6,11 +6,13 @@
 //   2. 功能点交互：表单填提、开关切换、搜索过滤、确认弹窗、真模型动作
 //   3. 截图留证（.zcode/uitest-artifacts/）
 //
-// 用法（仪表盘已启动；对话/摘要/探针场景需 ada 心智运行中）：
+// 用法（仪表盘已启动；对话/起草/宠物说话类场景需一个运行中心智，
+// 运行时经 /api/identities 自动解析，无活心智则记 SKIP 不计失败）：
 //   node uitest/dashboard.mjs [--scenario all|名字] [--base URL] [--identity qa-e2e]
-// 输出协议：SCENARIO <name> PASS|FAIL <ms> <原因>；退出码非零=有失败。
+// 输出协议：SCENARIO <name> PASS|FAIL|SKIP <ms> <原因>；退出码非零=有失败。
 import { chromium } from "playwright-core";
 import { mkdirSync, writeFileSync, appendFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -29,6 +31,18 @@ const INV = join(ART, "page-inventory.jsonl");
 
 let page, browser, ctx;
 const results = [];
+
+// 场景前置类：前提不满足（如无运行中心智）时抛出——记 SKIP 不计失败。
+class SkipScenario extends Error {}
+
+// 运行中心智解析：对话/起草类场景的目标必须是活身份——发给停机身份
+// 的消息排进死队列（永无回复），还会写进其真实轨迹（污染）。
+async function liveIdentity() {
+  const resp = await fetch(`${BASE}/api/identities`);
+  if (!resp.ok) throw new Error(`/api/identities HTTP ${resp.status}`);
+  const list = await resp.json();
+  return list.find((it) => it.live)?.id ?? null;
+}
 
 async function shot(name) {
   const p = join(ART, `${name}.png`);
@@ -273,22 +287,30 @@ async function usageRender() {
 
 // 对话页：真发一条消息并等到 ada 回复气泡（真模型；心智需运行中）。
 async function chatSend() {
-  await gotoPath(`/i/ada/chat`);
-  const bubblesBefore = await page.locator(':text("ada →")').count();
+  // 对话目标必须是运行中心智——发给停机身份的消息排进死队列，
+  // 永无回复，还会写进其真实轨迹。
+  const live = await liveIdentity();
+  if (!live) throw new SkipScenario("无运行中心智，对话链路无从验证");
+  await gotoPath(`/i/${live}/chat`);
+  // 回复证据 = 新增心智气泡（.prose 衬线卡，chat-bubble.tsx 的 mind
+  // 分支）。旧选择器 ':text("<身份> →")' 在年轮重构改掉气泡头部
+  // （from + 时间，无箭头）时就已失配——选结构不选文案。
+  const mindBubble = ".prose";
+  const bubblesBefore = await page.locator(mindBubble).count();
   const box = page.locator("textarea, input[type=text]").last();
   await box.fill("UI 测试：1+1 等于几？一句话。");
   await box.press("Enter");
   await page.waitForTimeout(1000);
   const sent = await page.locator("body").innerText();
   assert(sent.includes("1+1"), "发送后自己的消息未出现在页面");
-  // 等 ada 回复气泡出现（最长 90s）。
+  // 等回复气泡出现（最长 90s）。
   let after = bubblesBefore;
   for (let i = 0; i < 30; i++) {
     await page.waitForTimeout(3000);
-    after = await page.locator(':text("ada →")').count();
+    after = await page.locator(mindBubble).count();
     if (after > bubblesBefore) break;
   }
-  assert(after > bubblesBefore, "90s 内未见 ada 回复气泡");
+  assert(after > bubblesBefore, `90s 内未见 ${live} 回复气泡`);
   await shot("F-chat-send");
 }
 
@@ -481,53 +503,24 @@ async function petMenu() {
   await shot("F-pet-menu");
 }
 
-// 说话链路（真模型，心智需运行中）：菜单输入框发消息 → 输入框清空 →
-// 90s 内拿到「回复已发生」的证据。成功信号四选一：
+// 说话链路（真模型）：菜单输入框发消息 → 输入框清空 → 90s 内拿到
+// 「回复已发生」的证据。成功信号四选一：
 //   a) 光点说话态（data-mood=speaking）  b) 流式气泡
 //   c) SSE status replying=true        d) SSE 非回显的 message 步骤
 // c/d 之所以必要：单字快回复的 replying 旁路文件窗口可能短于服务端
 // 200ms 观察轮询周期，a/b 存在固有漏采概率（见 docs/designs/pet.md
 // §7）——轨迹步骤不受此影响，是管线打通的兜底证据。
+// 发送前先把身份钉死进 localStorage：自动选停虽已偏向运行中心智
+//（use-pet/pickPetIdentity），测试要的是确定性——曾因跟随列表首位
+// 把消息写进停机身份的真实轨迹（排进死队列，构成对真实身份的污染）。
 async function petChatSend() {
+  const live = await liveIdentity();
+  if (!live) throw new SkipScenario("无运行中心智，宠物说话无从验证");
+  // 先落同源页面写 localStorage，再进 /pet——宠物页加载即按存留选择挂载。
+  await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+  await page.evaluate((id) => localStorage.setItem("mindloop-pet-identity", id), live);
   await page.goto(`${BASE}/pet`, { waitUntil: "domcontentloaded" });
   await page.locator("[data-testid='pet-orb']").waitFor({ timeout: 10000 });
-  // 裸 SSE 监听（与宠物页同端点）：兜底证据通道。
-  await page.evaluate(async (base) => {
-    const w = window;
-    w.__saw = null;
-    try {
-      const resp = await fetch(`${base}/api/identities/${IDENT}/replies/stream`, {
-        headers: { Accept: "text/event-stream" },
-      });
-      const reader = resp.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      let event = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let i;
-        while ((i = buf.indexOf("\n")) >= 0) {
-          const line = buf.slice(0, i);
-          buf = buf.slice(i + 1);
-          if (line.startsWith("event:")) { event = line.slice(6).trim(); continue; }
-          if (line.startsWith("data:") && event) {
-            if (event === "status" && line.includes('"replying":true')) {
-              w.__saw = w.__saw ?? "status-replying";
-            }
-            if (event === "step" && line.includes('"type":"message"') && !line.includes("宠物链路")) {
-              w.__saw = w.__saw ?? "reply-message-step";
-            }
-            event = "";
-          }
-        }
-      }
-    } catch { /* 连接失败不影响页面通道判定 */ }
-  }, BASE);
-  await page.locator("[data-testid='pet-orb']").click();
-  const input = page.locator("[data-testid='pet-chat-input']");
-  await input.waitFor({ timeout: 5000 });
   // 等 SSE 对所选身份真正订阅（data-sse=on）再发送。mood 脱离 offline
   // 不够——身份未选出时它会被"身份列表可读"顶替，快回复会漏采。
   await page.waitForFunction(
@@ -536,12 +529,13 @@ async function petChatSend() {
       "on",
     { timeout: 30000 }
   );
-  // 裸 SSE 监听跟随宠物实际选中的身份（localStorage 持久的选择），
-  // 兜底证据通道才听得到同一份轨迹。读循环永不返回——必须
-  // fire-and-forget，且捕获关页时的中断。
-  const petIdentity =
-    (await page.evaluate(() => localStorage.getItem("mindloop-pet-identity"))) ??
-    IDENT;
+  // 断言挂载身份就是钉死的那个——消息目标确定性的根。
+  const attached = await page
+    .locator("[data-testid='pet-root']")
+    .getAttribute("data-identity");
+  assert(attached === live, `宠物应挂载 ${live}（现挂 ${attached}）`);
+  // 裸 SSE 监听（与宠物页同端点、同身份）：兜底证据通道。读循环永不
+  // 返回——必须 fire-and-forget，且捕获关页时的中断。
   void page.evaluate(async (id) => {
     const w = window;
     w.__saw = null;
@@ -575,7 +569,10 @@ async function petChatSend() {
         }
       }
     } catch { /* 连接失败不影响页面通道判定 */ }
-  }, petIdentity).catch(() => {});
+  }, live).catch(() => {});
+  await page.locator("[data-testid='pet-orb']").click();
+  const input = page.locator("[data-testid='pet-chat-input']");
+  await input.waitFor({ timeout: 5000 });
   await input.fill("UI 测试：宠物链路 ping，回复一个字即可。");
   await page.locator("[data-testid='pet-send']").click();
   await page.waitForTimeout(1200);
@@ -596,13 +593,170 @@ async function petChatSend() {
   await shot("F-pet-chat");
 }
 
+// —— 新任务对话框 · AI 起草（真模型推理 40-120s）——————————————————
+// 「AI 帮我写清楚」回归门：曾因 handler 起草超时（30s）与服务器
+// WriteTimeout（30s）碰撞，超时那刻连接先被掐死、错误响应也送不出去，
+// 浏览器只见 net::ERR_FAILED——对真实推理模型整链必败。快路径先验
+// 错误面（空草稿 400 / GET 405，零 token），再走真模型流式起草全链路：
+// 文本边生成边上屏（阶段性输出），终稿为"默认值直填 +【待定】占位"，
+// 禁止"待确认"问题清单节（那是把补齐成本甩回操作员）。
+async function taskAssist() {
+  const live = await liveIdentity();
+  if (!live) throw new SkipScenario("无运行中心智，起草目标无从选择");
+  // 快路径：错误必须以 JSON 错误体送达（而非连接被掐）。流式与同步
+  // 端点同一套校验，各验一面。
+  const r400 = await fetch(`${BASE}/api/identities/${live}/task-assist/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ draft: "" }),
+  });
+  assert(r400.status === 400, `流式空草稿应 400（现 ${r400.status}）`);
+  const body400 = await r400.json().catch(() => null);
+  assert(body400?.detail, "流式空草稿 400 应带 detail 消息");
+  const r405 = await fetch(`${BASE}/api/identities/${live}/task-assist`);
+  assert(r405.status === 405, `同步 GET 应 405（现 ${r405.status}）`);
+
+  // 全链路：对话框显式选运行中心智 → 粗糙草稿 → 起草等待态 → 文本
+  // 渐进增长（流式阶段性输出的直接证据）→ 终稿含目标/验收、不含
+  // 「待确认」问题清单节。
+  await gotoPath("/");
+  await page.getByText("新的任务").first().click();
+  const dlg = page.locator("[role=dialog]");
+  await dlg.waitFor({ timeout: 8000 });
+  await dlg
+    .locator('textarea[placeholder*="写下要它做的事"]')
+    .waitFor({ timeout: 5000 });
+  await dlg.getByRole("combobox").click();
+  await page.getByRole("option", { name: new RegExp(live) }).first().click();
+  await page.waitForTimeout(300);
+  const DRAFT = "给设置页加一个界面语言切换，支持中英文，记住选择";
+  const box = dlg.locator("textarea").first();
+  await box.fill(DRAFT);
+  const respPromise = page.waitForResponse(
+    (r) => r.url().includes("/task-assist/stream") && r.request().method() === "POST",
+    { timeout: 170000 }
+  );
+  respPromise.catch(() => {}); // 回填超时路径不留未处理拒绝
+  const btn = dlg.getByRole("button", { name: "AI 帮我写清楚" });
+  assert(await btn.isEnabled(), "AI 帮我写清楚 按钮不可点");
+  await btn.click();
+  // 等待态 + 实时进度字数（按钮文案含「已生成」）。
+  await dlg
+    .getByRole("button", { name: /起草中…已生成/ })
+    .waitFor({ timeout: 10000 });
+  const resp = await respPromise.catch(() => null);
+  assert(resp !== null, "170s 内未收到 task-assist/stream 响应");
+  assert(resp.status() === 200, `task-assist/stream 应 200（现 ${resp.status()}）`);
+  // 阶段性输出：终稿到达前文本域必须已开始增长（首增量上屏）。
+  // 推理模型在可见文本前先烧推理 token（实测首增量可达 ~50s）——
+  // 这里必须给满推理预算，30s 级超时是错的。
+  await page.waitForFunction(
+    (draft) => {
+      const ta = document.querySelector("[role=dialog] textarea");
+      return (ta ? ta.value : "").length > draft.length;
+    },
+    DRAFT,
+    { timeout: 150000, polling: 300 }
+  );
+  // 完成信号 = 按钮回到空闲态（done 帧已处理）。终稿的内容断言放在
+  // 完成之后——「目标/验收」是文档前部章节，流式途中就会满足，
+  // 不能当完成判据。
+  await dlg
+    .getByRole("button", { name: "AI 帮我写清楚", exact: true })
+    .waitFor({ timeout: 170000 });
+  const finalText = await box.inputValue();
+  assert(
+    finalText.includes("目标") && finalText.includes("验收"),
+    "终稿应含目标/验收结构"
+  );
+  assert(!finalText.includes("待确认"), "终稿不应有「待确认」问题清单节");
+  assert(
+    finalText.length > DRAFT.length + 100,
+    "终稿应为实质扩写（远长于原草稿）"
+  );
+  assert((await dlg.count()) > 0, "回填后对话框应保持打开（提交由操作员决定）");
+  console.log(`  draft-bytes: ${finalText.length} 字, 待定标记: ${(finalText.match(/【待定/g) ?? []).length} 处`);
+  await shot("F-task-assist");
+}
+
+// —— Scene Protocol（scene.md §9 跨进程链路验收）——————————————————
+// 完整链路：CLI ui set（独立进程写轨迹）→ web 折叠 → SSE → 真浏览器
+// 渲染。验收点：卡片上屏、改 data 原地更新、页面重连拿全量（状态
+// 漂移不可能性的界面侧证据）、remove 消失、choice 点击回流 intent
+//（非 approve- 前缀只落轨迹，无审批副作用）。scene 步骤是结构性
+// UI 声明（reservedTypes，渲染排除、收尾即撤卡），落在测试身份
+// 轨迹上不构成内容污染。
+async function sceneCards() {
+  const exe = resolve("mindloop.exe");
+  const setCard = (...args) =>
+    execFileSync(exe, ["ui", "set", IDENT, ...args], { stdio: "pipe" });
+  await gotoPath(`/i/${IDENT}`);
+
+  // 上屏：CLI 写卡 → SSE → DOM。
+  setCard("scene-e2e-weather", "--kind", "text", "--intent", "ambient",
+    "--summary", "北京 18° 晴",
+    "--data", JSON.stringify({ title: "天气", body: "晴，25°" }));
+  await page
+    .locator("[data-testid='scene-card'][data-scene-id='scene-e2e-weather']")
+    .waitFor({ timeout: 10000 });
+
+  // 原地更新：同 id 改 data，DOM 就地刷新。
+  setCard("scene-e2e-weather", "--kind", "text", "--intent", "inform",
+    "--summary", "北京 21° 多云",
+    "--data", JSON.stringify({ title: "天气", body: "多云，21°" }));
+  await page
+    .locator("[data-testid='scene-card'][data-scene-id='scene-e2e-weather']", {
+      hasText: "多云",
+    })
+    .waitFor({ timeout: 10000 });
+
+  // 重连拿全量：刷新页面 = 新订阅，快照帧应完整重建卡片面。
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page
+    .locator("[data-testid='scene-card'][data-scene-id='scene-e2e-weather']")
+    .waitFor({ timeout: 10000 });
+
+  // choice 卡：confront 居中，点击选项回流 intent。
+  const respPromise = page.waitForResponse(
+    (r) => r.url().includes("/scene/intent") && r.request().method() === "POST",
+    { timeout: 10000 }
+  );
+  respPromise.catch(() => {});
+  setCard("scene-e2e-choice", "--kind", "choice", "--intent", "confront",
+    "--summary", "E2E 选择卡",
+    "--data", JSON.stringify({
+      prompt: "E2E：随便选一个",
+      options: [
+        { value: "approve", label: "允许", tone: "primary" },
+        { value: "deny", label: "拒绝", tone: "danger" },
+      ],
+    }));
+  await page
+    .locator("[data-testid='scene-card'][data-scene-id='scene-e2e-choice']")
+    .waitFor({ timeout: 10000 });
+  await page.locator("[data-testid='scene-select-approve']").click();
+  const resp = await respPromise.catch(() => null);
+  assert(resp !== null, "点击选项应发出 POST /scene/intent");
+
+  // 撤卡：remove 后卡片消失。
+  setCard("scene-e2e-weather", "--remove");
+  setCard("scene-e2e-choice", "--remove");
+  await page
+    .locator("[data-testid='scene-card'][data-scene-id='scene-e2e-weather']")
+    .waitFor({ state: "detached", timeout: 10000 });
+  await page
+    .locator("[data-testid='scene-card'][data-scene-id='scene-e2e-choice']")
+    .waitFor({ state: "detached", timeout: 10000 });
+  await shot("F-scene-cards");
+}
+
 const SCENARIOS = {
   home, homeCreateIdentity, credentialsPage, llmPage,
   tabsInventory, legacyRedirects, timelineContent, recapGenerate, mindlogFilter,
   healthProbe, usageRender, chatSend, memoriesSearch,
   scheduleRender, connectionsForm, configEnv, talkPages,
   sensorsCrud, webhookSecretOnce, bodySection, notFound,
-  petPage, petMenu, petChatSend,
+  petPage, petMenu, petChatSend, taskAssist, sceneCards,
 };
 
 browser = await chromium.launch({ channel: "msedge", headless: true });
@@ -620,6 +774,10 @@ for (const [name, fn] of Object.entries(SCENARIOS)) {
     await fn();
     results.push(`SCENARIO ${name} PASS ${Date.now() - s}ms`);
   } catch (e) {
+    if (e instanceof SkipScenario) {
+      results.push(`SCENARIO ${name} SKIP ${String(e?.message ?? e).slice(0, 200)}`);
+      continue;
+    }
     failed++;
     const reason = String(e?.message ?? e).split("\n")[0].slice(0, 300);
     results.push(`SCENARIO ${name} FAIL ${Date.now() - s}ms ${reason}`);

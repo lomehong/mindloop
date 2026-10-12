@@ -22,23 +22,68 @@ import { Textarea } from "~/components/ui/textarea";
 import { fetchIdentities, submitTask } from "~/lib/api";
 import { newClientMessageId } from "~/lib/use-chat";
 
-// AI 起草：调后端 /task-assist 端点（复用身份 request 档 LLM）。
+// AI 起草（流式）：调后端 /task-assist/stream，LLM 每产出一小段就经
+// onDelta 回调——文本边生成边上屏（阶段性输出），操作员看得见进度。
 // 独立函数而非 api.ts 导出——api.ts 的修改会触发 Mimosa git 门禁
 // 对整个文件重扫（已知误报），独立内联绕开该问题。
-async function assistDraft(identityId: string, draft: string): Promise<{ task: string }> {
+async function assistDraftStream(
+  identityId: string,
+  draft: string,
+  onDelta: (full: string) => void
+): Promise<{ task: string }> {
   const res = await fetch(
-    `/api/identities/${encodeURIComponent(identityId)}/task-assist`,
+    `/api/identities/${encodeURIComponent(identityId)}/task-assist/stream`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ draft }),
     }
   );
-  if (!res.ok) {
+  // 校验失败（400/405/409…）在 SSE 头之前以普通 HTTP 错误返回。
+  if (!res.ok || !res.body) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body?.detail?.message ?? body?.detail ?? `HTTP ${res.status}`);
   }
-  return res.json();
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  let task = "";
+  let fail: string | null = null;
+  const handle = (event: string, data: string) => {
+    const payload = JSON.parse(data) as { text?: string; task?: string; message?: string };
+    if (event === "delta" && typeof payload.text === "string") {
+      task += payload.text;
+      onDelta(task);
+    } else if (event === "done" && typeof payload.task === "string") {
+      task = payload.task;
+      onDelta(task);
+    } else if (event === "error") {
+      fail = payload.message ?? "起草失败";
+    }
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf("\n\n")) >= 0) {
+      const frame = buf.slice(0, i);
+      buf = buf.slice(i + 2);
+      const event = frame
+        .split("\n")
+        .find((l) => l.startsWith("event:"))
+        ?.slice(6)
+        .trim();
+      const data = frame
+        .split("\n")
+        .find((l) => l.startsWith("data:"))
+        ?.slice(5)
+        .trim();
+      if (event && data) handle(event, data);
+    }
+  }
+  if (fail) throw new Error(fail);
+  return { task };
 }
 
 export function NewTaskDialog({
@@ -118,14 +163,18 @@ export function NewTaskDialog({
     mutation.mutate({ identityId: selected, content: trimmed, clientMessageId });
   };
 
-  // AI 帮我写清楚：把粗糙草稿起草为完整、可执行的任务书，回填后由
-  // 操作员审阅修改——提交动作仍是人点的，AI 绝不自动委托。
+  // AI 帮我写清楚：把粗糙草稿流式起草为完整、可执行的任务书终稿——
+  // 增量边生成边回填文本域（阶段性输出），按钮同步显示已生成字数；
+  // 【待定】占位处替换成确定值即可。提交动作仍是人点的，AI 绝不自动
+  // 委托。中途失败保留已生成的部分供手动续写。
   const assist = useMutation({
-    mutationFn: () => assistDraft(selected, content.trim()),
+    mutationFn: (draft: string) =>
+      assistDraftStream(selected, draft, (full) => setContent(full)),
     onSuccess: (result) => {
       setContent(result.task);
     },
-    onError: (error: Error) => toast.error(`AI 辅助失败：${error.message}`),
+    onError: (error: Error) =>
+      toast.error(`AI 辅助失败：${error.message}（已保留已生成部分，可手动续写或重试）`),
   });
 
   return (
@@ -171,7 +220,7 @@ export function NewTaskDialog({
                 rows={12}
                 value={content}
                 onChange={(event) => setContent(event.target.value)}
-                placeholder="写下要它做的事——粗糙意图也行，点「AI 帮我写清楚」起草成完整任务书（不是聊天消息）"
+                  placeholder="写下要它做的事——粗糙意图也行，点「AI 帮我写清楚」流式起草成任务书终稿（不是聊天消息）"
                 className="max-h-[45vh] min-h-56 flex-1 resize-y leading-relaxed"
                 onKeyDown={(event) => {
                   if (
@@ -189,14 +238,16 @@ export function NewTaskDialog({
                   size="sm"
                   className="text-muted-foreground"
                   disabled={assist.isPending || !content.trim() || !selected}
-                  title="用该身份配置的模型把草稿起草成完整任务书（内容会发给 LLM 供应商）"
-                  onClick={() => assist.mutate()}
+                  title="用该身份配置的模型把草稿流式起草成任务书终稿（内容会发给 LLM 供应商，推理约需 1 分钟，文本边生成边上屏）"
+                  onClick={() => assist.mutate(content.trim())}
                 >
                   <Sparkles className="size-3.5" />
-                  {assist.isPending ? "起草中…" : "AI 帮我写清楚"}
+                  {assist.isPending
+                    ? `起草中…已生成 ${content.length} 字`
+                    : "AI 帮我写清楚"}
                 </Button>
                 <span className="text-[11px] text-muted-foreground/70">
-                  起草后可自由修改，提交由你决定
+                  起草后把【待定】替换成确定值即可，提交由你决定
                 </span>
               </div>
             </div>

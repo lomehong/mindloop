@@ -145,6 +145,26 @@ export function TaskCard({
           {result}
         </div>
       )}
+      {task.status === "succeeded" && (task.deliverables?.length ?? 0) > 0 && (
+        <div className="mt-1.5 rounded-md border border-line px-2 py-1.5">
+          <div className="font-mono text-[10px] tracking-wide text-muted-foreground">
+            产出物（完成线验收通过）
+          </div>
+          {task.deliverables!.map((path) => (
+            <div
+              key={path}
+              className="break-all font-mono text-[11px] text-foreground/85"
+            >
+              {path}
+            </div>
+          ))}
+        </div>
+      )}
+      {task.status === "succeeded" && (task.deliverables?.length ?? 0) === 0 && (
+        <div className="mt-1.5 font-mono text-[10px] text-muted-foreground">
+          无文件交付物 · 结论见上方结果文本
+        </div>
+      )}
       {reason && (
         <div
           className={cn(

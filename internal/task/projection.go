@@ -88,6 +88,9 @@ func apply(task *Task, ev Event) {
 	task.State, task.Attempt, task.RunID = ev.State, ev.Attempt, ev.RunID
 	task.UpdatedAt, task.Reason = ev.TS, ev.Reason
 	task.Result, task.ResultKind, task.EvidenceStepIDs = ev.Result, ev.ResultKind, ev.EvidenceStepIDs
+	if ev.Deliverables != nil {
+		task.Deliverables = ev.Deliverables
+	}
 	task.Events = append(task.Events, ev)
 }
 func submittedTask(step traj.Step, identity string, req Submission) Task {

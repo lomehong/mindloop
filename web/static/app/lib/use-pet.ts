@@ -47,6 +47,7 @@ import {
   isDnd,
   MOOD_LABEL,
   offer,
+  pickPetIdentity,
   reactionForStep,
   stepAnnouncement,
   tick,
@@ -175,16 +176,15 @@ export function usePet(options: UsePetOptions = {}): UsePetResult {
   useEffect(() => {
     if (pinned) return;
     if (identities.length === 0) return;
-    const first = identities[0];
-    if (!first) return;
     let saved: string | null = null;
     try {
       saved = localStorage.getItem(IDENTITY_KEY);
     } catch {
-      // 无本地存储：跟随第一个身份。
+      // 无本地存储：跟随自动选停。
     }
-    const next =
-      saved && identities.some((it) => it.id === saved) ? saved : first.id;
+    // 选停规则在 pet-state（纯函数）：存留优先，否则偏向运行中心智。
+    const next = pickPetIdentity(identities, saved);
+    if (!next) return;
     setSelfId(next);
     // 自动选中也要落盘：身份选择是宠物与外部（E2E 裸监听、下次启动）
     // 共享的事实，不能只有手动切换才可发现。

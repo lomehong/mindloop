@@ -1,7 +1,9 @@
 /** 场景卡片层（scene.md §7 渲染端）：订阅场景流，把服务端折叠好的
- * 场景状态投影成浮层——inform/ambient 卡右上角堆叠，confront 卡居中
- * 聚焦（遮罩）。渲染端只有投影与过渡，没有业务决策：卡片上的按钮
- * 只上报 intent（Phase 2 接 /scene/intent），Phase 1 只读展示。
+ * 场景状态投影成身份页内容区的「舞台」——Agent 驱动 UI 有卡时接管
+ * 整块圆角内容区（tab 内容收起），撤卡后回归工作区；操作员可手动
+ * 「返回工作区」，此后 inform/ambient 新卡只给呼吸角标不抢屏，
+ * confront（必须停下决策）始终直接接管。渲染端只有投影与过渡，没
+ * 有业务决策：卡片上的按钮只上报 intent（POST /scene/intent）。
  * kind 注册表：不认识的 kind 降级为 text 占位（title=kind），不得
  * 崩溃——对应协议"shell 不认识的 kind 应当降级渲染或忽略"。 */
 import { useEffect, useRef, useState } from "react";
@@ -13,7 +15,7 @@ const EMPTY_SCENE: SceneState = { rev: 0, surfaces: [] };
 /** useSceneStream 维护一条场景流的生命周期：连接 → 状态折叠 → 断线
  * 重连（2s 起步指数退避，封顶 15s）。identityId 变化即重建（切身份
  * = 换一条流）。visibility 无关：卡片面在任何 tab 都在场。 */
-function useSceneStream(identityId: string): SceneState {
+export function useSceneStream(identityId: string): SceneState {
   const [state, setState] = useState<SceneState>(EMPTY_SCENE);
   useEffect(() => {
     if (!identityId) return;
@@ -151,6 +153,7 @@ function ChoiceCard({ surface, identityId }: { surface: SceneSurface; identityId
           <button
             key={o.value}
             type="button"
+            data-testid={`scene-select-${o.value}`}
             disabled={pending !== null}
             onClick={() => submit(o.value)}
             className={cn(
@@ -175,45 +178,98 @@ function ChoiceCard({ surface, identityId }: { surface: SceneSurface; identityId
   );
 }
 
-/** SceneLayer 是身份页的全局卡片面：挂在 identity-shell 的 Outlet
- * 旁，任何 tab 都在场。confront 卡居中聚焦（遮罩），其余右上角
- * 堆叠；同一时刻至多一张 confront（协议约束 focus 唯一）。 */
-export function SceneLayer({ identityId }: { identityId: string }) {
-  const state = useSceneStream(identityId);
-  const prevRev = useRef(0);
-  // rev 无前进说明流未就绪：不渲染（避免闪空层）。
-  if (state.rev === 0 || state.rev < prevRev.current) return null;
-  prevRev.current = state.rev;
-
-  const confront = state.surfaces.find(
+/** SceneStage 是仪表盘的舞台形态：Agent 驱动 UI 接管整块内容区——
+ * confront 卡居中聚焦（存在感最高），inform/ambient 卡按栅格排布
+ * 弱化呈现。舞台自带返回工作区的开关（操作员随时收回视线）。
+ * 挂载条件由 identity-shell 决定（confront 抢屏例外在那里判）。 */
+export function SceneStage({
+  surfaces,
+  identityId,
+  onBack,
+}: {
+  surfaces: SceneSurface[];
+  identityId: string;
+  onBack: () => void;
+}) {
+  const confront = surfaces.find(
     (s) => s.intent === "confront" || s.focus === true
   );
-  const others = state.surfaces.filter((s) => s !== confront);
-
+  const others = surfaces.filter((s) => s !== confront);
   return (
-    <>
-      {others.length > 0 && (
-        <div className="pointer-events-none fixed right-4 top-16 z-50 flex w-80 flex-col gap-2">
-          {others.map((s) => (
-            <div
-              key={s.id}
-              className={cn(
-                "pointer-events-auto rounded-xl border border-border bg-card/95 p-3 shadow-lg backdrop-blur",
-                s.intent === "ambient" && "opacity-75"
-              )}
-            >
-              <SurfaceCard surface={s} identityId={identityId} />
-            </div>
-          ))}
-        </div>
-      )}
-      {confront && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-2xl">
+    <div
+      data-testid="scene-stage"
+      className="-mx-5 -mb-4 flex min-h-[calc(100vh-15rem)] flex-col rounded-2xl border border-border/70 bg-card sm:-mx-6"
+    >
+      <div className="flex items-center gap-3 border-b border-border/70 px-5 py-3">
+        <span className="font-mono text-[11px] tracking-[0.14em] text-primary">
+          AGENT 舞台
+        </span>
+        <span className="text-xs text-muted-foreground">
+          Agent 正在驱动这块仪表盘 · {surfaces.length} 张卡片
+        </span>
+        <span className="flex-1" />
+        <button
+          type="button"
+          data-testid="scene-stage-back"
+          onClick={onBack}
+          className="rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          返回工作区
+        </button>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 overflow-y-auto p-8">
+        {confront && (
+          <div
+            data-testid="scene-card"
+            data-scene-id={confront.id}
+            className="w-full max-w-xl rounded-2xl border border-primary/40 bg-card p-6 shadow-2xl ring-1 ring-primary/20"
+          >
             <SurfaceCard surface={confront} identityId={identityId} />
           </div>
-        </div>
-      )}
-    </>
+        )}
+        {others.length > 0 && (
+          <div className="grid w-full max-w-3xl grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4">
+            {others.map((s) => (
+              <div
+                key={s.id}
+                data-testid="scene-card"
+                data-scene-id={s.id}
+                className={cn(
+                  "rounded-xl border border-border bg-card/95 p-4",
+                  s.intent === "ambient" && "opacity-75"
+                )}
+              >
+                <SurfaceCard surface={s} identityId={identityId} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** SceneBadge 是「返回工作区之后」的存在感提示：Agent 又发了
+ * inform/ambient 卡但不抢屏——呼吸点 + 张数，点它回舞台。 */
+export function SceneBadge({
+  count,
+  onOpen,
+}: {
+  count: number;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid="scene-badge"
+      onClick={onOpen}
+      className="fixed right-4 top-16 z-40 flex items-center gap-2 rounded-full border border-primary/40 bg-card/95 px-3 py-1.5 text-xs text-foreground shadow-lg transition-colors hover:text-primary"
+    >
+      <span className="relative flex size-2">
+        <span className="absolute inline-flex size-2 animate-ping rounded-full bg-primary/60" />
+        <span className="relative inline-flex size-2 rounded-full bg-primary" />
+      </span>
+      Agent 舞台 · {count} 张卡片
+    </button>
   );
 }

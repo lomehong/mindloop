@@ -26,7 +26,7 @@ func TestExecuteTaskAttribution(t *testing.T) {
 		}),
 		RequestThinker: taskModelFunc(func(ctx context.Context, _ string, _ []llm.Message) (string, error) {
 			attrs = append(attrs, llm.AttribFrom(ctx))
-			return `FINAL="归因探针完成"`, nil
+			return taskFinalShell("归因探针完成"), nil
 		}),
 	})
 	m.Wake(context.Background(), Wake{Step: syntheticStep(monolithWakeType), Kind: WakeScheduled})

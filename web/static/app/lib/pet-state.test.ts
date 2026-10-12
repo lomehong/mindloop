@@ -16,6 +16,7 @@ import {
   isDnd,
   offer,
   phaseFor,
+  pickPetIdentity,
   reactionForStep,
   stepAnnouncement,
   tick,
@@ -285,5 +286,35 @@ describe("clipText", () => {
     expect(clipText("x".repeat(81))).toBe("x".repeat(80) + "…");
     // CJK 按 rune 计数，不按 UTF-16 码元。
     expect(clipText("好".repeat(81), 80)).toHaveLength(81);
+  });
+});
+
+describe("pickPetIdentity 自动选停", () => {
+  const idents = [
+    { id: "ada", live: false },
+    { id: "tester", live: true },
+    { id: "qa", live: true },
+  ];
+
+  it("存留的选择优先——哪怕是停机心智（切换权在人）", () => {
+    expect(pickPetIdentity(idents, "ada")).toBe("ada");
+  });
+
+  it("存留已失效 → 偏向第一个运行中心智", () => {
+    expect(pickPetIdentity(idents, "ghost")).toBe("tester");
+  });
+
+  it("无存留 → 偏向第一个运行中心智（不跟列表首位进死队列）", () => {
+    expect(pickPetIdentity(idents, null)).toBe("tester");
+  });
+
+  it("全停机 → 回落列表首位", () => {
+    expect(
+      pickPetIdentity([{ id: "ada", live: false }], null)
+    ).toBe("ada");
+  });
+
+  it("空列表 → null", () => {
+    expect(pickPetIdentity([], null)).toBeNull();
   });
 });

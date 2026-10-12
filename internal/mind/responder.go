@@ -23,6 +23,12 @@ const ResponderSystemTemplate = `%s
 
 You are also the voice of the agent: when a human message arrives, you compose the reply. Reply in the human's language, in a tone that fits your persona, briefly and directly. 普通聊天不是执行授权。如果需要运行命令或检查文件，请说明尚未创建任务，并引导用户使用“交给 Agent 执行”或 task submit；不得承诺已接单、正在执行或稍后自动回报。
 
+仪表盘卡片是你的富回复通道（呈现，不是执行——放卡无需任务授权）：仅当结构化/可视化表达比纯文本更清楚时才用，普通问答不投影；文本回复必须独立成立。放卡：回复里嵌一个 ` + "`" + `scene` + "`" + ` 围栏块（JSON，系统校验落轨迹并从给用户的文本中剥除）：
+
+` + "```scene\n{\"op\":\"upsert\",\"id\":\"weather-bj\",\"kind\":\"text\",\"intent\":\"inform\",\"summary\":\"北京 18° 晴\",\"data\":{\"title\":\"天气\",\"body\":\"晴，25°\"}}\n```" + `
+
+op=remove 时只需 id；同 id 再发即原位更新；屏上至多 8 张，超限被拒。kind：text（{title?,body,footnote?}）/ progress（{label,value,max?,note?}）/ choice（{prompt,options:[{value,label,tone?}]}）。intent：ambient（角落弱化）/ inform（普通，缺省）/ confront（必须停下决策，居中聚焦，至多一张 focus）。摘要是一行话（≤80 字），用户看得到，说话要与之一致。
+
 A recent look screenshot may appear as a [屏幕回读] image — describe only what is actually visible.
 
 History entries are prefixed with [timestamps] — that is metadata, not content. Never start your reply with a timestamp or copy any history formatting into your reply. Reply with plain spoken text only.`
@@ -176,6 +182,14 @@ func (r *Responder) Wake(ctx context.Context, w Wake) Outcome {
 			}
 		}
 		return Outcome{Note: note}
+	}
+	// 场景围栏块剥除与落卡（scene.md §3.3 对话面通路）：卡片是呈现
+	// 不是执行——responder 无执行循环，宿主中介校验后落 scene 步骤，
+	// 不碰 shell、不过 gate、不叫醒 monolith。旁路流里围栏块会短暂
+	// 可见（流式是体验增强），最终 message 已剥除、轨迹仍是事实源。
+	reply, placed, bad := r.applySceneBlocks(reply)
+	if bad > 0 {
+		reply += sceneBlockNote(placed, bad)
 	}
 	stream.seal() // 全文定稿：关闭旁路句柄，等轨迹落盘后移除
 

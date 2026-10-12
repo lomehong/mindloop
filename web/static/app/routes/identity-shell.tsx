@@ -1,13 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router";
+import { useEffect, useState } from "react";
 
 import { CreatureSvg } from "~/components/pet/creature";
 import { MindlogSearch } from "~/components/mindlog-search";
+import { SceneBadge, SceneStage, useSceneStream } from "~/components/scene-layer";
 import { fetchIdentities } from "~/lib/api";
 import { phaseFor } from "~/lib/pet-state";
 import type { SearchHit } from "~/lib/types";
 import { cn } from "~/lib/utils";
-import { SceneLayer } from "~/components/scene-layer";
 
 // 身份页骨架（docs/designs/ui-language.md §5/§6）：单头 masthead（生物 ·
 // 名字 · 状态芯片）+ 7 tab（轨迹/对话/任务/记忆/运行/感知/设置）+ 子页段；
@@ -130,6 +131,34 @@ export default function IdentityShell() {
   const section = sectionOf(rest);
   const seg = SEGS[section];
 
+  // —— 仪表盘舞台（scene.md §7 舞台形态）——场景有卡时接管整块内容
+  // 区（tab 内容收起），撤卡回归工作区；操作员「返回工作区」后，
+  // inform/ambient 新卡只给呼吸角标不抢屏，confront 始终直接接管
+  //（它的定义就是必须停下决策）。身份切换 / 场景清空即复位。
+  const scene = useSceneStream(identityId);
+  const [stageDismissed, setStageDismissed] = useState(false);
+  useEffect(() => {
+    setStageDismissed(false);
+  }, [identityId]);
+  useEffect(() => {
+    if (scene.surfaces.length === 0) setStageDismissed(false);
+  }, [scene.surfaces.length]);
+  const confront = scene.surfaces.find(
+    (s) => s.intent === "confront" || s.focus === true
+  );
+  const stageActive =
+    scene.surfaces.length > 0 && (!!confront || !stageDismissed);
+
+  if (stageActive) {
+    return (
+      <SceneStage
+        surfaces={scene.surfaces}
+        identityId={identityId}
+        onBack={() => setStageDismissed(true)}
+      />
+    );
+  }
+
   // 命中直达 canonical 轨迹视图：轨迹区任何子视图 → 泳道（?step= 由
   // TimelineView 解析：窗口内滚动+闪烁+开详情，窗口外走取单步弹窗）；
   // 其他区（对话/记忆）→ 日志流定位。窗口外旧步骤一律退化为取单步弹窗。
@@ -179,7 +208,12 @@ export default function IdentityShell() {
         </div>
       </div>
       <Outlet />
-      <SceneLayer identityId={identityId} />
+      {stageDismissed && scene.surfaces.length > 0 && (
+        <SceneBadge
+          count={scene.surfaces.length}
+          onOpen={() => setStageDismissed(false)}
+        />
+      )}
     </>
   );
 }

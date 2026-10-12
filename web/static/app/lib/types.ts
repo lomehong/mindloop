@@ -872,6 +872,8 @@ export interface AgentTask {
   result?: string;
   result_kind?: string;
   evidence_step_ids?: string[];
+  /** 完成线验收通过的交付文件绝对路径（runner 机械核验后落盘）。 */
+  deliverables?: string[];
   events: TaskEvent[];
 }
 

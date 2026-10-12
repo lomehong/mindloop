@@ -9,6 +9,7 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -98,6 +99,12 @@ type Options struct {
 	// MINDLOOP_IDENTITY_DIR 等扩展面）——agent 在沙箱里用同一套
 	// CLI 探索身份的扩展能力。
 	ExtraEnv []string
+	// VerifyDeliverables 开启完成线机械验收（显式委托用）：FINAL
+	// 必须是结构化契约 JSON（summary + deliverables），交付文件逐项
+	// 核验（存在、非空、不出工作目录），缺件则 FINAL 无效、打回下
+	// 一轮继续——验收标准不再是写给模型看的建议。自主运行不开：
+	// 自发思考没有任务书完成线可验。
+	VerifyDeliverables bool
 }
 
 // Result 是一次成功完成的运行。
@@ -105,9 +112,12 @@ type Result struct {
 	FinalKind       string
 	EvidenceStepIDs []string
 	Final           string
-	Iterations      int
-	RunID           string
-	WorkDir         string
+	// Deliverables 是验收模式核验通过的交付文件绝对路径（任务事件
+	// 随终态落盘，UI 据此展示产出物）；非验收模式为 nil。
+	Deliverables []string
+	Iterations   int
+	RunID        string
+	WorkDir      string
 }
 
 // Execution 是待授权的具体脚本及其执行归属，不包含环境凭据。
@@ -420,11 +430,110 @@ func (r *run) correlate(s *traj.Step) {
 	}
 }
 
-func (r *run) finish(ctx context.Context, final, kind string, iteration int) (Result, error) {
+func (r *run) finish(ctx context.Context, final, kind string, iteration int, deliverables []string) (Result, error) {
 	if err := r.appendStep(ctx, traj.TypeFinal, final, map[string]any{"result_kind": kind}); err != nil {
 		return Result{RunID: r.runID, WorkDir: r.workDir}, fmt.Errorf("runner: 写 FINAL: %w", err)
 	}
-	return Result{Final: final, FinalKind: kind, EvidenceStepIDs: r.evidence, Iterations: iteration, RunID: r.runID, WorkDir: r.workDir}, nil
+	return Result{Final: final, FinalKind: kind, Deliverables: deliverables, EvidenceStepIDs: r.evidence, Iterations: iteration, RunID: r.runID, WorkDir: r.workDir}, nil
+}
+
+// errFinalRejected 哨兵：FINAL 未通过完成线验收，已打回下一轮——
+// 拒绝原因作为 error 步骤落轨迹（下轮渲染模型可见），不是运行失败。
+var errFinalRejected = errors.New("runner: FINAL 未通过验收")
+
+// finalContract 是验收模式下的 FINAL 收口契约：summary 一句话结果，
+// deliverables 列全任务书要求的交付文件（相对工作目录）。
+type finalContract struct {
+	Summary      string   `json:"summary"`
+	Deliverables []string `json:"deliverables"`
+}
+
+// acceptFinal 采信终局的唯一入口。验收模式（VerifyDeliverables）下
+// FINAL 必须符合结构化契约，交付文件逐项核验——缺件打回下一轮继续
+// 干，验收标准从"写给模型看的建议"变成机械判定。返回
+// errFinalRejected 时调用方应 continue 主循环。
+func (r *run) acceptFinal(ctx context.Context, final, kind string, iteration int) (Result, error) {
+	if !r.opts.VerifyDeliverables {
+		return r.finish(ctx, final, kind, iteration, nil)
+	}
+	summary, deliverables, err := parseFinalContract(final)
+	if err != nil {
+		return Result{}, r.rejectFinal(ctx, iteration,
+			"FINAL 不符合收口契约（"+err.Error()+"）。请写 .mindloop_final 文件收口，内容为 JSON："+
+				`{"summary":"一句话结果","deliverables":["交付文件相对路径",...]}`)
+	}
+	missing, resolved := r.verifyDeliverables(deliverables)
+	if len(missing) > 0 {
+		return Result{}, r.rejectFinal(ctx, iteration,
+			"完成线未满足，交付物核验失败：\n"+strings.Join(missing, "\n")+
+				"\n补齐上述文件（或修正 deliverables 使其与任务书交付物一致）后重新 FINAL。")
+	}
+	return r.finish(ctx, summary, kind, iteration, resolved)
+}
+
+// parseFinalContract 解析 FINAL 文件内容为收口契约；容忍模型把 JSON
+// 包进代码围栏。
+func parseFinalContract(raw string) (string, []string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if fenced := strings.TrimPrefix(trimmed, "```"); fenced != trimmed {
+		fenced = strings.TrimPrefix(fenced, "json")
+		fenced = strings.TrimSuffix(strings.TrimSpace(fenced), "```")
+		trimmed = strings.TrimSpace(fenced)
+	}
+	var c finalContract
+	if err := json.Unmarshal([]byte(trimmed), &c); err != nil {
+		return "", nil, fmt.Errorf("应为 JSON 对象: %v", err)
+	}
+	if strings.TrimSpace(c.Summary) == "" {
+		return "", nil, errors.New("缺 summary")
+	}
+	return strings.TrimSpace(c.Summary), c.Deliverables, nil
+}
+
+// verifyDeliverables 逐项核验交付文件：存在、非空、不出工作目录。
+// 返回（缺失描述清单, 核验通过的绝对路径清单）。
+func (r *run) verifyDeliverables(list []string) (missing, resolved []string) {
+	for _, item := range list {
+		p := strings.TrimSpace(item)
+		if p == "" {
+			continue
+		}
+		abs := p
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(r.workDir, p)
+		}
+		if rel, err := filepath.Rel(r.workDir, abs); err != nil || rel == ".." ||
+			strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			missing = append(missing, fmt.Sprintf("- %s（越出工作目录，禁止）", item))
+			continue
+		}
+		if info, err := os.Stat(abs); err != nil || info.IsDir() || info.Size() == 0 {
+			missing = append(missing, fmt.Sprintf("- %s（不存在或为空）", item))
+			continue
+		}
+		dup := false
+		for _, have := range resolved {
+			if have == abs {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			resolved = append(resolved, abs)
+		}
+	}
+	return missing, resolved
+}
+
+// rejectFinal 把未过验收的 FINAL 打回：原因落轨迹（模型下轮可见），
+// 哨兵文件的清理交还给下一轮 execute 的既有动作。
+func (r *run) rejectFinal(ctx context.Context, iteration int, reason string) error {
+	_ = r.appendStep(ctx, traj.TypeError,
+		fmt.Sprintf("FINAL 被验收拒绝（第 %d 轮）：%s", iteration, reason), nil)
+	if r.logf != nil {
+		r.logf("FINAL 验收未过，打回下一轮: %s", reason)
+	}
+	return errFinalRejected
 }
 
 // outputStepContent 把执行结果拼成 shell-output 步骤的正文与
@@ -504,12 +613,16 @@ func (r *run) loop(ctx context.Context) (Result, error) {
 		// 裸文本 FINAL= 声明（回复里没有任何代码块）：模型清楚表达
 		// 了"任务完成+答案"，按成功语义直接采为终局——不进沙箱、
 		// 不教学回灌，成果原样落 final 步骤回发（实测事故见
-		// extract.go bareFinal）。
+		// extract.go bareFinal）。验收模式下同样过完成线核验。
 		if ext.Final != "" {
 			if r.logf != nil {
 				r.logf("识别到裸文本 FINAL= 声明，直接采为终局")
 			}
-			return r.finish(ctx, ext.Final, "model-final", iteration)
+			res, err := r.acceptFinal(ctx, ext.Final, "model-final", iteration)
+			if err == errFinalRejected {
+				continue
+			}
+			return res, err
 		}
 
 		res, err := r.execute(ctx, ext.Code)
@@ -529,14 +642,19 @@ func (r *run) loop(ctx context.Context) (Result, error) {
 		if err := ctx.Err(); err != nil {
 			return Result{RunID: r.runID, WorkDir: r.workDir}, err
 		}
-		// FINAL 副作用检测：文件在，任务就完成了。
+		// FINAL 副作用检测：文件在，任务就完成了——验收模式下还要
+		// 过交付物核验，缺件打回下一轮。
 		if res.FinalSet {
 			data, err := os.ReadFile(r.finalPath)
 			if err != nil {
 				return Result{RunID: r.runID, WorkDir: r.workDir}, fmt.Errorf("runner: 读 FINAL: %w", err)
 			}
 			final := strings.TrimSpace(string(data))
-			return r.finish(ctx, final, "shell-final", iteration)
+			out, err := r.acceptFinal(ctx, final, "shell-final", iteration)
+			if err == errFinalRejected {
+				continue
+			}
+			return out, err
 		}
 
 		// 失速守卫：连续失败计数；同一命令以同一退出码失败两次

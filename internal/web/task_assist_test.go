@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -121,5 +122,79 @@ func TestTaskAssistUnconfiguredLLM(t *testing.T) {
 	}
 	if msg := fmt.Sprint(out["detail"]); !strings.Contains(msg, "未配置") {
 		t.Fatalf("错误应说明 LLM 未配置: %v", out)
+	}
+}
+
+// TestTaskAssistStream 流式端点：echo 供应器走 CompleteStream 合成
+// 分段——断言 SSE 帧序（delta≥1 → done）、增量拼接等于终稿、错误
+// 路径在 SSE 头之前以普通 HTTP 状态返回（前端拿得到状态码）。
+func TestTaskAssistStream(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MINDLOOP_HOME", dir)
+	id, err := identity.Create(context.Background(), "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = id
+	withTaskAssistFake(t)
+	ts, _ := newTestServer(t, identity.Home(), "")
+
+	// 错误路径：校验失败必须是普通 HTTP 错误，不是 SSE 流。
+	resp, err := http.Post(ts.URL+"/api/identities/ada/task-assist/stream", "application/json", strings.NewReader(`{"draft":"  "}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 400 {
+		t.Fatalf("流式空草稿 status = %d，应为 400", resp.StatusCode)
+	}
+	resp, err = http.Get(ts.URL + "/api/identities/ada/task-assist/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 405 {
+		t.Fatalf("流式 GET status = %d，应为 405", resp.StatusCode)
+	}
+
+	// 正向：delta ≥1 帧，拼接 == done.task。
+	body := `{"draft":"整理下载文件夹"}`
+	resp, err = http.Post(ts.URL+"/api/identities/ada/task-assist/stream", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("流式 status = %d，应为 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/event-stream") {
+		t.Fatalf("Content-Type = %q，应为 text/event-stream", ct)
+	}
+	deltas, doneTask := 0, ""
+	event := ""
+	for scanner := bufio.NewScanner(resp.Body); scanner.Scan(); {
+		line := scanner.Text()
+		switch {
+		case strings.HasPrefix(line, "event:"):
+			event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		case strings.HasPrefix(line, "data:") && event != "":
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			event = ""
+			var payload struct {
+				Text string `json:"text"`
+				Task string `json:"task"`
+			}
+			if err := json.Unmarshal([]byte(data), &payload); err != nil {
+				t.Fatalf("帧 data 应为 JSON: %v", err)
+			}
+			if payload.Task != "" {
+				doneTask = payload.Task
+			}
+			deltas++
+		}
+	}
+	if deltas < 2 { // ≥1 delta + 1 done
+		t.Fatalf("SSE 帧数 = %d，应至少 1 delta + 1 done", deltas)
+	}
+	if strings.TrimSpace(doneTask) == "" {
+		t.Fatal("done 帧应带非空终稿")
 	}
 }

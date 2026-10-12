@@ -294,6 +294,9 @@ export function PetApp() {
       className="pet"
       data-testid="pet-root"
       data-mood={mood}
+      // 当前挂载的身份（E2E 断言消息目标确定性——曾因自动选停靠到
+      // 停机身份，测试消息被写进真实轨迹）。
+      data-identity={identityId ?? ""}
       // 裸 SSE 订阅状态（区别于 mood 的 offline——后者在身份未选出时
       // 会被"身份列表可读"顶替；E2E 发消息前要等的是这一位）。
       data-sse={connected ? "on" : "off"}

@@ -447,7 +447,26 @@ func (m *monolith) systemPrompt(query string, w Wake) string {
 	if len(m.opts.ConnectorAddresses) > 0 {
 		base += "\n\n" + connectorSection(m.opts.ConnectorAddresses)
 	}
+	base += "\n\n" + uiSection(m.fromName())
 	return base
+}
+
+// uiSection 渲染界面场景披露段（scene.md §5，BaiLongma「description
+// 即说明书」的移植）：ui set 的动词语义（单动词、幂等三合一）、
+// 声明式边界（只说语义不说像素）、克制纪律（值得看才发、卡与文本
+// 回复是两个独立选择）与 manifest 手柄（屏上卡片的 id 就在这里）。
+// 与 look/robotd 段同一披露层级——模型醒来即知自己的界面表达通道，
+// 不靠技能文档被发现。身份名由装配注入，模型不必猜。
+func uiSection(selfName string) string {
+	var b strings.Builder
+	b.WriteString("## UI surfaces\n\n")
+	b.WriteString("The dashboard is a projection you can drive by declaring state, not a passive log. ")
+	b.WriteString(fmt.Sprintf("Run \"$MINDLOOP_EXE ui set %s <id> --kind text|progress|choice --intent ambient|inform|confront --summary \\\"one line\\\" --data '<json>'\" to place a card; ", selfName))
+	b.WriteString("the same id updates it in place, and adding --remove takes it away — show/update/hide are one idempotent verb. ")
+	b.WriteString("Declare semantic content and importance only — never pixels, position, size, or animation; the interface owns all presentation and transitions. ")
+	b.WriteString("The scene manifest in your wake context lists the cards currently on screen — treat those ids as handles: update or remove them instead of piling on new ones, and keep the total at 8 or fewer. ")
+	b.WriteString("Place a card only when a structured or visual view is clearer than plain text; a card and a text reply are two independent choices — on a real user turn still deliver the text reply, and never go silent merely because something is already on screen.")
+	return b.String()
 }
 
 // connectorSection 渲染渠道桥披露段：可投递地址 + 投递方式。地址
