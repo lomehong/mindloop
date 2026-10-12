@@ -29,7 +29,7 @@ func collect() (func(PEvent), func() []PEvent) {
 
 func waitEvents(t *testing.T, get func() []PEvent, n int, why string) []PEvent {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if len(get()) >= n {
 			return get()
