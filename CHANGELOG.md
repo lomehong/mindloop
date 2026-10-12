@@ -3,7 +3,7 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的条目
 组织方式；版本号采用语义化版本——0.x 阶段接口仍可能调整，1.0 起承诺兼容。
 
-## [Unreleased]
+## [0.11.0] - 2026-10-13
 
 ### 变更
 
