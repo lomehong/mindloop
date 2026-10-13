@@ -351,12 +351,31 @@ export function SceneCosmos({ identityId }: { identityId: string }) {
       };
       const ro = new ResizeObserver(onResize);
       ro.observe(canvas);
-      // 滚轮缩放：只在宇宙画布空域生效（卡片区域的滚轮仍归卡片滚动）。
+      // 滚轮缩放：挂在舞台根（canvas 的父元素）而非 canvas 本身——
+      // canvas 是 absolute 底层，被 z-10 的头部/内容层整个盖住，
+      // 事件目标永远不是 canvas，挂在它上等于收不到（实测：滚轮完全
+      // 不响应）。下列情况放行不拦截：指针落在卡片上（[data-scene-id]）
+      // 或落在可滚动容器里（卡片列表要能滚）。
+      const host = canvas.parentElement ?? canvas;
+      const scrollableAncestor = (el: Element | null): boolean => {
+        for (let n = el; n && n !== host; n = n.parentElement) {
+          const s = getComputedStyle(n);
+          if (/(auto|scroll)/.test(s.overflowY) && n.scrollHeight > n.clientHeight + 1) {
+            return true;
+          }
+        }
+        return false;
+      };
       const onWheel = (e: WheelEvent) => {
+        const target = e.target as Element | null;
+        if (target?.closest("[data-scene-id]") || scrollableAncestor(target)) return;
         e.preventDefault();
         camDistTarget = Math.min(11, Math.max(4.8, camDistTarget + e.deltaY * 0.004));
       };
-      canvas.addEventListener("wheel", onWheel, { passive: false });
+      host.addEventListener("wheel", onWheel, { passive: false });
+      // 相机距离探针（E2E 用：滚轮缩放可被机械验证，不靠肉眼比图）。
+      (canvas as unknown as { __camDist?: () => number }).__camDist = () =>
+        camera.position.length();
       // prefers-reduced-motion：只渲一帧静场
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         renderer.render(scene, camera);
@@ -377,7 +396,7 @@ export function SceneCosmos({ identityId }: { identityId: string }) {
         stop();
         if (dataTimer) clearInterval(dataTimer);
         document.removeEventListener("visibilitychange", onVis);
-        canvas.removeEventListener("wheel", onWheel);
+        host.removeEventListener("wheel", onWheel);
         ro.disconnect();
         renderer.dispose();
         coreTex.dispose();
