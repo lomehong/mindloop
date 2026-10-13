@@ -12,7 +12,7 @@
 | 设计定稿 | `284bb07`（决策裁决 + 调研增补八条 + 红线五条，theater.md §15-§17） |
 | 一期落地 | `7641710`——分期 A/B/C/D + 审批增补，纯前端（web/static/app 13 文件），CI 3 job 全绿 |
 | 原型 | docs/designs/mockups/theater-stage.html；预览：`python -m http.server 18790 --directory docs/designs/mockups` → http://127.0.0.1:18790/theater-stage.html |
-| 并行加固线 | 另一会话在改 internal/{mind,policy,risk,runner,traj,task,web}（审批 nonce、只读白名单、wakeCtx 修复等），**提交中**。二期开工前先 `git pull --rebase` 并确认其 CI 绿，基线干净再动 Go |
+| 并行加固线 | 另一会话已开始提交（`0847be6` 全项目审查修复），**接手时主分支有一个已知红**：go/windows 的 `internal/task` `TestProjectionCacheConcurrentReadersAndWriter` 失败（go/ubuntu 被 fail-fast 取消）——来源是加固线的 cache_test.go，**不是剧场线的锅**。开工前先看该测试是否已被加固会话修复（`git log --oneline origin/main` 是否有新提交 + CI 状态）；若仍是红，与剧场二期解耦处理：先修红保基线（修前 `git log -p internal/task/cache_test.go internal/task/projection.go` 看懂意图），再按 §2 顺序推进 |
 
 ## 1. 一期已落地（不要重做）
 
