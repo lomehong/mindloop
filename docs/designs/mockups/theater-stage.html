@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>剧场 v1 · 多屏高保真原型 — mindloop</title>
+<style>
+  /* ===== 年轮 token 继承（ui-language.md v0.3，演示近似值） ===== */
+  :root {
+    --bg: #0a0f0c;
+    --bg-deep: #070b09;
+    --card: rgba(13, 19, 15, 0.86);
+    --card-line: rgba(90, 122, 100, 0.28);
+    --line: #1c2721;
+    --text: #e6efe8;
+    --dim: #8fa396;
+    --faint: #5c6f63;
+    --accent: #6ee7a0;
+    --accent-dim: rgba(110, 231, 160, 0.35);
+    --moss: #7fb069;
+    --lake: #6aa9c9;
+    --plum: #c98bb9;
+    --resin: #d9a441;
+    --clay: #cf6f5a;
+    --amber: #d9a441;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    --sans: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    --topbar-h: 56px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg-deep);
+    color: var(--text);
+    font-family: var(--sans);
+    overflow: hidden;
+    min-width: 1100px;
+  }
+
+  /* ===== 全局顶栏（跨视图导航） ===== */
+  #topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 70;
+    height: var(--topbar-h);
+    display: flex; align-items: center; gap: 16px;
+    padding: 0 20px;
+    background: rgba(9, 13, 10, 0.88); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .avatar { width: 30px; height: 30px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #9fffcf, #3f7a55 70%);
+    box-shadow: 0 0 10px rgba(110, 231, 160, 0.3); flex-shrink: 0; }
+  .who { display: flex; flex-direction: column; gap: 1px; margin-right: 8px; }
+  .who .name { font-size: 13px; font-weight: 600; }
+  .who .state { font-family: var(--mono); font-size: 10px; color: var(--dim); display: flex; align-items: center; gap: 5px; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .dot.breath { animation: breath 2.4s ease-in-out infinite; }
+  .dot.warn { background: var(--resin); }
+  @keyframes breath { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.45; transform: scale(0.8); } }
+  .nav { display: flex; gap: 2px; }
+  .nav button {
+    background: transparent; border: none; color: var(--dim);
+    font-size: 13px; font-family: var(--sans); padding: 8px 13px;
+    border-radius: 8px; cursor: pointer; transition: all 140ms;
+  }
+  .nav button:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+  .nav button.active { color: var(--accent); background: rgba(110,231,160,0.08); }
+  .spacer { flex: 1; }
+  .ghost-btn {
+    background: transparent; border: 1px solid var(--card-line); color: var(--dim);
+    border-radius: 8px; padding: 6px 12px; font-size: 12px; cursor: pointer;
+    font-family: var(--sans); transition: all 160ms;
+  }
+  .ghost-btn:hover { color: var(--text); border-color: var(--accent-dim); }
+  .kbd { font-family: var(--mono); font-size: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
+
+  /* ===== 视图容器 ===== */
+  .view { position: fixed; inset: var(--topbar-h) 0 0 0; display: none; overflow: hidden; }
+  .view.active { display: block; }
+  #view-stage { overflow: hidden; }
+  .view.engine { overflow-y: auto; background: var(--bg); }
+  /* 格纸底纹（引擎室页：年轮 §3.3 观测台语汇） */
+  .view.engine {
+    background-image:
+      repeating-linear-gradient(0deg, rgba(140,180,155,0.03) 0 1px, transparent 1px 28px),
+      repeating-linear-gradient(90deg, rgba(140,180,155,0.03) 0 1px, transparent 1px 28px);
+  }
+  .engine-wrap { max-width: 1080px; margin: 0 auto; padding: 26px 32px 60px; }
+  .engine-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 18px; }
+  .engine-head h1 { font-size: 20px; font-weight: 600; letter-spacing: 0.01em; }
+  .engine-head .sub { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+
+  /* ===== 舞台：宇宙画布 ===== */
+  #cosmos { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  /* ===== 场景卡片层 ===== */
+  .cards { position: fixed; top: 18px; right: 22px; z-index: 20; width: 316px; display: flex; flex-direction: column; gap: 12px; }
+  .card {
+    background: var(--card); border: 1px solid var(--card-line); border-radius: 14px;
+    padding: 14px 16px; backdrop-filter: blur(10px);
+    box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+    animation: enter 340ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
+  }
+  .card.ambient { opacity: 0.82; animation-name: enterAmbient; }
+  .card.exiting { animation: exit 220ms ease-in both; }
+  @keyframes enter { from { opacity: 0; transform: translateY(14px) scale(0.97); } to { opacity: 1; transform: none; } }
+  @keyframes enterAmbient { from { opacity: 0; } to { opacity: 0.82; transform: none; } }
+  @keyframes exit { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-8px) scale(0.96); } }
+  .card .c-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .card .c-body { font-size: 12.5px; line-height: 1.65; color: var(--text); opacity: 0.92; white-space: pre-wrap; }
+  .card .c-foot { margin-top: 8px; font-size: 10.5px; color: var(--faint); font-family: var(--mono); }
+  .bar { height: 5px; border-radius: 99px; background: rgba(255,255,255,0.08); overflow: hidden; margin-top: 8px; }
+  .bar > i { display: block; height: 100%; border-radius: 99px; background: var(--accent); transition: width 900ms cubic-bezier(0.3, 0.8, 0.3, 1); }
+  .card .row { display: flex; align-items: baseline; justify-content: space-between; }
+  .card .metric { font-family: var(--mono); font-size: 26px; letter-spacing: -0.02em; }
+  .card .metric small { font-size: 12px; color: var(--dim); margin-left: 4px; }
+
+  /* ===== confront 审批卡 ===== */
+  .overlay {
+    position: fixed; inset: 0; z-index: 80;
+    background: rgba(4, 7, 5, 0.62); backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center;
+    animation: fade 240ms ease both;
+  }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  .confront {
+    width: 460px; background: var(--card); border: 1px solid var(--accent-dim);
+    border-radius: 16px; padding: 20px 22px; box-shadow: 0 24px 70px rgba(0,0,0,0.6);
+    animation: zoom 300ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
+  }
+  @keyframes zoom { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: none; } }
+  .confront .tag { font-family: var(--mono); font-size: 10px; color: var(--resin); letter-spacing: 0.08em; margin-bottom: 10px; }
+  .confront .prompt { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+  .confront pre {
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.6; color: var(--dim);
+    background: rgba(0,0,0,0.35); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 14px; max-height: 130px; overflow: auto; white-space: pre-wrap;
+  }
+  .confront .btns { display: flex; gap: 10px; }
+  .confront button {
+    flex: 1; padding: 9px 0; border-radius: 9px; font-size: 13px; cursor: pointer;
+    border: 1px solid transparent; font-family: var(--sans); transition: all 140ms;
+  }
+  .confront .ok { background: rgba(110,231,160,0.14); border-color: rgba(110,231,160,0.4); color: var(--accent); }
+  .confront .ok:hover { background: rgba(110,231,160,0.24); }
+  .confront .no { background: transparent; border-color: rgba(207,111,90,0.4); color: var(--clay); }
+  .confront .no:hover { background: rgba(207,111,90,0.12); }
+
+  /* ===== 对话层 ===== */
+  .talk {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: 24px; z-index: 25; width: min(620px, 60vw);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .bubbles { display: flex; flex-direction: column; gap: 6px; }
+  .bubble {
+    max-width: 78%; padding: 9px 14px; border-radius: 13px;
+    font-size: 12.5px; line-height: 1.6;
+    animation: rise 260ms ease both;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .bubble.you { align-self: flex-end; background: rgba(110,231,160,0.12); border: 1px solid rgba(110,231,160,0.22); }
+  .bubble.ada { align-self: flex-start; background: var(--card); border: 1px solid var(--card-line); }
+  .bubble.ada .who2 { font-size: 10px; color: var(--faint); margin-bottom: 2px; font-family: var(--mono); }
+  .inputbar {
+    display: flex; gap: 8px; align-items: center;
+    background: var(--card); border: 1px solid var(--card-line); border-radius: 12px;
+    padding: 4px 6px 4px 14px; backdrop-filter: blur(10px);
+  }
+  .inputbar:focus-within { border-color: var(--accent-dim); }
+  .inputbar input {
+    flex: 1; background: transparent; border: none; outline: none;
+    color: var(--text); font-size: 13px; font-family: var(--sans); padding: 8px 0;
+  }
+  .inputbar input::placeholder { color: var(--faint); }
+  .send {
+    background: rgba(110,231,160,0.14); color: var(--accent); border: none;
+    border-radius: 8px; padding: 7px 14px; font-size: 12.5px; cursor: pointer; font-family: var(--sans);
+  }
+  .send:hover { background: rgba(110,231,160,0.24); }
+
+  /* ===== 线索层 ===== */
+  .threads {
+    position: absolute; left: 22px; bottom: 24px; z-index: 15; width: 300px;
+    background: var(--card); border: 1px solid var(--card-line); border-radius: 12px;
+    padding: 10px 14px 12px; backdrop-filter: blur(8px); font-size: 12px;
+  }
+  .threads .h { font-family: var(--mono); font-size: 10px; color: var(--faint); letter-spacing: 0.08em; margin-bottom: 8px; }
+  .thread { display: flex; gap: 8px; padding: 5px 0; align-items: baseline; cursor: pointer; border-radius: 6px; }
+  .thread:hover { background: rgba(255,255,255,0.03); }
+  .st { font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 99px; flex-shrink: 0; }
+  .st.open { color: var(--accent); background: rgba(110,231,160,0.1); }
+  .st.parked { color: var(--resin); background: rgba(217,164,65,0.1); }
+  .st.done { color: var(--faint); }
+  .thread .t-title { color: var(--text); }
+  .thread .t-note { color: var(--faint); font-size: 11px; }
+
+  /* ===== 引擎室抽屉 ===== */
+  .drawer-mask { position: absolute; inset: 0; z-index: 45; background: rgba(0,0,0,0.35); display: none; }
+  .drawer {
+    position: absolute; top: 0; right: 0; bottom: 0; z-index: 46;
+    width: 430px; background: #0c120e; border-left: 1px solid var(--line);
+    transform: translateX(100%); transition: transform 280ms cubic-bezier(0.3, 0.8, 0.3, 1);
+    display: flex; flex-direction: column;
+  }
+  .drawer.open { transform: none; }
+  .drawer .d-head { display: flex; align-items: center; padding: 14px 18px 10px; }
+  .drawer .d-head .t { font-size: 13px; font-weight: 600; flex: 1; }
+  .drawer .d-body { flex: 1; overflow-y: auto; padding: 0 18px 18px; }
+  .drawer .d-sec { font-family: var(--mono); font-size: 10px; color: var(--faint); letter-spacing: 0.1em; margin: 16px 0 8px; display: flex; justify-content: space-between; align-items: center; }
+  .d-sec .full-link { color: var(--accent); cursor: pointer; font-size: 10px; }
+  .d-sec .full-link:hover { text-decoration: underline; }
+  .logline { display: flex; gap: 8px; font-family: var(--mono); font-size: 11px; padding: 4px 6px; border-radius: 6px; align-items: baseline; }
+  .logline:hover { background: rgba(255,255,255,0.03); }
+  .logline .tm { color: var(--faint); flex-shrink: 0; }
+  .c-moss { color: var(--moss); } .c-lake { color: var(--lake); } .c-plum { color: var(--plum); } .c-resin { color: var(--resin); } .c-clay { color: var(--clay); }
+  .taskrow { display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 12px; }
+  .taskrow .tid { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+
+  /* ===== 命令面板 ===== */
+  .palette-mask { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,0.5); display: none; align-items: flex-start; justify-content: center; padding-top: 14vh; }
+  .palette-mask.open { display: flex; }
+  .palette {
+    width: 520px; background: var(--card); border: 1px solid var(--card-line); border-radius: 14px;
+    overflow: hidden; backdrop-filter: blur(14px); box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+    animation: zoom 200ms ease both;
+  }
+  .palette input {
+    width: 100%; background: transparent; border: none; outline: none; color: var(--text);
+    font-size: 14px; font-family: var(--sans); padding: 15px 18px; border-bottom: 1px solid var(--line);
+  }
+  .palette .items { max-height: 320px; overflow-y: auto; padding: 6px; }
+  .pitem { display: flex; gap: 10px; align-items: center; padding: 9px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+  .pitem:hover, .pitem.sel { background: rgba(110,231,160,0.08); }
+  .pitem .ico { font-family: var(--mono); font-size: 11px; color: var(--faint); width: 20px; }
+
+  /* ===== 提示条 ===== */
+  .hint {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 28;
+    background: var(--card); border: 1px solid var(--card-line); border-radius: 99px;
+    padding: 7px 18px; font-size: 12px; color: var(--dim); white-space: nowrap;
+    display: flex; gap: 14px; align-items: center; backdrop-filter: blur(8px);
+  }
+  .hint b { color: var(--accent); font-weight: 500; }
+  .hint .x { cursor: pointer; color: var(--faint); }
+
+  /* ===== 引擎室全屏页通用（年轮：观测台语汇） ===== */
+  .chip { font-family: var(--mono); font-size: 10px; padding: 2px 8px; border-radius: 99px; cursor: pointer; border: 1px solid transparent; }
+  .chip.on { color: var(--accent); background: rgba(110,231,160,0.1); border-color: rgba(110,231,160,0.2); }
+  .chip:not(.on) { color: var(--dim); border-color: var(--line); }
+  .chips { display: flex; gap: 6px; }
+  .panel { background: var(--card); border: 1px solid var(--card-line); border-radius: 12px; padding: 14px 16px; }
+  .panel .p-title { font-size: 12px; font-weight: 600; margin-bottom: 10px; color: var(--text); }
+  .searchbox {
+    background: rgba(0,0,0,0.25); border: 1px solid var(--line); border-radius: 8px;
+    color: var(--text); font-size: 12.5px; font-family: var(--sans); padding: 7px 12px; outline: none; width: 240px;
+  }
+  .searchbox:focus { border-color: var(--accent-dim); }
+
+  /* 轨迹页：生命线 */
+  .vital { display: flex; align-items: flex-end; gap: 1px; height: 44px; position: relative; }
+  .vital .vb { width: 3px; background: rgba(110,231,160,0.30); border-radius: 1px 1px 0 0; }
+  .vital .vb.err { background: var(--clay); }
+  .vital .vb.msg { background: var(--lake); }
+  .vital .now-edge { width: 3px; background: var(--accent); animation: breath 2.4s ease-in-out infinite; border-radius: 1px 1px 0 0; }
+  .vital-axis { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 9.5px; color: var(--faint); margin-top: 5px; }
+  .log-stream .ll {
+    display: flex; gap: 10px; font-family: var(--mono); font-size: 11.5px;
+    padding: 5px 8px; border-left: 2px solid transparent; border-radius: 0 6px 6px 0;
+    align-items: baseline;
+  }
+  .log-stream .ll:hover { background: rgba(255,255,255,0.028); }
+  .log-stream .ll .tm { color: var(--faint); flex-shrink: 0; }
+  .log-stream .ll .sid { color: var(--faint); flex-shrink: 0; }
+  .log-stream .ll.k-moss { border-left-color: var(--moss); }
+  .log-stream .ll.k-lake { border-left-color: var(--lake); }
+  .log-stream .ll.k-plum { border-left-color: var(--plum); }
+  .log-stream .ll.k-resin { border-left-color: var(--resin); }
+  .log-stream .ll.k-clay { border-left-color: var(--clay); }
+  .elide { font-family: var(--mono); font-size: 11px; color: var(--faint); text-align: center; padding: 8px 0; }
+
+  /* 任务页 */
+  .taskcard { background: var(--card); border: 1px solid var(--card-line); border-radius: 12px; padding: 13px 16px; margin-bottom: 10px; }
+  .taskcard .t-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .taskcard .t-title { font-size: 13px; font-weight: 600; flex: 1; }
+  .taskcard .t-meta { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+  .stch { font-family: var(--mono); font-size: 10px; padding: 2px 8px; border-radius: 99px; }
+  .stch.running { color: var(--accent); background: rgba(110,231,160,0.1); }
+  .stch.await { color: var(--resin); background: rgba(217,164,65,0.12); }
+  .stch.done { color: var(--faint); }
+  .aprv { border: 1px solid rgba(217,164,65,0.35); background: rgba(217,164,65,0.06); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+  .aprv .a-script { font-family: var(--mono); font-size: 11.5px; color: var(--dim); background: rgba(0,0,0,0.3); border-radius: 6px; padding: 8px 10px; margin: 8px 0 10px; white-space: pre-wrap; }
+  .aprv .btns { display: flex; gap: 8px; }
+  .aprv button { padding: 6px 16px; border-radius: 8px; font-size: 12px; cursor: pointer; font-family: var(--sans); background: transparent; }
+  .aprv .ok { border: 1px solid rgba(110,231,160,0.4); color: var(--accent); }
+  .aprv .ok:hover { background: rgba(110,231,160,0.1); }
+  .aprv .no { border: 1px solid rgba(207,111,90,0.4); color: var(--clay); }
+
+  /* 记忆页 */
+  .memrow { display: flex; gap: 10px; padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.045); align-items: flex-start; }
+  .memrow:hover { background: rgba(255,255,255,0.02); }
+  .typechip { font-family: var(--mono); font-size: 10px; padding: 2px 8px; border-radius: 6px; flex-shrink: 0; margin-top: 1px; }
+  .tc-fact { color: var(--moss); background: rgba(127,176,105,0.1); }
+  .tc-preference { color: var(--lake); background: rgba(106,169,201,0.1); }
+  .tc-objective { color: var(--plum); background: rgba(201,139,185,0.1); }
+  .memrow .m-body { flex: 1; font-size: 12.5px; line-height: 1.55; }
+  .memrow .m-body.invalid { text-decoration: line-through; color: var(--faint); }
+  .memrow .m-meta { font-family: var(--mono); font-size: 10px; color: var(--faint); margin-top: 3px; }
+  .memrow .m-act { opacity: 0; transition: opacity 120ms; display: flex; gap: 8px; }
+  .memrow:hover .m-act { opacity: 1; }
+  .m-act button { background: transparent; border: none; color: var(--dim); font-size: 11px; cursor: pointer; font-family: var(--sans); }
+  .m-act button:hover { color: var(--text); }
+
+  /* 工作台 */
+  .attention { border: 1px solid rgba(217,164,65,0.35); background: rgba(217,164,65,0.06); border-radius: 12px; padding: 4px 6px; margin-bottom: 18px; }
+  .attention .a-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; font-size: 13px; }
+  .attention .a-row + .a-row { border-top: 1px solid rgba(255,255,255,0.05); }
+  .attention .go { margin-left: auto; color: var(--accent); cursor: pointer; background: none; border: none; font-size: 12px; font-family: var(--sans); }
+  .attention .go:hover { text-decoration: underline; }
+  .cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+  .mcard { background: var(--card); border: 1px solid var(--card-line); border-radius: 14px; padding: 16px; }
+  .mcard .mc-head { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+  .mcard .mc-name { font-size: 15px; font-weight: 600; }
+  .mcard .mc-state { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+  .mcard .mc-act { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+  .mcard .mc-act button { background: rgba(255,255,255,0.04); border: 1px solid var(--line); color: var(--dim); border-radius: 7px; padding: 5px 10px; font-size: 11.5px; cursor: pointer; font-family: var(--sans); }
+  .mcard .mc-act button:hover { color: var(--text); border-color: var(--card-line); }
+  .mcard .mc-act .primary { color: var(--accent); border-color: rgba(110,231,160,0.3); }
+  .ring14 { display: flex; gap: 2px; align-items: flex-end; height: 22px; margin: 10px 0; }
+  .ring14 i { width: 6px; background: rgba(110,231,160,0.35); border-radius: 1px; }
+  .readout { font-family: var(--mono); font-size: 11px; color: var(--dim); display: flex; gap: 14px; }
+</style>
+</head>
+<body>
+
+<header id="topbar">
+  <div class="avatar"></div>
+  <div class="who" id="whoChip">
+    <span class="name">ada</span>
+    <span class="state"><span class="dot breath" id="stateDot"></span>心智运行中</span>
+  </div>
+  <div class="nav" id="nav">
+    <button data-view="stage" class="active">舞台</button>
+    <button data-view="workbench">工作台</button>
+    <button data-view="traj">轨迹</button>
+    <button data-view="tasks">任务</button>
+    <button data-view="mem">记忆</button>
+    <button data-view="sensors">感官</button>
+    <button data-view="conn">连接</button>
+    <button data-view="settings">设置</button>
+  </div>
+  <span class="spacer"></span>
+  <button class="ghost-btn" id="btnPalette">命令面板<span class="kbd">Ctrl K</span></button>
+  <button class="ghost-btn" id="btnDrawer" title="引擎室（舞台页专属抽屉）">引擎室</button>
+</header>
+
+<!-- ================= 舞台 ================= -->
+<section id="view-stage" class="view active">
+  <canvas id="cosmos"></canvas>
+
+  <div class="hint" id="hint">
+    <span>🎭 <b>剧场原型</b>——输入框说话 · <b>8 秒后</b>审批请求 · <b>Ctrl+K</b> · 引擎室抽屉可跳全屏</span>
+    <span class="x" id="hintX">✕</span>
+  </div>
+
+  <div class="threads" id="threads"></div>
+
+  <div class="talk">
+    <div class="bubbles" id="bubbles"></div>
+    <div class="inputbar">
+      <input id="talkInput" placeholder="对 ada 说点什么…（试试：给我推一张便签）" />
+      <button class="send" id="talkSend">发送</button>
+    </div>
+  </div>
+</section>
+
+<div id="cards" class="cards"></div>
+<div id="overlayRoot"></div>
+
+<!-- ================= 工作台 ================= -->
+<section id="view-workbench" class="view engine">
+  <div class="engine-wrap">
+    <div class="engine-head">
+      <h1>工作台</h1>
+      <span class="sub">3 具身份 · 1 运行中 · 1 项需要你</span>
+      <span class="spacer"></span>
+      <button class="ghost-btn">＋ 新的任务</button>
+    </div>
+
+    <div class="attention" id="attention">
+      <div class="a-row">
+        <span class="stch await">待审批</span>
+        <span><b>ada</b> — 1 条脚本等待批准：git push origin main</span>
+        <button class="go" data-goto="stage" data-fire="approval">去处理 →</button>
+      </div>
+    </div>
+
+    <div class="cards-grid">
+      <div class="mcard">
+        <div class="mc-head">
+          <div class="avatar"></div>
+          <div><div class="mc-name">ada</div><div class="mc-state">运行中 · 调度器正常 · 端口 8888</div></div>
+        </div>
+        <div class="readout"><span>今日 1,850 次调用</span><span>token 18,261K</span></div>
+        <div class="ring14" id="ring14"></div>
+        <div class="mc-act">
+          <button class="primary" onclick="showView('stage')">进入舞台 →</button>
+          <button onclick="showView('traj')">轨迹</button>
+          <button>停止</button>
+          <button>⋯</button>
+        </div>
+      </div>
+      <div class="mcard">
+        <div class="mc-head">
+          <div class="avatar" style="background: radial-gradient(circle at 35% 30%, #7a8a80, #2c3a32 70%); box-shadow: none; opacity: 0.5;"></div>
+          <div><div class="mc-name">beta</div><div class="mc-state" style="color:var(--faint)">未运行</div></div>
+        </div>
+        <div class="readout"><span>上次运行 3 天前</span><span>记忆 6 条</span></div>
+        <div class="ring14" id="ring14b"></div>
+        <div class="mc-act">
+          <button onclick="showView('stage')">启动 →</button>
+          <button>日志</button>
+          <button>⋯</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 轨迹（引擎室全屏） ================= -->
+<section id="view-traj" class="view engine">
+  <div class="engine-wrap">
+    <div class="engine-head">
+      <h1>轨迹 · ada</h1>
+      <span class="sub">tail 1000 步 · 覆盖 ≥24h</span>
+      <span class="spacer"></span>
+      <input class="searchbox" placeholder="搜索步骤内容…" />
+    </div>
+
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="p-title">生命线 · 24h（5 分钟/桶）</div>
+      <div class="vital" id="vital"></div>
+      <div class="vital-axis"><span>-24h</span><span>-18h</span><span>-12h</span><span>-6h</span><span>现在</span></div>
+    </div>
+
+    <div class="chips" style="margin-bottom:12px;" id="trajChips">
+      <span class="chip on">全部</span>
+      <span class="chip">思考</span>
+      <span class="chip">观察</span>
+      <span class="chip">言行</span>
+      <span class="chip">危险</span>
+    </div>
+
+    <div class="log-stream" id="trajStream"></div>
+    <div class="elide">……（此处省略 1,204 步；原文用 mindloop traj show &lt;step_id&gt; --full 查看）……</div>
+  </div>
+</section>
+
+<!-- ================= 任务（引擎室全屏） ================= -->
+<section id="view-tasks" class="view engine">
+  <div class="engine-wrap">
+    <div class="engine-head">
+      <h1>任务 · ada</h1>
+      <span class="sub">在途 2 · 今日完成 2 · 收口契约机械核验开</span>
+    </div>
+
+    <div class="aprv" id="aprvDemo">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+        <span class="stch await">等待批准</span>
+        <span style="font-size:12px;color:var(--dim);">confront 卡已同步至仪表盘舞台</span>
+      </div>
+      <div class="a-script">git push origin main</div>
+      <div class="btns">
+        <button class="no" onclick="aprvDecide(false)">拒绝</button>
+        <button class="ok" onclick="aprvDecide(true)">允许</button>
+      </div>
+    </div>
+
+    <div class="taskcard">
+      <div class="t-head">
+        <span class="t-title">周报聚合脚本调优</span>
+        <span class="stch running">执行中 · 60%</span>
+        <span class="t-meta" style="margin-left:auto;">th-1697</span>
+      </div>
+      <div style="font-size:12px;color:var(--dim);">脚本已写一半，卡在数据聚合。产物：scripts/weekly.py</div>
+    </div>
+    <div class="taskcard">
+      <div class="t-head">
+        <span class="t-title">服务器磁盘告警排查</span>
+        <span class="stch await">搁置</span>
+        <span class="t-meta" style="margin-left:auto;">th-1703</span>
+      </div>
+    </div>
+
+    <div class="d-sec" style="margin:18px 0 10px;">今日已完成</div>
+    <div class="taskcard">
+      <div class="t-head">
+        <span class="t-title" style="font-weight:500;">健康周报（09-22~09-28）</span>
+        <span class="stch done">完成</span>
+        <span class="t-meta" style="margin-left:auto;">run-8821</span>
+      </div>
+      <div style="font-size:12px;color:var(--dim);">产物：reports/health/2026-09-28.md · 已推送 wecom:HongYan</div>
+    </div>
+    <div class="taskcard">
+      <div class="t-head">
+        <span class="t-title" style="font-weight:500;">活动周报（09-22~09-28）</span>
+        <span class="stch done">完成</span>
+        <span class="t-meta" style="margin-left:auto;">run-8819</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 感官（引擎室全屏） ================= -->
+<section id="view-sensors" class="view engine">
+  <div class="engine-wrap">
+    <div class="engine-head">
+      <h1>感官 · ada</h1>
+      <span class="sub">2 个感官 · 轮询 50ms 起 · 事件 s2+ 叫醒心智</span>
+    </div>
+    <div class="panel" style="margin-bottom:12px;">
+      <div class="p-title">git · 仓库/身份目录</div>
+      <div class="readout"><span>状态 运行中</span><span>采样 50ms 起</span><span>最近事件 21:07 changed</span></div>
+    </div>
+    <div class="panel">
+      <div class="p-title">web · wttr.in/北京</div>
+      <div class="readout"><span>状态 运行中</span><span>周期 30m</span><span>最近事件 20:58 fetched</span></div>
+    </div>
+    <div class="d-sec" style="margin-top:14px;">最近事件（s2+ 叫醒心智，s0/s1 只沉淀）</div>
+    <div class="logline"><span class="tm">20:58</span><span class="c-lake">[web] fetched wttr.in/北京 200</span></div>
+    <div class="logline"><span class="tm">20:57</span><span class="c-resin">[git] changed 2 files in identity dir</span></div>
+  </div>
+</section>
+
+<!-- ================= 连接（引擎室全屏） ================= -->
+<section id="view-conn" class="view engine">
+  <div class="engine-wrap">
+    <div class="engine-head">
+      <h1>连接 · ada</h1>
+      <span class="sub">MCP 服务器 · 外部渠道</span>
+    </div>
+    <div class="panel" style="margin-bottom:12px;">
+      <div class="p-title">MCP 服务器（mcpServers 配置 · env 值不回显）</div>
+      <div class="memrow"><span class="typechip tc-fact">stdio</span><span>filesystem — 文件读写</span><span style="margin-left:auto;color:var(--accent)">已连接</span></div>
+      <div class="memrow"><span class="typechip tc-fact">stdio</span><span>fetch — 网页抓取</span><span style="margin-left:auto;color:var(--accent)">已连接</span></div>
+      <div class="memrow"><span class="typechip tc-fact">http</span><span>exa-search — 联网搜索</span><span style="margin-left:auto;color:var(--faint)">未配置密钥</span></div>
+    </div>
+    <div class="panel">
+      <div class="p-title">外部渠道</div>
+      <div class="memrow"><span class="typechip" style="color:var(--accent);background:rgba(110,231,160,0.08)">wecom</span><span>企业微信智能机器人 · 长连接 — 已绑定 wecom:HongYan</span><span style="margin-left:auto"><button class="ghost-btn">二维码</button></span></div>
+      <div class="memrow"><span class="typechip" style="color:var(--faint);background:rgba(255,255,255,0.04)">discord</span><span>未配置</span><span style="margin-left:auto;color:var(--faint)">—</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 设置（引擎室全屏） ================= -->
+<section id="view-settings" class="view engine">
+  <div class="engine-wrap">
+    <div class="engine-head">
+      <h1>设置 · ada</h1>
+      <span class="sub">模型 · 预算 · 执行策略</span>
+    </div>
+    <div class="panel" style="margin-bottom:12px;">
+      <div class="p-title">模型</div>
+      <div class="memrow"><span style="width:90px;color:var(--dim)">主力（思考档）</span><span class="searchbox" style="width:220px">glm-5.3-flash</span><span style="color:var(--faint)">温度 0.7</span></div>
+      <div class="memrow"><span style="width:90px;color:var(--dim)">请求档</span><span class="searchbox" style="width:220px">glm-5.3-flash</span><span style="color:var(--faint)">MINDLOOP_REQUEST_MODEL 分层</span></div>
+    </div>
+    <div class="panel" style="margin-bottom:12px;">
+      <div class="p-title">预算控制</div>
+      <div class="memrow"><span style="width:90px;color:var(--dim)">每日上限</span><span class="searchbox" style="width:120px">2000</span><span style="color:var(--faint)">次调用 · 已用 1,850</span></div>
+      <div class="memrow"><button class="ghost-btn">保存</button></div>
+    </div>
+    <div class="panel">
+      <div class="p-title">执行策略</div>
+      <div class="memrow"><span class="stch await">approval</span><span>需审批类五组（删除/外发/提权/凭据/系统改动）等待批准，其余 auto 放行</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 记忆（引擎室全屏） ================= -->
+
+<!-- ================= 记忆（引擎室全屏） ================= -->
+<section id="view-mem" class="view engine">
+  <div class="engine-wrap">
+    <div class="engine-head">
+      <h1>记忆 · ada</h1>
+      <span class="sub">16 条 · facts 12 · preferences 4</span>
+      <span class="spacer"></span>
+      <input class="searchbox" placeholder="搜索记忆…" />
+    </div>
+
+    <div class="panel" style="margin-bottom:14px;">
+      <div class="p-title">召回统计 · 最近 20 次检索</div>
+      <div class="readout" style="gap:22px;">
+        <span>命中合计 <b style="color:var(--text)">31</b></span>
+        <span>注入 18 次</span>
+        <span>无命中跳过 2 次</span>
+        <span>平均 12ms</span>
+        <span style="color:var(--faint)">台账 usage/mem-recall.jsonl</span>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:14px;">
+      <div class="p-title">操作员画像 · 蒸馏层（常驻上下文）</div>
+      <div class="memrow"><span class="typechip" style="color:var(--accent);background:rgba(110,231,160,0.08)">风格</span><span>直接、要点先行、少客套</span><span class="m-meta" style="margin-left:auto">证据 e5f6a7b8</span></div>
+      <div class="memrow"><span class="typechip" style="color:var(--accent);background:rgba(110,231,160,0.08)">领域</span><span>Go 工程化 与 AI Agent 基础设施</span><span class="m-meta" style="margin-left:auto">证据 a1b2c3d4</span></div>
+    </div>
+
+    <div class="memrow">
+      <span class="typechip tc-fact">fact</span>
+      <span class="m-body">操作员住在杭州，喜欢西湖边跑步</span>
+      <span class="m-meta">msg00000042</span>
+      <span class="m-act"><button>修订</button><button>失效</button></span>
+    </div>
+    <div class="memrow">
+      <span class="typechip tc-preference">preference</span>
+      <span class="m-body">周报推 wecom:HongYan，摘要 ≤300 字</span>
+      <span class="m-meta">run-8819</span>
+      <span class="m-act"><button>修订</button><button>失效</button></span>
+    </div>
+    <div class="memrow">
+      <span class="typechip tc-objective">objective</span>
+      <span class="m-body">Scene Protocol Phase 3：动画契约打磨</span>
+      <span class="m-meta">th-1697</span>
+      <span class="m-act"><button>修订</button><button>失效</button></span>
+    </div>
+    <div class="memrow">
+      <span class="typechip tc-fact">fact</span>
+      <span class="m-body" style="text-decoration:line-through">旧版部署脚本在 /opt/deploy</span>
+      <span class="m-meta">已失效 · superseded by 00000817</span>
+      <span class="m-act"><button>修订</button><button>失效</button></span>
+    </div>
+  </div>
+</section>
+
+<!-- 抽屉与命令面板（全局） -->
+<div class="drawer-mask" id="drawerMask"></div>
+<div class="drawer" id="drawer">
+  <div class="d-head"><span class="t">引擎室</span><button class="ghost-btn" id="drawerClose">收起</button></div>
+  <div class="d-body">
+    <div class="d-sec">轨迹 · 最近 <span class="full-link" onclick="showView('traj')">全屏 →</span></div>
+    <div class="logline"><span class="tm">20:31</span><span class="c-plum">[a1b2c3d4] message :: 给我推一张测试卡片到界面上</span></div>
+    <div class="logline"><span class="tm">20:31</span><span class="c-moss">[e5f6a7b8] reasoning :: 好的，用 text 卡呈现…</span></div>
+    <div class="logline"><span class="tm">20:31</span><span class="c-resin">[c9d0e1f2] action :: ui set weather → 仪表盘</span></div>
+    <div class="logline"><span class="tm">20:32</span><span class="c-lake">[d3e4f5a6] observation :: wttr.in 北京 晴 18°C</span></div>
+    <div class="logline"><span class="tm">20:33</span><span class="c-plum">[b7c8d9e0] final :: 已推送天气卡片</span></div>
+    <div class="d-sec">任务 · 在途 <span class="full-link" onclick="showView('tasks')">全屏 →</span></div>
+    <div class="taskrow"><span class="st open">执行中</span><span>周报聚合脚本调优</span><span class="tid">th-1697</span></div>
+    <div class="taskrow"><span class="st parked">搁置</span><span>服务器磁盘告警排查</span><span class="tid">th-1703</span></div>
+    <div class="d-sec">记忆 · 概览 <span class="full-link" onclick="showView('mem')">全屏 →</span></div>
+    <div class="d-sec">感官 · 事件 <span class="full-link" onclick="showView('sensors')">全屏 →</span></div>
+    <div class="d-sec">连接 <span class="full-link" onclick="showView('conn')">全屏 →</span></div>
+    <div class="d-sec">设置 <span class="full-link" onclick="showView('settings')">全屏 →</span></div>
+    <div class="taskrow"><span>facts</span><span style="margin-left:auto;color:var(--faint)">12 条 · 最近 2h 前写入</span></div>
+    <div class="taskrow"><span>preferences</span><span style="margin-left:auto;color:var(--faint)">4 条</span></div>
+  </div>
+</div>
+
+<div class="palette-mask" id="paletteMask">
+  <div class="palette">
+    <input id="paletteInput" placeholder="输入命令或搜索…（Esc 关闭）" />
+    <div class="items" id="paletteItems"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ================= 视图路由 ================= */
+const VIEWS = ["stage", "workbench", "traj", "tasks", "mem", "sensors", "conn", "settings"];
+function showView(name) {
+  for (const v of VIEWS) {
+    document.getElementById("view-" + v).classList.toggle("active", v === name);
+  }
+  document.querySelectorAll("#nav button").forEach(b =>
+    b.classList.toggle("active", b.dataset.view === name));
+  // 宇宙 rAF 只在舞台视图运转（省电；引擎室为格纸静态底）
+  if (typeof setCosmosRunning === "function") setCosmosRunning(name === "stage");
+  if (name === "stage") setWorking(working);
+}
+document.querySelectorAll("#nav button").forEach(b =>
+  b.addEventListener("click", () => showView(b.dataset.view)));
+
+/* ================= 宇宙氛围层（2D canvas 演示实现；正式版为 three.js） ================= */
+const cv = document.getElementById("cosmos");
+const cx2d = cv.getContext("2d");
+let W = 0, H = 0, working = false, rafOn = true;
+function setCosmosRunning(on) { rafOn = on; }
+const STARS = [];
+(() => {
+  let seed = 20261013;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (let i = 0; i < 150; i++) STARS.push({ x: rnd(), y: rnd(), r: rnd() * 1.3 + 0.3, p: rnd() * 6.28 });
+})();
+function resize() {
+  W = cv.width = innerWidth; H = cv.height = innerHeight;
+}
+addEventListener("resize", resize); resize();
+
+let breath = 0;
+function draw(t) {
+  requestAnimationFrame(draw);
+  if (!rafOn) return;
+  breath += working ? 0.045 : 0.02;
+  cx2d.clearRect(0, 0, W, H);
+  for (const s of STARS) {
+    cx2d.globalAlpha = 0.25 + 0.35 * Math.abs(Math.sin(t * 0.0006 + s.p));
+    cx2d.fillStyle = "#cfe8d8";
+    cx2d.beginPath(); cx2d.arc(s.x * W, s.y * H, s.r, 0, 6.28); cx2d.fill();
+  }
+  cx2d.globalAlpha = 1;
+  const cx = W / 2, cy = H * 0.46, R = Math.min(W, H) * 0.17;
+  const pulse = 0.3 + 0.1 * Math.sin(breath) + (working ? 0.12 : 0);
+  let g = cx2d.createRadialGradient(cx, cy, R * 0.4, cx, cy, R * 2.6);
+  g.addColorStop(0, "rgba(110,231,160," + (0.10 + pulse * 0.25) + ")");
+  g.addColorStop(1, "rgba(110,231,160,0)");
+  cx2d.fillStyle = g;
+  cx2d.beginPath(); cx2d.arc(cx, cy, R * 2.6, 0, 6.28); cx2d.fill();
+  g = cx2d.createRadialGradient(cx - R * 0.35, cy - R * 0.4, R * 0.15, cx, cy, R);
+  g.addColorStop(0, "#2f5c41"); g.addColorStop(0.72, "#173324"); g.addColorStop(1, "#0d1f16");
+  cx2d.fillStyle = g;
+  cx2d.beginPath(); cx2d.arc(cx, cy, R, 0, 6.28); cx2d.fill();
+  cx2d.strokeStyle = "rgba(110,231,160,0.13)";
+  for (let i = 1; i <= 3; i++) { cx2d.beginPath(); cx2d.arc(cx, cy, R * (0.35 + i * 0.21), 0, 6.28); cx2d.stroke(); }
+  const orbR = R * 1.9, orbRy = orbR * 0.32;
+  cx2d.strokeStyle = "rgba(140,180,155,0.16)";
+  cx2d.beginPath(); cx2d.ellipse(cx, cy, orbR, orbRy, -0.12, 0, 6.28); cx2d.stroke();
+  const thinkers = [
+    { name: "monolith", speed: 0.00042, phase: 0.6, active: working || Math.sin(t * 0.0003) > -0.3 },
+    { name: "responder", speed: 0.00061, phase: 3.6, active: working },
+  ];
+  for (const th of thinkers) {
+    const a = t * th.speed + th.phase;
+    const x = cx + Math.cos(a) * orbR, y = cy + Math.sin(a) * orbRy - R * 0.12;
+    cx2d.globalAlpha = th.active ? 1 : 0.35;
+    cx2d.fillStyle = th.active ? "#6ee7a0" : "#41584a";
+    cx2d.beginPath(); cx2d.arc(x, y, th.active ? 5 : 3.5, 0, 6.28); cx2d.fill();
+    cx2d.font = "10px ui-monospace, monospace";
+    cx2d.fillText(th.name, x + 9, y + 3);
+    cx2d.globalAlpha = 1;
+  }
+  const arcR = R * 1.55;
+  cx2d.lineWidth = 2;
+  cx2d.strokeStyle = working ? "rgba(217,164,65,0.55)" : "rgba(217,164,65,0.22)";
+  const a0 = t * (working ? 0.0005 : 0.0002);
+  cx2d.beginPath(); cx2d.ellipse(cx, cy, arcR, arcR * 0.32, -0.12, a0, a0 + 2.2); cx2d.stroke();
+  cx2d.lineWidth = 1;
+  const bR = R * 2.25;
+  cx2d.strokeStyle = "rgba(140,180,155,0.10)";
+  cx2d.beginPath(); cx2d.arc(cx, cy, bR, 0, 6.28); cx2d.stroke();
+  cx2d.strokeStyle = "rgba(110,231,160,0.45)";
+  cx2d.lineWidth = 2;
+  cx2d.beginPath(); cx2d.arc(cx, cy, bR, -Math.PI / 2, -Math.PI / 2 + 0.38 * 6.28); cx2d.stroke();
+  cx2d.lineWidth = 1;
+}
+requestAnimationFrame(draw);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) rafOn = document.getElementById("view-stage").classList.contains("active"); });
+
+/* ================= 场景卡片层 ================= */
+const cardsEl = document.getElementById("cards");
+function upsertCard(card) {
+  let el = document.getElementById("card-" + card.id);
+  if (el) {
+    el.querySelector(".c-body-fill").innerHTML = card.body;
+    if (card.bar != null) { const b = el.querySelector(".bar > i"); b.style.width = card.bar + "%"; }
+    el.style.animation = "none"; void el.offsetWidth; el.style.animation = "enter 260ms ease";
+    return;
+  }
+  el = document.createElement("div");
+  el.id = "card-" + card.id;
+  el.className = "card " + (card.intent || "inform");
+  el.innerHTML =
+    (card.title ? `<div class="c-title">${card.title}</div>` : "") +
+    `<div class="c-body-fill">${card.body}</div>` +
+    (card.bar != null ? `<div class="bar"><i style="width:${card.bar}%"></i></div>` : "") +
+    (card.metric != null ? `<div class="metric">${card.metric}<small>${card.unit || ""}</small></div>` : "") +
+    (card.foot ? `<div class="c-foot">${card.foot}</div>` : "");
+  cardsEl.appendChild(el);
+}
+function removeCard(id) {
+  const el = document.getElementById("card-" + id);
+  if (!el) return;
+  el.classList.add("exiting");
+  setTimeout(() => el.remove(), 240);
+}
+
+/* ================= 线索层 ================= */
+const threadsEl = document.getElementById("threads");
+const THREADS = [
+  { st: "open", title: "周报自动化脚本调优", note: "脚本已写一半，卡在数据聚合" },
+  { st: "parked", title: "服务器磁盘告警排查", note: "" },
+];
+function renderThreads() {
+  threadsEl.innerHTML = '<div class="h">OPEN THREADS · 线索</div>' +
+    THREADS.map(t => `<div class="thread"><span class="st ${t.st}">${t.st}</span><span><span class="t-title">${t.title}</span>${t.note ? `<span class="t-note"> — ${t.note}</span>` : ""}</span></div>`).join("");
+}
+renderThreads();
+
+/* ================= 对话层 ================= */
+const bubbles = document.getElementById("bubbles");
+const input = document.getElementById("talkInput");
+function bubble(who, text) {
+  const el = document.createElement("div");
+  el.className = "bubble " + who;
+  el.innerHTML = (who === "ada" ? '<div class="who2">ada</div>' : "") + text;
+  bubbles.appendChild(el);
+  while (bubbles.children.length > 3) bubbles.firstChild.remove();
+}
+const REPLIES = [
+  "已推送到仪表盘，右上角可查看。需要换样式随时说。",
+  "收到——这条我记进 worklog 了，稍后一并推进。",
+  "好的。本轮先到这里，线索保持 open，下个心跳继续。",
+];
+let replyIdx = 0;
+function send() {
+  const v = input.value.trim();
+  if (!v) return;
+  bubble("you", v); input.value = "";
+  setWorking(true);
+  setTimeout(() => { setWorking(false); bubble("ada", REPLIES[replyIdx++ % REPLIES.length]); }, 1100);
+}
+document.getElementById("talkSend").addEventListener("click", send);
+input.addEventListener("keydown", e => { if (e.key === "Enter") send(); });
+
+/* ================= working 状态驱动 ================= */
+const stateDot = document.getElementById("stateDot");
+function setWorking(on) {
+  working = on;
+  stateDot.classList.toggle("warn", on);
+  stateDot.style.background = on ? "var(--resin)" : "";
+}
+
+/* ================= 引擎室抽屉 ================= */
+const drawer = document.getElementById("drawer");
+const drawerMask = document.getElementById("drawerMask");
+function setDrawer(open) { drawer.classList.toggle("open", open); drawerMask.style.display = open ? "block" : "none"; }
+document.getElementById("btnDrawer").addEventListener("click", () => setDrawer(true));
+document.getElementById("drawerClose").addEventListener("click", () => setDrawer(false));
+drawerMask.addEventListener("click", () => setDrawer(false));
+
+/* ================= 命令面板 ================= */
+const paletteMask = document.getElementById("paletteMask");
+const paletteInput = document.getElementById("paletteInput");
+const paletteItems = document.getElementById("paletteItems");
+const COMMANDS = [
+  { ico: "▶", label: "推送天气卡片（演示）", run: () => upsertCard({ id: "weather", intent: "ambient", title: "天气 · 北京", body: "晴，18°C\n湿度 40% · 微风" }) },
+  { ico: "▣", label: "推送进度卡片（演示）", run: () => upsertCard({ id: "weekly", intent: "inform", title: "周报聚合", body: "正在聚合最近 7 天活动…", bar: 46 }) },
+  { ico: "✕", label: "移除全部卡片", run: () => document.querySelectorAll(".card").forEach(c => { c.classList.add("exiting"); setTimeout(() => c.remove(), 240); }) },
+  { ico: "◧", label: "打开引擎室", run: () => setDrawer(true) },
+  { ico: "✦", label: "模拟心智开始工作（5s）", run: () => { setWorking(true); setTimeout(() => setWorking(false), 5000); } },
+];
+function renderPalette(filter) {
+  const f = (filter || "").toLowerCase();
+  const list = COMMANDS.map((c, i) => ({ ...c, i })).filter(c => c.label.toLowerCase().includes(f));
+  paletteItems.innerHTML = list.map(c => `<div class="pitem" data-i="${c.i}"><span class="ico">${c.ico}</span>${c.label}</div>`).join("") ||
+    '<div class="pitem" style="color:var(--faint)">（无匹配命令）</div>';
+  paletteItems.querySelectorAll(".pitem").forEach(el => el.addEventListener("click", () => { paletteMask.classList.remove("open"); COMMANDS[+el.dataset.i].run(); }));
+}
+function openPalette() { paletteMask.classList.add("open"); paletteInput.value = ""; renderPalette(""); paletteInput.focus(); }
+document.getElementById("btnPalette").addEventListener("click", openPalette);
+paletteInput.addEventListener("input", () => renderPalette(paletteInput.value));
+paletteInput.addEventListener("keydown", e => { if (e.key === "Escape") paletteMask.classList.remove("open"); });
+paletteMask.addEventListener("click", e => { if (e.target === paletteMask) paletteMask.classList.remove("open"); });
+addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openPalette(); }
+});
+
+/* ================= 轨迹页：生命线 + 日志流（演示样张） ================= */
+(() => {
+  const vital = document.getElementById("vital");
+  if (!vital) return;
+  let seed = 77;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 96; i++) {
+    const b = document.createElement("i");
+    b.className = "vb";
+    const cluster = Math.sin(i * 0.22) > 0.4 ? 1 : 0.25;
+    b.style.height = Math.max(2, rnd() * 34 * cluster) + "px";
+    vital.appendChild(b);
+  }
+  const errTick = vital.children[41]; errTick.classList.add("err"); errTick.style.height = "30px";
+  const msgTick = vital.children[67]; msgTick.classList.add("msg"); msgTick.style.height = "36px";
+  const now = document.createElement("i");
+  now.className = "now-edge"; now.style.height = "40px";
+  vital.appendChild(now);
+})();
+
+(() => {
+  const stream = document.getElementById("trajStream");
+  if (!stream) return;
+  const L = [
+    ["k-plum", "20:31", "b7c8d9e0", "message", "给我推一张测试卡片到界面上"],
+    ["k-moss", "20:31", "e5f6a7b8", "reasoning", "好的——用 text 卡呈现，摘要一行，放右上"],
+    ["k-resin", "20:31", "c9d0e1f2", "action", "ui set weather --kind text …"],
+    ["k-lake", "20:32", "d3e4f5a6", "observation", "wttr.in 北京 晴 18°C 湿度 40%"],
+    ["k-plum", "20:33", "b7c8d9e0", "final", "已推送天气卡片"],
+    ["k-resin", "21:07", "a9b8c7d6", "schedule", "every 30m 预取 wttr.in → prefetch/weather"],
+    ["k-moss", "21:08", "f1e2d3c4", "reasoning", "预算水位 38%，健康周报照常…"],
+    ["k-clay", "21:09", "9988aa77", "alert", "exec 失败：wttr.in 超时（已重试 2 次）"],
+    ["k-lake", "21:10", "1122dead", "message", "operator：那个告警怎么回事"],
+    ["k-plum", "21:10", "3344bee5", "final", "已排查：预取超时重试成功，无需处理"],
+  ];
+  for (const [cls, tm, sid, typ, content] of L) {
+    const el = document.createElement("div");
+    el.className = "ll " + cls;
+    el.innerHTML = `<span class="tm">10-12 ${tm}</span><span class="sid">[${sid}]</span><span>${typ}</span><span style="opacity:0.9">${content}</span>`;
+    stream.appendChild(el);
+  }
+  const elide = document.createElement("div");
+  elide.className = "elide";
+  elide.textContent = "……（此处省略 1,204 步；原文用 mindloop traj show <step_id> --full 查看）……";
+  stream.prepend(elide);
+})();
+
+/* ================= 演示脚本 ================= */
+const hint = document.getElementById("hint");
+document.getElementById("hintX").addEventListener("click", () => hint.remove());
+
+upsertCard({ id: "weather", intent: "ambient", title: "天气 · 北京", body: "晴，18°C\n湿度 40% · 微风", foot: "prefetch · 12 分钟前" });
+upsertCard({ id: "weekly", intent: "inform", title: "周报聚合", body: "正在聚合最近 7 天活动…", bar: 12 });
+upsertCard({ id: "tok", intent: "inform", title: "今日用量", metric: "1,850", unit: "次调用", foot: "主力 glm-5.3-flash" });
+
+setTimeout(() => upsertCard({ id: "weekly", intent: "inform", title: "周报聚合", body: "正在聚合最近 7 天活动…", bar: 46, foot: "已采 5/7 天" }), 5000);
+
+setTimeout(() => {
+  const mask = document.createElement("div");
+  mask.className = "overlay"; mask.id = "approvalDemo";
+  mask.innerHTML = `<div class="confront">
+    <div class="tag">EXEC POLICY · APPROVAL</div>
+    <div class="prompt">允许执行以下脚本？</div>
+    <pre>git push origin main
+# 演示：MINDLOOP_EXEC_POLICY=approval 时的待批脚本</pre>
+    <div class="btns">
+      <button class="no" data-v="deny">拒绝</button>
+      <button class="ok" data-v="approve">允许</button>
+    </div>
+  </div>`;
+  document.getElementById("overlayRoot").appendChild(mask);
+  mask.addEventListener("click", e => {
+    const btn = e.target.closest("button[data-v]");
+    if (!btn) return;
+    const ok = btn.dataset.v === "approve";
+    mask.style.animation = "fade 200ms ease reverse both";
+    setTimeout(() => mask.remove(), 210);
+    setWorking(true);
+    setTimeout(() => {
+      setWorking(false);
+      upsertCard({ id: "weekly", intent: "inform", title: "周报聚合", body: ok ? "推送完成。聚合产物已落盘。" : "已拒绝：脚本未执行。", bar: ok ? 100 : 46 });
+      bubble("ada", ok ? "脚本已放行并执行完毕，产物在工作目录。" : "已拒绝：该脚本不会执行。");
+    }, 600);
+  });
+}, 8000);
+</script>
+</body>
+</html>
