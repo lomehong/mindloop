@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>剧场 v1 · 多屏高保真原型 — mindloop</title>
+<title>剧场 v2 · 多屏高保真原型 — mindloop</title>
 <style>
   /* ===== 年轮 token 继承（ui-language.md v0.3，演示近似值） ===== */
   :root {
@@ -328,6 +328,94 @@
   .ring14 { display: flex; gap: 2px; align-items: flex-end; height: 22px; margin: 10px 0; }
   .ring14 i { width: 6px; background: rgba(110,231,160,0.35); border-radius: 1px; }
   .readout { font-family: var(--mono); font-size: 11px; color: var(--dim); display: flex; gap: 14px; }
+
+  /* ===== v2 打磨：隔夜账卡 / 心跳行 / 在场芯片 / 溢出折叠 / 对话展开态 ===== */
+  .digest {
+    position: absolute; top: 64px; left: 22px;
+    z-index: 26; width: min(540px, 42vw);
+    background: var(--card); border: 1px solid var(--card-line); border-radius: 14px;
+    padding: 14px 18px 10px; backdrop-filter: blur(10px);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+    animation: rise 320ms ease both;
+  }
+  .digest .d-t { display: flex; align-items: baseline; gap: 10px; margin-bottom: 7px; }
+  .digest .d-t .t { font-size: 13px; font-weight: 600; }
+  .digest .d-t .tm { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+  .digest .d-t .x { margin-left: auto; cursor: pointer; color: var(--faint); font-size: 12px; }
+  .digest .d-t .x:hover { color: var(--text); }
+  .digest .d-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; padding: 5px 0; }
+  .digest .d-row .n { font-family: var(--mono); font-size: 16px; width: 20px; text-align: right; }
+  .digest .d-row .go { margin-left: auto; background: none; border: none; color: var(--accent); font-size: 11.5px; cursor: pointer; font-family: var(--sans); white-space: nowrap; }
+  .digest .d-row .go:hover { text-decoration: underline; }
+
+  .heartbeat {
+    font-family: var(--mono); font-size: 10.5px; color: var(--faint);
+    display: flex; gap: 9px; align-items: center; padding: 0 8px;
+  }
+  .heartbeat .hb-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: breath 1.6s ease-in-out infinite; }
+  .heartbeat.idle .hb-dot { animation-duration: 4.8s; }
+
+  .presence {
+    display: flex; align-items: center; gap: 6px;
+    color: var(--dim); cursor: pointer; border: 1px solid var(--card-line); border-radius: 99px;
+    padding: 5px 11px; background: transparent; transition: all 160ms;
+    font-family: var(--sans); font-size: 12px;
+  }
+  .presence:hover { color: var(--text); border-color: var(--accent-dim); }
+  .presence .p-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .presence.away .p-dot { background: var(--faint); }
+
+  .overflow-chip {
+    align-self: flex-end; font-family: var(--mono); font-size: 10px; color: var(--dim);
+    background: var(--card); border: 1px solid var(--card-line); border-radius: 99px;
+    padding: 5px 12px; cursor: pointer; backdrop-filter: blur(8px);
+  }
+  .overflow-chip:hover { color: var(--text); border-color: var(--accent-dim); }
+
+  .talk-expand {
+    background: transparent; border: none; color: var(--faint); font-size: 13px;
+    cursor: pointer; padding: 6px 8px; border-radius: 7px;
+  }
+  .talk-expand:hover { color: var(--accent); background: rgba(255,255,255,0.04); }
+
+  /* 对话展开态（对话单真相源 §3：全屏浮层，宇宙压暗） */
+  .talk-full-mask {
+    position: fixed; inset: 0; z-index: 55; display: none;
+    background: rgba(4, 7, 5, 0.72); backdrop-filter: blur(6px);
+    animation: fade 240ms ease both;
+  }
+  .talk-full-mask.open { display: flex; align-items: stretch; justify-content: center; }
+  .talk-full {
+    width: min(760px, 82vw); margin: 7vh 0 5vh; display: flex; flex-direction: column;
+    background: var(--card); border: 1px solid var(--card-line); border-radius: 16px;
+    overflow: hidden; animation: zoom 280ms cubic-bezier(0.2,0.9,0.25,1) both;
+  }
+  .talk-full .tf-head { display: flex; align-items: center; gap: 12px; padding: 13px 18px; border-bottom: 1px solid var(--line); }
+  .talk-full .tf-head .t { font-size: 13px; font-weight: 600; flex: 1; }
+  .talk-full .tf-log { flex: 1; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
+  .talk-full .inputbar { margin: 12px 14px 14px; }
+
+  /* ===== 调研增补：变奏降级 / ambient 沉淀 / 审批依据与记住偏好 / 回看章节 ===== */
+  .card.compact { padding: 8px 14px; display: flex; gap: 8px; align-items: baseline; }
+  .card.compact .c-title { margin: 0; font-size: 12px; flex-shrink: 0; }
+  .card.compact .c-body-fill { font-size: 11.5px; opacity: 0.85; flex: 1; }
+  .card.compact .c-foot { margin: 0; flex-shrink: 0; }
+
+  .prebadge {
+    font-family: var(--mono); font-size: 10px; color: var(--accent);
+    background: rgba(110,231,160,0.08); border: 1px solid rgba(110,231,160,0.25);
+    border-radius: 6px; padding: 2px 8px; margin-bottom: 10px; display: inline-block;
+  }
+  .confront .basis { font-size: 11px; color: var(--dim); margin: -4px 0 12px; line-height: 1.6; }
+  .confront .basis b { color: var(--text); font-weight: 500; }
+
+  .chapter { background: var(--card); border: 1px solid var(--card-line); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+  .chapter .ch-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+  .chapter .ch-title { font-size: 13px; font-weight: 600; }
+  .chapter .ch-meta { font-family: var(--mono); font-size: 10px; color: var(--faint); margin-left: auto; white-space: nowrap; }
+  .chapter .ch-body { font-size: 12px; color: var(--dim); line-height: 1.65; }
+  .chapter .ch-link { color: var(--accent); cursor: pointer; font-size: 11.5px; background: none; border: none; font-family: var(--sans); padding: 0; margin-top: 6px; }
+  .chapter .ch-link:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -344,11 +432,13 @@
     <button data-view="traj">轨迹</button>
     <button data-view="tasks">任务</button>
     <button data-view="mem">记忆</button>
+    <button data-view="review">回看</button>
     <button data-view="sensors">感官</button>
     <button data-view="conn">连接</button>
     <button data-view="settings">设置</button>
   </div>
   <span class="spacer"></span>
+  <button class="presence" id="presenceChip" title="在场状态——离开时 inform 事件镜像推企微（默认关，设置页可开）"><span class="p-dot"></span><span id="presenceText">在座</span></button>
   <button class="ghost-btn" id="btnPalette">命令面板<span class="kbd">Ctrl K</span></button>
   <button class="ghost-btn" id="btnDrawer" title="引擎室（舞台页专属抽屉）">引擎室</button>
 </header>
@@ -358,23 +448,48 @@
   <canvas id="cosmos"></canvas>
 
   <div class="hint" id="hint">
-    <span>🎭 <b>剧场原型</b>——输入框说话 · <b>8 秒后</b>审批请求 · <b>Ctrl+K</b> · 引擎室抽屉可跳全屏</span>
+    <span>🎭 <b>剧场 v2 定稿</b>——隔夜账卡 · 心跳行 · <b>8 秒后</b>审批（依据 + 记住偏好）· ⤢ 展开对话 · 回看页 7 天章节 · <b>Ctrl+K</b></span>
     <span class="x" id="hintX">✕</span>
+  </div>
+
+  <div class="digest" id="digest">
+    <div class="d-t"><span class="t">昨夜</span><span class="tm">离开 7h 12m · 其间有活动</span><span class="x" id="digestX" title="dismiss 后当天不再合成">✕</span></div>
+    <div class="d-row"><span class="n" style="color:var(--accent)">3</span><span>报告完成——健康周报 · 活动周报 · 记忆巡检</span><button class="go" onclick="showView('tasks')">查看 →</button></div>
+    <div class="d-row"><span class="n" style="color:var(--resin)">1</span><span>审批超时——清理 tmp 日志脚本（TTL 30m）</span><button class="go" id="digestResubmit">重新提交审批</button></div>
+    <div class="d-row"><span class="n" style="color:var(--lake)">2</span><span>线索进展——周报脚本推进至聚合段 · 新线索「磁盘告警」</span><button class="go" onclick="showView('tasks')">线索 →</button></div>
   </div>
 
   <div class="threads" id="threads"></div>
 
   <div class="talk">
+    <div class="heartbeat" id="heartbeat"><span class="hb-dot"></span><span id="hbText">待命 · 今日 47 步 · 2 线索在途</span></div>
     <div class="bubbles" id="bubbles"></div>
     <div class="inputbar">
       <input id="talkInput" placeholder="对 ada 说点什么…（试试：给我推一张便签）" />
       <button class="send" id="talkSend">发送</button>
+      <button class="talk-expand" id="talkExpand" title="展开对话——对话单真相源（Esc 收起）">⤢</button>
     </div>
   </div>
 </section>
 
 <div id="cards" class="cards"></div>
 <div id="overlayRoot"></div>
+
+<!-- 对话展开态（对话单真相源 §3：原 chat 页能力内嵌浮层） -->
+<div class="talk-full-mask" id="talkFullMask">
+  <div class="talk-full">
+    <div class="tf-head">
+      <span class="t">对话 · ada</span>
+      <span style="font-family:var(--mono);font-size:10px;color:var(--faint)">目录 · 历史 · 深链（原 chat 页能力全部内嵌）</span>
+      <button class="ghost-btn" id="talkFullClose">收起 <span class="kbd">Esc</span></button>
+    </div>
+    <div class="tf-log" id="tfLog"></div>
+    <div class="inputbar">
+      <input id="talkFullInput" placeholder="对 ada 说点什么…" />
+      <button class="send" id="talkFullSend">发送</button>
+    </div>
+  </div>
+</div>
 
 <!-- ================= 工作台 ================= -->
 <section id="view-workbench" class="view engine">
@@ -578,6 +693,48 @@
 
 <!-- ================= 记忆（引擎室全屏） ================= -->
 
+<!-- ================= 回看（舞台叙事章节 · 近 7 天，与周报同源） ================= -->
+<section id="view-review" class="view engine">
+  <div class="engine-wrap">
+    <div class="engine-head">
+      <h1>回看 · ada</h1>
+      <span class="sub">近 7 天 · 舞台管叙事章节，引擎室管步级账本 · 数据与周报同源</span>
+    </div>
+
+    <div class="panel" style="margin-bottom:14px;">
+      <div class="p-title">本周读数</div>
+      <div class="readout" style="gap:22px;">
+        <span>任务完成 <b style="color:var(--text)">6</b></span>
+        <span>线索关闭 <b style="color:var(--text)">3</b></span>
+        <span>报告推送 <b style="color:var(--text)">5</b></span>
+        <span>你的审批决定 <b style="color:var(--text)">7</b> 次</span>
+        <span>累计 <b style="color:var(--text)">4h 12m</b> · 431 步</span>
+      </div>
+    </div>
+
+    <div class="d-sec" style="margin:0 0 10px;">10-12 周日</div>
+    <div class="chapter">
+      <div class="ch-head"><span class="ch-title">健康周报（10-06 ~ 10-12）</span><span class="ch-meta">23 min · 61 步 · 你批准 1 次</span></div>
+      <div class="ch-body">07:02 定时触发 → 聚合 7 天身体数据 → 生成并推送 wecom:HongYan。产物 reports/health/2026-10-12.md。</div>
+      <button class="ch-link" onclick="showView('traj')">查看轨迹 →</button>
+    </div>
+    <div class="chapter">
+      <div class="ch-head"><span class="ch-title">线索关闭：服务器磁盘告警</span><span class="ch-meta">跨 2 天 · 38 步</span></div>
+      <div class="ch-body">定位到日志轮转失效 → 清理 12GB 旧日志 → 补上轮转 cron。你批准了删除操作 1 次。</div>
+      <button class="ch-link" onclick="showView('traj')">查看轨迹 →</button>
+    </div>
+
+    <div class="d-sec" style="margin:18px 0 10px;">10-11 周六</div>
+    <div class="chapter">
+      <div class="ch-head"><span class="ch-title">活动周报（10-05 ~ 10-11）</span><span class="ch-meta">19 min · 44 步 · 零干预</span></div>
+      <div class="ch-body">无审批 · 无打断完成。产物 reports/activity/2026-10-11.md。</div>
+      <button class="ch-link" onclick="showView('traj')">查看轨迹 →</button>
+    </div>
+
+    <div class="elide">……更早的章节随滚动加载（实施用 TanStack Virtual 窗口化）……</div>
+  </div>
+</section>
+
 <!-- ================= 记忆（引擎室全屏） ================= -->
 <section id="view-mem" class="view engine">
   <div class="engine-wrap">
@@ -665,7 +822,7 @@
 <script>
 "use strict";
 /* ================= 视图路由 ================= */
-const VIEWS = ["stage", "workbench", "traj", "tasks", "mem", "sensors", "conn", "settings"];
+const VIEWS = ["stage", "workbench", "traj", "tasks", "mem", "review", "sensors", "conn", "settings"];
 function showView(name) {
   for (const v of VIEWS) {
     document.getElementById("view-" + v).classList.toggle("active", v === name);
@@ -695,11 +852,40 @@ function resize() {
 }
 addEventListener("resize", resize); resize();
 
+/* —— v2 §10 心智五态：idle/working/等审批/出错(陶土tint,略)/冷却；800ms 量级缓动 —— */
+const MIND_STATES = {
+  idle:     { glow: 0.35, spin: 1.0, hz: 0.020, tint: null },
+  working:  { glow: 0.75, spin: 2.6, hz: 0.045, tint: null },
+  awaiting: { glow: 0.65, spin: 0.0, hz: 0.000, tint: "217,164,65" },
+  cooldown: { glow: 0.30, spin: 0.5, hz: 0.008, tint: null },
+};
+let mindState = "idle";
+let awaitingSince = 0;
+let cur = { glow: 0.35, spin: 1.0, hz: 0.020 };
+let spinPhase = 0;                 // 思考者公转相位（等审批时冻结——屏息等你拍板）
+let listening = false;             // §13.3 在听：输入框聚焦
+let lastRoll = performance.now();  // §13.1 闲置微翻身
+let rollT = -1e9;
+const ringTicks = [0.20, 0.55];    // §13.2 预算环年轮刻线：今日已完成任务
+let completionFx = null;           // §11 E2 任务完成：弧闭合→光点巡视→熄灭
+let decisionFx = null;             // §11 E4 审批决定：顺/逆时针共振环
+function setMindState(s) {
+  mindState = s;
+  if (s === "awaiting") awaitingSince = Date.now();
+  stateDot.classList.toggle("warn", s === "awaiting");
+  stateDot.style.background = s === "awaiting" ? "var(--resin)" : (s === "cooldown" ? "var(--faint)" : "");
+  setHeartbeat();
+}
 let breath = 0;
 function draw(t) {
   requestAnimationFrame(draw);
   if (!rafOn) return;
-  breath += working ? 0.045 : 0.02;
+  const P = MIND_STATES[mindState];
+  cur.glow += (P.glow - cur.glow) * 0.055;
+  cur.spin += (P.spin - cur.spin) * 0.055;
+  cur.hz += (P.hz - cur.hz) * 0.055;
+  spinPhase += 0.00042 * cur.spin;
+  breath += cur.hz;
   cx2d.clearRect(0, 0, W, H);
   for (const s of STARS) {
     cx2d.globalAlpha = 0.25 + 0.35 * Math.abs(Math.sin(t * 0.0006 + s.p));
@@ -708,27 +894,36 @@ function draw(t) {
   }
   cx2d.globalAlpha = 1;
   const cx = W / 2, cy = H * 0.46, R = Math.min(W, H) * 0.17;
-  const pulse = 0.3 + 0.1 * Math.sin(breath) + (working ? 0.12 : 0);
+  // 闲置微翻身：idle 时随机短促一晃（演示节奏 ~30s 一遇）
+  const now = performance.now();
+  if (mindState === "idle" && now - lastRoll > 30000 && Math.random() < 0.008) { rollT = t; lastRoll = now; }
+  const roll = Math.max(0, 1 - (t - rollT) / 1200);
+  const wob = roll * Math.sin((t - rollT) * 0.012) * R * 0.06;
+  const pulse = cur.glow * 0.55 + 0.08 * Math.sin(breath) * (1 + roll * 0.5) + (listening ? 0.06 : 0);
   let g = cx2d.createRadialGradient(cx, cy, R * 0.4, cx, cy, R * 2.6);
-  g.addColorStop(0, "rgba(110,231,160," + (0.10 + pulse * 0.25) + ")");
+  g.addColorStop(0, "rgba(110,231,160," + (0.08 + pulse * 0.30) + ")");
   g.addColorStop(1, "rgba(110,231,160,0)");
   cx2d.fillStyle = g;
   cx2d.beginPath(); cx2d.arc(cx, cy, R * 2.6, 0, 6.28); cx2d.fill();
-  g = cx2d.createRadialGradient(cx - R * 0.35, cy - R * 0.4, R * 0.15, cx, cy, R);
+  g = cx2d.createRadialGradient(cx - R * 0.35 + wob, cy - R * 0.4 - wob * 0.6, R * 0.15, cx, cy, R);
   g.addColorStop(0, "#2f5c41"); g.addColorStop(0.72, "#173324"); g.addColorStop(1, "#0d1f16");
   cx2d.fillStyle = g;
   cx2d.beginPath(); cx2d.arc(cx, cy, R, 0, 6.28); cx2d.fill();
+  if (P.tint) { // 等审批：树脂慢闪覆层——屏息，不靠变红尖叫
+    cx2d.fillStyle = "rgba(" + P.tint + "," + (0.10 + 0.08 * Math.sin(t * 0.0018)) + ")";
+    cx2d.beginPath(); cx2d.arc(cx, cy, R, 0, 6.28); cx2d.fill();
+  }
   cx2d.strokeStyle = "rgba(110,231,160,0.13)";
   for (let i = 1; i <= 3; i++) { cx2d.beginPath(); cx2d.arc(cx, cy, R * (0.35 + i * 0.21), 0, 6.28); cx2d.stroke(); }
   const orbR = R * 1.9, orbRy = orbR * 0.32;
   cx2d.strokeStyle = "rgba(140,180,155,0.16)";
   cx2d.beginPath(); cx2d.ellipse(cx, cy, orbR, orbRy, -0.12, 0, 6.28); cx2d.stroke();
   const thinkers = [
-    { name: "monolith", speed: 0.00042, phase: 0.6, active: working || Math.sin(t * 0.0003) > -0.3 },
-    { name: "responder", speed: 0.00061, phase: 3.6, active: working },
+    { name: "monolith", speed: 1.0, phase: 0.6, active: mindState === "working" },
+    { name: "responder", speed: 1.45, phase: 3.6, active: mindState === "working" },
   ];
   for (const th of thinkers) {
-    const a = t * th.speed + th.phase;
+    const a = spinPhase * th.speed + th.phase;
     const x = cx + Math.cos(a) * orbR, y = cy + Math.sin(a) * orbRy - R * 0.12;
     cx2d.globalAlpha = th.active ? 1 : 0.35;
     cx2d.fillStyle = th.active ? "#6ee7a0" : "#41584a";
@@ -739,8 +934,9 @@ function draw(t) {
   }
   const arcR = R * 1.55;
   cx2d.lineWidth = 2;
-  cx2d.strokeStyle = working ? "rgba(217,164,65,0.55)" : "rgba(217,164,65,0.22)";
-  const a0 = t * (working ? 0.0005 : 0.0002);
+  const arcA = mindState === "working" ? 0.55 : (mindState === "awaiting" ? 0.35 + 0.2 * Math.sin(t * 0.0018) : 0.22);
+  cx2d.strokeStyle = "rgba(217,164,65," + arcA + ")";
+  const a0 = spinPhase * (mindState === "working" ? 1.2 : 0.5);
   cx2d.beginPath(); cx2d.ellipse(cx, cy, arcR, arcR * 0.32, -0.12, a0, a0 + 2.2); cx2d.stroke();
   cx2d.lineWidth = 1;
   const bR = R * 2.25;
@@ -749,37 +945,96 @@ function draw(t) {
   cx2d.strokeStyle = "rgba(110,231,160,0.45)";
   cx2d.lineWidth = 2;
   cx2d.beginPath(); cx2d.arc(cx, cy, bR, -Math.PI / 2, -Math.PI / 2 + 0.38 * 6.28); cx2d.stroke();
-  cx2d.lineWidth = 1;
+  // 年轮刻线：每完成一个任务在预算环留一道永久亮弧（当日累计）
+  cx2d.strokeStyle = "rgba(110,231,160,0.85)";
+  for (const fr of ringTicks) {
+    cx2d.beginPath(); cx2d.arc(cx, cy, bR, -Math.PI / 2 + fr * 6.28, -Math.PI / 2 + fr * 6.28 + 0.07); cx2d.stroke();
+  }
+  // E2 任务完成：一粒叶绿光点沿预算环巡视一圈后熄灭（「收工」句法）
+  if (completionFx) {
+    const p = (t - completionFx.t0) / 900;
+    if (p >= 1) completionFx = null;
+    else {
+      cx2d.fillStyle = "rgba(110,231,160," + (0.9 * (1 - p)) + ")";
+      cx2d.beginPath();
+      cx2d.arc(cx + Math.cos(-Math.PI / 2 + p * 6.28) * bR, cy + Math.sin(-Math.PI / 2 + p * 6.28) * bR, 3.5, 0, 6.28);
+      cx2d.fill();
+    }
+  }
+  // E4 审批决定：allow 顺时针快扫 / deny 逆时针收拢回核心
+  if (decisionFx) {
+    const p = (t - decisionFx.t0) / 300;
+    if (p >= 1) decisionFx = null;
+    else {
+      cx2d.lineWidth = 3;
+      cx2d.strokeStyle = "rgba(110,231,160," + (0.7 * (1 - p)) + ")";
+      cx2d.beginPath();
+      if (decisionFx.dir === "allow") cx2d.arc(cx, cy, bR * 0.92, -Math.PI / 2, -Math.PI / 2 + p * 6.28);
+      else cx2d.arc(cx, cy, bR * (0.92 + p * 0.3), -Math.PI / 2 - p * 6.28, -Math.PI / 2);
+      cx2d.stroke();
+      cx2d.lineWidth = 1;
+    }
+  }
 }
 requestAnimationFrame(draw);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) rafOn = document.getElementById("view-stage").classList.contains("active"); });
 
-/* ================= 场景卡片层 ================= */
+/* ================= 场景卡片层（v2 §2 分区制：右列至多 3 张 + 溢出折叠 chip） ================= */
 const cardsEl = document.getElementById("cards");
+const MAX_CARDS = 3;
+let cardsExpanded = false;
+const pushCount = {}; // 变奏阈值（§16.5）：repeatKey 计数
+function visibleCards() { return [...cardsEl.querySelectorAll(".card:not(.exiting)")]; }
+function relayoutCards() {
+  let chip = document.getElementById("overflowChip");
+  const list = visibleCards();
+  if (list.length <= MAX_CARDS) {
+    if (chip) chip.remove();
+    list.forEach(c => c.style.display = "");
+    return;
+  }
+  const hidden = cardsExpanded ? [] : list.slice(0, list.length - MAX_CARDS);
+  hidden.forEach(c => c.style.display = "none");
+  list.slice(hidden.length).forEach(c => c.style.display = "");
+  if (!chip) {
+    chip = document.createElement("div");
+    chip.id = "overflowChip"; chip.className = "overflow-chip";
+    chip.addEventListener("click", () => { cardsExpanded = !cardsExpanded; relayoutCards(); });
+    cardsEl.appendChild(chip);
+  }
+  chip.textContent = cardsExpanded ? "收起 ⌃" : `还有 ${list.length - MAX_CARDS} 项 ⌄`;
+}
 function upsertCard(card) {
   let el = document.getElementById("card-" + card.id);
   if (el) {
     el.querySelector(".c-body-fill").innerHTML = card.body;
     if (card.bar != null) { const b = el.querySelector(".bar > i"); b.style.width = card.bar + "%"; }
     el.style.animation = "none"; void el.offsetWidth; el.style.animation = "enter 260ms ease";
+    relayoutCards();
     return;
   }
   el = document.createElement("div");
   el.id = "card-" + card.id;
   el.className = "card " + (card.intent || "inform");
+  if (card.compact) el.classList.add("compact");
+  if (card.repeatKey) { // 同类第 3 次起降为单行摘要卡
+    pushCount[card.repeatKey] = (pushCount[card.repeatKey] || 0) + 1;
+    if (pushCount[card.repeatKey] >= 3) { el.classList.add("compact"); card.foot = "同类事件已折叠为摘要"; }
+  }
   el.innerHTML =
     (card.title ? `<div class="c-title">${card.title}</div>` : "") +
-    `<div class="c-body-fill">${card.body}</div>` +
+    (card.body != null ? `<div class="c-body-fill">${card.body}</div>` : "") +
     (card.bar != null ? `<div class="bar"><i style="width:${card.bar}%"></i></div>` : "") +
     (card.metric != null ? `<div class="metric">${card.metric}<small>${card.unit || ""}</small></div>` : "") +
     (card.foot ? `<div class="c-foot">${card.foot}</div>` : "");
   cardsEl.appendChild(el);
+  relayoutCards();
 }
 function removeCard(id) {
   const el = document.getElementById("card-" + id);
   if (!el) return;
   el.classList.add("exiting");
-  setTimeout(() => el.remove(), 240);
+  setTimeout(() => { el.remove(); relayoutCards(); }, 240);
 }
 
 /* ================= 线索层 ================= */
@@ -794,16 +1049,29 @@ function renderThreads() {
 }
 renderThreads();
 
-/* ================= 对话层 ================= */
+/* ================= 对话层（v2：底部摘要 + ⤢ 展开态单真相源） ================= */
 const bubbles = document.getElementById("bubbles");
+const tfLog = document.getElementById("tfLog");
 const input = document.getElementById("talkInput");
 function bubble(who, text) {
-  const el = document.createElement("div");
-  el.className = "bubble " + who;
-  el.innerHTML = (who === "ada" ? '<div class="who2">ada</div>' : "") + text;
-  bubbles.appendChild(el);
-  while (bubbles.children.length > 3) bubbles.firstChild.remove();
+  for (const host of [bubbles, tfLog]) {
+    const el = document.createElement("div");
+    el.className = "bubble " + who;
+    el.innerHTML = (who === "ada" ? '<div class="who2">ada</div>' : "") + text;
+    host.appendChild(el);
+    if (host === bubbles) { while (bubbles.children.length > 3) bubbles.firstChild.remove(); }
+    else { host.scrollTop = host.scrollHeight; }
+  }
 }
+/* 对话展开态（§3 对话单真相源） */
+const talkFullMask = document.getElementById("talkFullMask");
+function setTalkFull(open) { talkFullMask.classList.toggle("open", open); if (open) document.getElementById("talkFullInput").focus(); }
+document.getElementById("talkExpand").addEventListener("click", () => setTalkFull(true));
+document.getElementById("talkFullClose").addEventListener("click", () => setTalkFull(false));
+talkFullMask.addEventListener("click", e => { if (e.target === talkFullMask) setTalkFull(false); });
+/* 在听（§13.3）：你还没说话，它先转过头来 */
+input.addEventListener("focus", () => { listening = true; });
+input.addEventListener("blur", () => { listening = false; });
 const REPLIES = [
   "已推送到仪表盘，右上角可查看。需要换样式随时说。",
   "收到——这条我记进 worklog 了，稍后一并推进。",
@@ -820,13 +1088,27 @@ function send() {
 document.getElementById("talkSend").addEventListener("click", send);
 input.addEventListener("keydown", e => { if (e.key === "Enter") send(); });
 
-/* ================= working 状态驱动 ================= */
+/* ================= 状态驱动（v2 五态 + 工作心跳行 §7） ================= */
 const stateDot = document.getElementById("stateDot");
-function setWorking(on) {
-  working = on;
-  stateDot.classList.toggle("warn", on);
-  stateDot.style.background = on ? "var(--resin)" : "";
+function setWorking(on) { working = on; setMindState(on ? "working" : "idle"); }
+const heartbeatEl = document.getElementById("heartbeat");
+const hbText = document.getElementById("hbText");
+const hb = { since: Date.now(), steps: 47, inflight: 2 };
+function setHeartbeat() {
+  if (mindState === "working") {
+    const mins = Math.max(1, Math.round((Date.now() - hb.since) / 60000));
+    heartbeatEl.classList.remove("idle");
+    hbText.textContent = `工作中 · ${mins} min · 第 ${hb.steps} 步 · ${hb.inflight} 在途`;
+  } else {
+    heartbeatEl.classList.add("idle");
+    hbText.textContent =
+      mindState === "awaiting" ? `等你拍板 · 已等 ${Math.max(1, Math.round((Date.now() - awaitingSince) / 1000))}s · 今日 ${hb.steps} 步` :
+      mindState === "cooldown" ? `冷却 · 预算水位回落中 · 今日 ${hb.steps} 步` :
+      `待命 · 今日 ${hb.steps} 步 · ${hb.inflight} 线索在途`;
+  }
 }
+setInterval(() => { if (mindState === "working") hb.steps += 1; setHeartbeat(); }, 4000);
+setInterval(() => { if (mindState === "awaiting") setHeartbeat(); }, 1000);
 
 /* ================= 引擎室抽屉 ================= */
 const drawer = document.getElementById("drawer");
@@ -842,7 +1124,8 @@ const paletteInput = document.getElementById("paletteInput");
 const paletteItems = document.getElementById("paletteItems");
 const COMMANDS = [
   { ico: "▶", label: "推送天气卡片（演示）", run: () => upsertCard({ id: "weather", intent: "ambient", title: "天气 · 北京", body: "晴，18°C\n湿度 40% · 微风" }) },
-  { ico: "▣", label: "推送进度卡片（演示）", run: () => upsertCard({ id: "weekly", intent: "inform", title: "周报聚合", body: "正在聚合最近 7 天活动…", bar: 46 }) },
+  { ico: "▣", label: "推送进度播报（连按 3 次看变奏降级）", run: () => upsertCard({ id: "weekly-" + Date.now(), intent: "inform", repeatKey: "weekly", title: "周报聚合", body: "阶段播报：又推进了一步。", bar: 30 + Math.round(Math.random() * 60) }) },
+  { ico: "⚑", label: "再次触发审批（演示记住偏好）", run: () => showApproval(lastApproval) },
   { ico: "✕", label: "移除全部卡片", run: () => document.querySelectorAll(".card").forEach(c => { c.classList.add("exiting"); setTimeout(() => c.remove(), 240); }) },
   { ico: "◧", label: "打开引擎室", run: () => setDrawer(true) },
   { ico: "✦", label: "模拟心智开始工作（5s）", run: () => { setWorking(true); setTimeout(() => setWorking(false), 5000); } },
@@ -861,6 +1144,7 @@ paletteInput.addEventListener("keydown", e => { if (e.key === "Escape") paletteM
 paletteMask.addEventListener("click", e => { if (e.target === paletteMask) paletteMask.classList.remove("open"); });
 addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openPalette(); }
+  if (e.key === "Escape") setTalkFull(false);
 });
 
 /* ================= 轨迹页：生命线 + 日志流（演示样张） ================= */
@@ -920,16 +1204,71 @@ upsertCard({ id: "tok", intent: "inform", title: "今日用量", metric: "1,850"
 
 setTimeout(() => upsertCard({ id: "weekly", intent: "inform", title: "周报聚合", body: "正在聚合最近 7 天活动…", bar: 46, foot: "已采 5/7 天" }), 5000);
 
+/* ambient TTL 到期 → 降为单行摘要条（§16.2 延迟合并，隔夜再进账卡） */
 setTimeout(() => {
+  const w = document.getElementById("card-weather");
+  if (!w || w.classList.contains("exiting")) return;
+  removeCard("weather");
+  setTimeout(() => upsertCard({ id: "weather-sed", intent: "ambient", compact: true, title: "天气", body: "晴 18°C · 已沉淀，prefetch 继续", foot: "TTL 到期 → 单行" }), 300);
+}, 40000);
+
+/* 在场芯片（§8）：离开 → inform 镜像推企微；回来 → 重新合成隔夜账 */
+const presenceChip = document.getElementById("presenceChip");
+const presenceText = document.getElementById("presenceText");
+let away = false;
+presenceChip.addEventListener("click", () => {
+  away = !away;
+  presenceChip.classList.toggle("away", away);
+  presenceText.textContent = away ? "离开" : "在座";
+  if (away) bubble("ada", "你已离开——inform 及以上事件将镜像推企微，ambient 抑制。");
+  else {
+    bubble("ada", "欢迎回来。隔夜账已重新合成在顶部。");
+    const d = document.getElementById("digest");
+    if (d) { d.style.display = ""; d.style.animation = "none"; void d.offsetWidth; d.style.animation = "rise 320ms ease both"; }
+  }
+});
+
+/* 隔夜账卡（§6）：dismiss / 超时审批「重新提交」 */
+document.getElementById("digestX").addEventListener("click", () => {
+  const d = document.getElementById("digest");
+  d.style.animation = "exit 220ms ease-in both";
+  setTimeout(() => d.remove(), 230);
+});
+document.getElementById("digestResubmit").addEventListener("click", () => {
+  const d = document.getElementById("digest");
+  if (d) d.remove();
+  showApproval();
+});
+
+/* 对话展开态里的发送 */
+document.getElementById("talkFullSend").addEventListener("click", () => {
+  const fi = document.getElementById("talkFullInput");
+  const v = fi.value.trim(); if (!v) return;
+  bubble("you", v); fi.value = ""; setWorking(true);
+  setTimeout(() => { setWorking(false); bubble("ada", REPLIES[replyIdx++ % REPLIES.length]); }, 1100);
+});
+
+/* 审批浮层（8s 自动演示与「重新提交」共用）：
+   弹出即五态切入 awaiting（自转停·树脂慢闪），拍板后 E4 共振环 + 冷却。
+   §16.6 依据行维持信任分辨率；§16.3 记住偏好——同类二次审批 prefill。 */
+let lastApproval = null;
+function showApproval(prefill) {
+  setMindState("awaiting");
   const mask = document.createElement("div");
   mask.className = "overlay"; mask.id = "approvalDemo";
+  const badge = prefill === true ? '<div class="prebadge">↻ 上次同类操作你选择了允许 · 可一键沿用</div>'
+    : prefill === false ? '<div class="prebadge">↻ 上次同类操作你选择了拒绝</div>' : "";
+  const repeatBtn = (prefill === true || prefill === false) ? '<button class="ok" data-v="repeat">按上次决定</button>' : "";
   mask.innerHTML = `<div class="confront">
     <div class="tag">EXEC POLICY · APPROVAL</div>
     <div class="prompt">允许执行以下脚本？</div>
+    <div class="basis">依据：<b>EXEC approval 组（外发类）</b> · 来自任务 th-1697 · 风险：外发代码到远程仓库</div>
+    ${badge}
     <pre>git push origin main
 # 演示：MINDLOOP_EXEC_POLICY=approval 时的待批脚本</pre>
     <div class="btns">
       <button class="no" data-v="deny">拒绝</button>
+      ${repeatBtn}
       <button class="ok" data-v="approve">允许</button>
     </div>
   </div>`;
@@ -937,17 +1276,29 @@ setTimeout(() => {
   mask.addEventListener("click", e => {
     const btn = e.target.closest("button[data-v]");
     if (!btn) return;
-    const ok = btn.dataset.v === "approve";
+    const v = btn.dataset.v;
+    const ok = v === "approve" || (v === "repeat" && lastApproval);
+    lastApproval = ok;
+    decisionFx = { t0: performance.now(), dir: ok ? "allow" : "deny" };
     mask.style.animation = "fade 200ms ease reverse both";
     setTimeout(() => mask.remove(), 210);
     setWorking(true);
     setTimeout(() => {
       setWorking(false);
+      hb.steps += 3; hb.inflight = 1;
+      if (ok) { // 年轮刻线 + E2 收工句法
+        ringTicks.push((ringTicks[ringTicks.length - 1] || 0.38) + 0.13);
+        completionFx = { t0: performance.now() };
+      }
+      setMindState("cooldown"); // 冷却：呼吸放缓，弧褪不消失
+      setTimeout(() => setMindState("idle"), 4000);
       upsertCard({ id: "weekly", intent: "inform", title: "周报聚合", body: ok ? "推送完成。聚合产物已落盘。" : "已拒绝：脚本未执行。", bar: ok ? 100 : 46 });
       bubble("ada", ok ? "脚本已放行并执行完毕，产物在工作目录。" : "已拒绝：该脚本不会执行。");
     }, 600);
   });
-}, 8000);
+}
+setTimeout(showApproval, 8000);
+setHeartbeat();
 </script>
 </body>
 </html>
