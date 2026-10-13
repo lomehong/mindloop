@@ -1,15 +1,28 @@
-/** 场景卡片层（scene.md §7 渲染端）：订阅场景流，把服务端折叠好的
- * 场景状态投影成身份页内容区的「舞台」——Agent 驱动 UI 有卡时接管
- * 整块圆角内容区（tab 内容收起），撤卡后回归工作区；操作员可手动
- * 「返回工作区」，此后 inform/ambient 新卡只给呼吸角标不抢屏，
- * confront（必须停下决策）始终直接接管。渲染端只有投影与过渡，没
- * 有业务决策：卡片上的按钮只上报 intent（POST /scene/intent）。
- * kind 注册表：不认识的 kind 降级为 text 占位（title=kind），不得
- * 崩溃——对应协议"shell 不认识的 kind 应当降级渲染或忽略"。 */
+/** 场景卡片层（scene.md §7 渲染端 + theater.md v2 舞台分区制）：
+ * 订阅场景流，把服务端折叠好的场景状态投影成「剧场舞台」——
+ * 宇宙氛围层铺底，confront 卡遮罩独占中央（全局层，跨内容呈现），
+ * inform/ambient 卡在右列（至多 3 张整卡 + 溢出折叠 chip），底部
+ * 对话条是对话单真相源（§3），心跳行是累积读数（§7）。渲染端只有
+ * 投影与过渡，没有业务决策：卡片上的按钮只上报 intent（POST
+ * /scene/intent）。kind 注册表：不认识的 kind 降级为 text 占位
+ * （title=kind），不得崩溃。 */
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+
 import { openSceneStream, postSceneIntent, type SceneSurface, type SceneState } from "~/lib/scene";
-import { SceneCosmos } from "~/components/scene-cosmos";
+import { fetchApprovals } from "~/lib/api";
+import { fmtWaiting, loadDecision, partitionCards, saveDecision, variationCompactIds } from "~/lib/theater";
 import { cn } from "~/lib/utils";
+import { TalkStrip } from "~/components/talk-strip";
+import { SceneCosmos } from "~/components/scene-cosmos";
+import {
+  OvernightDigest,
+  PresenceChip,
+  WorkHeartbeat,
+  usePresence,
+  useStageTelemetry,
+} from "~/components/stage-hud";
+import type { StoredDecision } from "~/lib/theater";
 
 const EMPTY_SCENE: SceneState = { rev: 0, surfaces: [] };
 
@@ -47,12 +60,49 @@ export function useSceneStream(identityId: string): SceneState {
   return state;
 }
 
+/** surface 的展示标题（变奏归组与降级摘要都用它）：data.title 优先，
+ * label 次之，摘要截断兜底。 */
+function titleOf(s: SceneSurface): string {
+  if (typeof s.data?.title === "string" && s.data.title) return s.data.title;
+  if (typeof s.data?.label === "string" && s.data.label) return s.data.label;
+  return (s.summary ?? s.kind).slice(0, 40);
+}
+
+/** progress 卡是否已完成（E2 收工叙事的触发信号——真实数据派生）。 */
+function progressDone(s: SceneSurface): boolean {
+  if (s.kind !== "progress") return false;
+  if (s.data?.status === "done") return true;
+  const value = typeof s.data?.value === "number" ? s.data.value : 0;
+  const max = typeof s.data?.max === "number" && s.data.max > 0 ? s.data.max : 100;
+  return !s.data?.indeterminate && value >= max;
+}
+
 /** SurfaceCard 是 kind 注册表：每种 kind 一个渲染函数。data 是纯
  * 展示数据——组件不 eval、不注入 DOM，React 默认转义即达标。 */
-function SurfaceCard({ surface, identityId }: { surface: SceneSurface; identityId: string }) {
+function SurfaceCard({
+  surface,
+  identityId,
+  compact = false,
+  onDecision,
+}: {
+  surface: SceneSurface;
+  identityId: string;
+  compact?: boolean;
+  onDecision?: (dir: "allow" | "deny") => void;
+}) {
   const { kind, data, summary } = surface;
   if (kind === "choice") {
-    return <ChoiceCard surface={surface} identityId={identityId} />;
+    return <ChoiceCard surface={surface} identityId={identityId} onDecision={onDecision} />;
+  }
+  if (compact) {
+    return (
+      <div className="flex items-baseline gap-2 overflow-hidden">
+        <span className="shrink-0 text-[12px] font-medium text-foreground">{titleOf(surface)}</span>
+        <span className="min-w-0 flex-1 truncate text-[11.5px] text-muted-foreground">
+          {typeof data?.body === "string" && data.body ? data.body.replace(/\n/g, " ") : summary}
+        </span>
+      </div>
+    );
   }
   if (kind === "text") {
     return (
@@ -110,12 +160,23 @@ function SurfaceCard({ surface, identityId }: { surface: SceneSurface; identityI
   );
 }
 
-/** ChoiceCard 是 confront 决策卡（scene.md §6 审批桌面化）：选项
- * 点击即 intent 回流（POST /scene/intent），审批类 surface 由后端
- * 换回 hash 走 policy.Decide。点击后本地锁定（"已提交，等待执行"
- *）——卡片本身的消失由服务端撤卡驱动（WaitHook 离开回调），前端
- * 不猜测结果。 */
-function ChoiceCard({ surface, identityId }: { surface: SceneSurface; identityId: string }) {
+/** ChoiceCard 是 confront 决策卡（scene.md §6 审批桌面化 + theater.md
+ * §16.3/§16.6 审批增补）：选项点击即 intent 回流（POST /scene/intent），
+ * 审批类 surface 由后端换回 hash 走 policy.Decide。 theatre 增补：
+ * - 依据行：按 surface id（approve-<hash8>）匹配审批队列的真实载荷
+ *   （risks/等待时长）——投影端只呈现真实数据，不猜风险；
+ * - 记住偏好：按脚本首行归组存上次决定，同类二次审批给「按上次
+ *   决定」快捷键。
+ * 点击后本地锁定；卡片消失由服务端撤卡驱动，前端不猜测结果。 */
+function ChoiceCard({
+  surface,
+  identityId,
+  onDecision,
+}: {
+  surface: SceneSurface;
+  identityId: string;
+  onDecision?: (dir: "allow" | "deny") => void;
+}) {
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState("");
   const options = Array.isArray(surface.data?.options)
@@ -125,16 +186,45 @@ function ChoiceCard({ surface, identityId }: { surface: SceneSurface; identityId
     typeof surface.data?.prompt === "string" && surface.data?.prompt
       ? (surface.data?.prompt as string)
       : surface.summary;
+  const context = surface.data?.context as Record<string, unknown> | undefined;
+  const script = typeof context?.script === "string" ? context.script : "";
+  const workDir = typeof context?.work_dir === "string" ? context.work_dir : "";
+
+  // 依据行数据：审批队列按 hash 前缀匹配（surface id = approve-<hash8>）。
+  const { data: approvals } = useQuery({
+    queryKey: ["choice-approvals", identityId],
+    queryFn: () => fetchApprovals(identityId),
+    refetchInterval: 5000,
+  });
+  const hashPrefix = surface.id.startsWith("approve-") ? surface.id.slice("approve-".length) : "";
+  const matched = approvals?.find((a) => a.hash.startsWith(hashPrefix)) ?? null;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const waitingFor = matched ? fmtWaiting(now - Date.parse(matched.created)) : null;
+
+  // 记住偏好：同命令族上次的真实决定（localStorage，per identity）。
+  // 只读初始值——决定落盘后卡片由服务端撤卡驱动消失，无需本地翻转。
+  const [lastDecision] = useState<StoredDecision | null>(() =>
+    script ? loadDecision(window.localStorage, identityId, script) : null
+  );
 
   const submit = async (value: string) => {
     if (pending) return;
     setPending(value);
+    const dir: StoredDecision = value === "deny" ? "deny" : "approve";
     try {
       await postSceneIntent(identityId, {
         surface: surface.id,
         name: "select",
         data: { value },
       });
+      if (script && (value === "approve" || value === "deny")) {
+        saveDecision(window.localStorage, identityId, script, dir);
+      }
+      onDecision?.(dir === "deny" ? "deny" : "allow");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setPending(null);
@@ -144,9 +234,21 @@ function ChoiceCard({ surface, identityId }: { surface: SceneSurface; identityId
   return (
     <div>
       <div className="mb-2 text-[13px] font-medium text-foreground">{promptText}</div>
-      {typeof (surface.data?.context as Record<string, unknown> | undefined)?.script === "string" && (
+      {(matched || script) && (
+        <div className="mb-1 text-[11px] leading-relaxed text-muted-foreground">
+          依据：
+          {matched?.risks?.length ? (
+            <span className="text-foreground/80">{matched.risks.join("、")}</span>
+          ) : (
+            <span className="text-foreground/80">审批策略组命中</span>
+          )}
+          {waitingFor && <> · 已等 {waitingFor}</>}
+          {workDir && <> · 目录 {workDir}</>}
+        </div>
+      )}
+      {script && (
         <pre className="mb-3 max-h-40 overflow-auto rounded-md bg-muted p-2 text-[11px] leading-relaxed text-foreground/80">
-          {(surface.data?.context as Record<string, unknown>).script as string}
+          {script}
         </pre>
       )}
       <div className="flex gap-2">
@@ -168,6 +270,20 @@ function ChoiceCard({ surface, identityId }: { surface: SceneSurface; identityId
             {pending === o.value ? "已提交…" : o.label}
           </button>
         ))}
+        {lastDecision &&
+          options.some((o) => o.value === lastDecision) &&
+          (lastDecision === "approve" || lastDecision === "deny") && (
+            <button
+              type="button"
+              data-testid="scene-select-repeat"
+              disabled={pending !== null}
+              onClick={() => submit(lastDecision)}
+              title="上次同类操作你做了这个决定——记住偏好（theater.md §16.3）"
+              className="rounded-lg border border-primary/25 bg-primary/8 px-3 py-1.5 text-[13px] text-primary transition-colors hover:bg-primary/15 disabled:opacity-50"
+            >
+              按上次决定（{lastDecision === "approve" ? "允许" : "拒绝"}）
+            </button>
+          )}
       </div>
       {pending !== null && (
         <div className="mt-2 text-[11px] text-muted-foreground">
@@ -179,32 +295,69 @@ function ChoiceCard({ surface, identityId }: { surface: SceneSurface; identityId
   );
 }
 
-/** SceneStage 是仪表盘的舞台形态：Agent 驱动 UI 接管整块内容区——
- * confront 卡居中聚焦（存在感最高），inform/ambient 卡按栅格排布
- * 弱化呈现。舞台自带返回工作区的开关（操作员随时收回视线）。
- * 定位：identity-shell 在舞台态以 absolute inset-0 挂本组件——铺满
- * 滚动容器的可视区（root.tsx 的 relative 锚），与圆角内容卡严丝合
- * 缝，高度不靠猜（猜必有缝，2026-10-12 实测）。 */
+/** 舞台宇宙的特效信号（E2 收工 / E4 决定 / 在听）——SceneStage 从
+ * 场景流与对话条派生，传给宇宙层驱动一次性动画。 */
+export interface StageFx {
+  decision: { dir: "allow" | "deny"; t0: number } | null;
+  completion: { t0: number } | null;
+  listening: boolean;
+}
+
+/** SceneStage 是仪表盘的舞台形态（theater.md v2 分区制）：宇宙铺
+ * 底；conform 卡遮罩独占中央；inform/ambient 右列至多 3 张整卡 +
+ * 溢出折叠 chip + 变奏/沉淀单行卡；底部心跳行 + 对话条；顶栏在场
+ * 芯片与对话展开。 absolute inset-0 挂 identity-shell——铺满滚动
+ * 容器可视区，高度不靠猜。 */
 export function SceneStage({
   surfaces,
   identityId,
   onBack,
+  onOpenChat,
 }: {
   surfaces: SceneSurface[];
   identityId: string;
   onBack: () => void;
+  onOpenChat: () => void;
 }) {
+  const tele = useStageTelemetry(identityId);
+  const { presence, setAway, lastVisibleMs } = usePresence(identityId);
+  const [expanded, setExpanded] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [decisionFx, setDecisionFx] = useState<StageFx["decision"]>(null);
+  const [completionFx, setCompletionFx] = useState<StageFx["completion"]>(null);
+
   const confront = surfaces.find(
     (s) => s.intent === "confront" || s.focus === true
   );
   const others = surfaces.filter((s) => s !== confront);
+  const compactIds = variationCompactIds(
+    others.map((s) => ({ id: s.id, kind: s.kind, title: titleOf(s) }))
+  );
+  const isCompact = (s: SceneSurface) => compactIds.has(s.id);
+  const { visible, hiddenCount } = partitionCards(others, isCompact, 3);
+  const visibleCards = others.filter((s) => visible.includes(s.id) && !isCompact(s));
+  const compactCards = others.filter(isCompact);
+
+  // E2 收工叙事：progress 卡从未完成→完成的瞬间（真实数据派生）。
+  const prevDoneRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const doneIds = new Set(surfaces.filter(progressDone).map((s) => s.id));
+    const newly = [...doneIds].filter((id) => !prevDoneRef.current.has(id));
+    prevDoneRef.current = doneIds;
+    if (newly.length > 0) setCompletionFx({ t0: Date.now() });
+  }, [surfaces]);
+
+  const fx: StageFx = { decision: decisionFx, completion: completionFx, listening };
+  // 隔夜判定基准：显式离开取「可见时刻与离开时刻的较早者」。
+  const lastSeenMs = presence.away
+    ? Math.min(lastVisibleMs, presence.sinceMs || lastVisibleMs)
+    : lastVisibleMs;
+
   return (
     <div data-testid="scene-stage" className="relative flex h-full flex-col bg-card">
-      {/* 心智舞台宇宙：氛围层（星空/核心球）+ 活动星图（思考者绕轨、
-          任务轨道弧、预算外环）——装饰与数据都来自既有 API，零新增
-          抓取；WebGL 失败降级 CSS 星空，卡片面不受影响。 */}
-      <SceneCosmos identityId={identityId} />
-      <div className="relative z-10 flex items-center gap-3 border-b border-border/70 bg-card/80 px-5 py-3 backdrop-blur-sm">
+      <SceneCosmos identityId={identityId} fx={fx} />
+      {/* 顶栏：读数 + 在场 + 对话展开 + 返回工作区 */}
+      <div className="relative z-40 flex items-center gap-3 border-b border-border/70 bg-card/80 px-5 py-3 backdrop-blur-sm">
         <span className="font-mono text-[11px] tracking-[0.14em] text-primary">
           AGENT 舞台
         </span>
@@ -212,6 +365,15 @@ export function SceneStage({
           Agent 正在驱动这块仪表盘 · {surfaces.length} 张卡片
         </span>
         <span className="flex-1" />
+        <PresenceChip presence={presence} onToggle={() => setAway(!presence.away)} />
+        <button
+          type="button"
+          data-testid="stage-chat-expand"
+          onClick={onOpenChat}
+          className="rounded-md border border-border bg-card/80 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          对话 ⤢
+        </button>
         <button
           type="button"
           data-testid="scene-stage-back"
@@ -221,33 +383,84 @@ export function SceneStage({
           返回工作区
         </button>
       </div>
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-center gap-6 overflow-y-auto p-8">
+
+      <div className="relative min-h-0 flex-1">
+        {/* 右列（分区制 §2）：隔夜账卡钉顶 + 整卡 ≤3 + 溢出 chip + 单行卡 */}
+        <div className="absolute bottom-28 right-4 top-4 z-20 flex w-[min(360px,38vw)] flex-col gap-3 overflow-y-auto pb-1">
+          <OvernightDigest identityId={identityId} tele={tele} lastSeenMs={lastSeenMs} />
+          {visibleCards.map((s) => (
+            <div
+              key={s.id}
+              data-testid="scene-card"
+              data-scene-id={s.id}
+              className={cn(
+                "rounded-xl border border-border bg-card/95 p-4 shadow-md",
+                s.intent === "ambient" && "opacity-80"
+              )}
+            >
+              <SurfaceCard surface={s} identityId={identityId} onDecision={(dir) => setDecisionFx({ dir, t0: Date.now() })} />
+            </div>
+          ))}
+          {hiddenCount > 0 && (
+            <button
+              type="button"
+              data-testid="scene-overflow"
+              onClick={() => setExpanded(!expanded)}
+              className="self-end rounded-full border border-border bg-card/95 px-3 py-1 font-mono text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {expanded ? "收起 ⌃" : `还有 ${hiddenCount} 项 ⌄`}
+            </button>
+          )}
+          {expanded &&
+            others
+              .filter((s) => !visible.includes(s.id) && !isCompact(s))
+              .map((s) => (
+                <div
+                  key={s.id}
+                  data-testid="scene-card"
+                  data-scene-id={s.id}
+                  className="rounded-xl border border-border bg-card/95 p-4 shadow-md"
+                >
+                  <SurfaceCard surface={s} identityId={identityId} />
+                </div>
+              ))}
+          {compactCards.map((s) => (
+            <div
+              key={s.id}
+              data-testid="scene-card"
+              data-scene-id={s.id}
+              data-compact="true"
+              className="rounded-lg border border-border/70 bg-card/85 px-3 py-2"
+            >
+              <SurfaceCard surface={s} identityId={identityId} compact />
+            </div>
+          ))}
+        </div>
+
+        {/* confront 全局遮罩（§2：中央独占，宇宙压暗由遮罩承担） */}
         {confront && (
-          <div
-            data-testid="scene-card"
-            data-scene-id={confront.id}
-            className="w-full max-w-xl rounded-2xl border border-primary/40 bg-card p-6 shadow-2xl ring-1 ring-primary/20"
-          >
-            <SurfaceCard surface={confront} identityId={identityId} />
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/60 p-6 backdrop-blur-[2px]">
+            <div
+              data-testid="scene-card"
+              data-scene-id={confront.id}
+              className="w-full max-w-xl rounded-2xl border border-primary/40 bg-card p-6 shadow-2xl ring-1 ring-primary/20"
+            >
+              <SurfaceCard surface={confront} identityId={identityId} onDecision={(dir) => setDecisionFx({ dir, t0: Date.now() })} />
+            </div>
           </div>
         )}
-        {others.length > 0 && (
-          <div className="grid w-full max-w-3xl grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4">
-            {others.map((s) => (
-              <div
-                key={s.id}
-                data-testid="scene-card"
-                data-scene-id={s.id}
-                className={cn(
-                  "rounded-xl border border-border bg-card/95 p-4",
-                  s.intent === "ambient" && "opacity-75"
-                )}
-              >
-                <SurfaceCard surface={s} identityId={identityId} />
-              </div>
-            ))}
-          </div>
-        )}
+
+        {/* 底部：心跳行 + 对话条（§3 对话单真相源 + §7 时间感） */}
+        <div className="absolute bottom-4 left-4 z-20 flex flex-col gap-2">
+          <WorkHeartbeat tele={tele} />
+        </div>
+        <div className="absolute bottom-4 left-1/2 z-20 w-[min(560px,44vw)] -translate-x-1/2">
+          <TalkStrip
+            identityId={identityId}
+            onExpand={onOpenChat}
+            onListeningChange={setListening}
+          />
+        </div>
       </div>
     </div>
   );

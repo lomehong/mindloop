@@ -15,20 +15,36 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { MIND_STATE_PARAMS, mindStateOf, type MindState } from "~/lib/theater";
+
+/** 舞台特效信号（theater.md §11/§13）：E4 审批决定环、E2 收工巡视、
+ * 在听辉光。由 scene-layer 从场景流与对话条派生（真实交互派生，
+ * 无装饰性假状态），结构兼容即可——渲染端只读 t0/dir。 */
+export interface CosmosFx {
+  decision: { dir: "allow" | "deny"; t0: number } | null;
+  completion: { t0: number } | null;
+  listening: boolean;
+}
+
 type CosmosData = {
   thinkers: Array<{ name: string; state: string }>;
   budgetRatio: number | null; // 0..1；null=未设预算
   working: boolean;
+  state: MindState;
+  /** 今日真实收口的任务数——年轮刻线（§13.2）的派生源。 */
+  doneToday: number;
 };
 
 const COSMOS_POLL_MS = 30_000;
 
 async function fetchCosmosData(identityId: string): Promise<CosmosData> {
   const headers = { Accept: "application/json" };
-  const [thinkersRes, usageRes, activityRes] = await Promise.all([
+  const [thinkersRes, usageRes, activityRes, approvalsRes, tasksRes] = await Promise.all([
     fetch(`/api/identities/${encodeURIComponent(identityId)}/thinkers`, { headers }).catch(() => null),
     fetch(`/api/identities/${encodeURIComponent(identityId)}/usage`, { headers }).catch(() => null),
     fetch(`/api/identities/${encodeURIComponent(identityId)}/activity`, { headers }).catch(() => null),
+    fetch(`/api/identities/${encodeURIComponent(identityId)}/approvals`, { headers }).catch(() => null),
+    fetch(`/api/identities/${encodeURIComponent(identityId)}/tasks`, { headers }).catch(() => null),
   ]);
   const thinkers: Array<{ name: string; state: string }> = [];
   if (thinkersRes?.ok) {
@@ -40,29 +56,78 @@ async function fetchCosmosData(identityId: string): Promise<CosmosData> {
     }
   }
   let budgetRatio: number | null = null;
+  let coolingUntil: string | null = null;
   if (usageRes?.ok) {
     const j = (await usageRes.json().catch(() => null)) as {
-      admission?: { daily_limit?: number; used_today?: number };
+      admission?: { daily_limit?: number; used_today?: number; cooling_until?: string };
     } | null;
     const a = j?.admission;
+    coolingUntil = a?.cooling_until ?? null;
     if (a && a.daily_limit && a.daily_limit > 0) {
       budgetRatio = Math.min(1, (a.used_today ?? 0) / a.daily_limit);
     }
   }
-  let working = false;
+  let activity: { state?: string; dispatcher_running?: boolean } | null = null;
   if (activityRes?.ok) {
-    const j = (await activityRes.json().catch(() => null)) as { state?: string } | null;
-    working = j?.state === "working";
+    activity = (await activityRes.json().catch(() => null)) as
+      | { state?: string; dispatcher_running?: boolean }
+      | null;
   }
-  return { thinkers, budgetRatio, working };
+  let pendingApprovals = 0;
+  if (approvalsRes?.ok) {
+    const j = (await approvalsRes.json().catch(() => null)) as
+      | Array<{ hash?: string }>
+      | { approvals?: Array<{ hash?: string }> }
+      | null;
+    const list = Array.isArray(j) ? j : (j?.approvals ?? []);
+    pendingApprovals = list.length;
+  }
+  let doneToday = 0;
+  if (tasksRes?.ok) {
+    const j = (await tasksRes.json().catch(() => null)) as
+      | Array<{ status?: string; updated_at?: string }>
+      | null;
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    for (const t of j ?? []) {
+      if (
+        t.status === "succeeded" &&
+        t.updated_at &&
+        Date.parse(t.updated_at) >= dayStart.getTime()
+      ) {
+        doneToday += 1;
+      }
+    }
+  }
+  const state = mindStateOf({
+    activity: {
+      state: (activity?.state ?? "idle") as never,
+      dispatcher_running: activity?.dispatcher_running ?? false,
+    },
+    pendingApprovals,
+    coolingUntil,
+    nowMs: Date.now(),
+  });
+  return {
+    thinkers,
+    budgetRatio,
+    working: state === "working",
+    state,
+    doneToday,
+  };
 }
 
-export function SceneCosmos({ identityId }: { identityId: string }) {
+export function SceneCosmos({ identityId, fx }: { identityId: string; fx?: CosmosFx }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // WebGL 失败的降级位：CSS 星空（静态、零依赖），舞台不破。
   const [degraded] = useState(
     () => typeof window !== "undefined" && !window.WebGLRenderingContext
   );
+  // 特效信号经 ref 进渲染循环：props 变化不重建整个 three.js 场景。
+  const fxRef = useRef<CosmosFx>({ decision: null, completion: null, listening: false });
+  useEffect(() => {
+    if (fx) fxRef.current = fx;
+  }, [fx]);
 
   useEffect(() => {
     if (degraded) return;
@@ -166,8 +231,56 @@ export function SceneCosmos({ identityId }: { identityId: string }) {
         scene.add(m);
         return m;
       };
-      atmo(1.78, 0x4ade80, 0.05, true);
-      atmo(1.66, 0x86efac, 0.035, false);
+      const atmoOuter = atmo(1.78, 0x4ade80, 0.05, true);
+      const atmoInner = atmo(1.66, 0x86efac, 0.035, false);
+      // 色温覆层（§10）：等审批树脂慢闪 / 出错陶土 tint——语义色不
+      // 常驻发红，动画里按态启停。
+      const tintAtmo = new THREE.Mesh(
+        new THREE.SphereGeometry(1.72, 32, 32),
+        new THREE.MeshBasicMaterial({
+          color: 0xd9a441, transparent: true, opacity: 0,
+          side: THREE.FrontSide, depthWrite: false,
+        })
+      );
+      scene.add(tintAtmo);
+      // E4 决定共振环 + E2 收工巡视光点（§11）：一次性事件动画的载体。
+      const fxRing = new THREE.Mesh(
+        new THREE.TorusGeometry(2.15, 0.03, 8, 96),
+        new THREE.MeshBasicMaterial({ color: 0x86efac, transparent: true, opacity: 0 })
+      );
+      fxRing.rotation.x = Math.PI / 2.4;
+      scene.add(fxRing);
+      // 预算环上的事件坐标系（刻线/巡视光点共用）：与预算环同倾角。
+      const ringPlane = new THREE.Group();
+      ringPlane.rotation.x = Math.PI / 2.4;
+      scene.add(ringPlane);
+      const patrolDot = new THREE.Mesh(
+        new THREE.SphereGeometry(0.06, 12, 12),
+        new THREE.MeshBasicMaterial({ color: 0xbbf7d0, transparent: true, opacity: 0 })
+      );
+      ringPlane.add(patrolDot);
+      // 年轮刻线组：今日真实收口的任务数（§13.2——从 tasks API 派生，
+      // 不做本地假计数）。
+      const tickGroup = new THREE.Group();
+      ringPlane.add(tickGroup);
+      const ensureTicks = (count: number) => {
+        const capped = Math.min(count, 12);
+        while (tickGroup.children.length > capped) {
+          const m = tickGroup.children.pop() as import("three").Mesh;
+          tickGroup.remove(m);
+          m.geometry.dispose();
+        }
+        while (tickGroup.children.length < capped) {
+          const i = tickGroup.children.length;
+          const a = -Math.PI / 2 + (i + 1) * 0.16;
+          const m = new THREE.Mesh(
+            new THREE.SphereGeometry(0.035, 8, 8),
+            new THREE.MeshBasicMaterial({ color: 0xbbf7d0, transparent: true, opacity: 0.9 })
+          );
+          m.position.set(Math.cos(a) * 2.15, Math.sin(a) * 2.15, 0.02);
+          tickGroup.add(m);
+        }
+      };
 
       // —— 星空粒子（同一种子 LCG：装饰性坐标）——
       const starVerts: number[] = [];
@@ -280,11 +393,13 @@ export function SceneCosmos({ identityId }: { identityId: string }) {
       }
 
       // —— 数据轮询（轻：30s；失败静默保持上一态）——
-      let dataTimer: ReturnType<typeof setInterval> | undefined;
+      let mindState: MindState = "idle";
+      let tickCount = -1;
       const poll = async () => {
         try {
           const d = await fetchCosmosData(identityId);
           if (disposed) return;
+          mindState = d.state;
           ensureThinkerBodies(d.thinkers.map((t) => t.name));
           for (const t of d.thinkers) {
             const b = thinkerBodies.get(t.name);
@@ -296,33 +411,114 @@ export function SceneCosmos({ identityId }: { identityId: string }) {
           }
           ensureTaskArcs(d.working ? 2 : 0);
           ensureBudgetRing(d.budgetRatio);
+          if (d.doneToday !== tickCount) {
+            tickCount = d.doneToday;
+            ensureTicks(tickCount);
+          }
         } catch {
           /* 数据失败保持上一态 */
         }
       };
       void poll();
-      dataTimer = setInterval(poll, COSMOS_POLL_MS);
+      const dataTimer = setInterval(poll, COSMOS_POLL_MS);
 
       // —— 渲染循环：可见即动，隐藏即停 ——
+      // 五态插值状态（§10）：亮度/转速/呼吸向目标参数指数阻尼收敛
+      // （1−exp(−λ·dt)，帧率无关，≈800ms 与设计契约一致）。
+      const cur: { glow: number; spin: number; hz: number } = {
+        glow: MIND_STATE_PARAMS.idle.glow,
+        spin: MIND_STATE_PARAMS.idle.spin,
+        hz: MIND_STATE_PARAMS.idle.hz,
+      };
+      let breathPhase = 0;
+      let lastDecisionT0 = 0;
+      let lastDecisionDir: "allow" | "deny" = "allow";
+      let lastCompletionT0 = 0;
+      // 闲置微翻身（§13.1）：idle 时每 30–90s 短促一晃——睡着的人会翻身。
+      let nextRollAt = performance.now() + 25000 + rnd() * 40000;
+      let rollStartAt = -1e9;
       let raf = 0;
       let running = false;
       let t0 = performance.now();
       const frame = (now: number) => {
         raf = requestAnimationFrame(frame);
-        const dt = (now - t0) / 1000;
+        const dt = Math.min(0.1, (now - t0) / 1000);
         t0 = now;
-        core.rotation.y += dt * 0.12;
+        const t = now / 1000;
+        const P = MIND_STATE_PARAMS[mindState];
+        const k = 1 - Math.exp(-dt * 4.5);
+        cur.glow += (P.glow - cur.glow) * k;
+        cur.spin += (P.spin - cur.spin) * k;
+        cur.hz += (P.hz - cur.hz) * k;
+        breathPhase += dt * cur.hz * Math.PI * 2;
+        const fx = fxRef.current;
+        // 五态应用：亮度=能量（含在听 +0.08，§13.3），转速=推进，
+        // awaiting 自转停（spin→0，思考者与任务弧同步屏息）。
+        const breath = Math.sin(breathPhase);
+        const coreMat = core.material as import("three").MeshPhongMaterial;
+        coreMat.emissiveIntensity =
+          0.3 + cur.glow * 0.45 + breath * 0.1 + (fx.listening ? 0.08 : 0);
+        (atmoOuter.material as import("three").MeshBasicMaterial).opacity =
+          0.03 + cur.glow * 0.06;
+        (atmoInner.material as import("three").MeshBasicMaterial).opacity =
+          0.02 + cur.glow * 0.04;
+        const tintMat = tintAtmo.material as import("three").MeshBasicMaterial;
+        if (P.tint !== null) {
+          tintMat.color.setHex(P.tint);
+          tintMat.opacity = P.blink
+            ? 0.06 + 0.05 * (0.5 + 0.5 * Math.sin(t * 1.8))
+            : 0.15;
+        } else {
+          tintMat.opacity = Math.max(0, tintMat.opacity - dt * 0.5);
+        }
+        core.rotation.y += dt * 0.12 * cur.spin;
         stars.rotation.y += dt * 0.008;
-        arcGroup.rotation.y += dt * 0.1; // 任务弧整组慢旋：推进中的观感
+        arcGroup.rotation.y += dt * 0.1 * cur.spin;
+        // 闲置微翻身：短促一晃后归位
+        if (mindState === "idle" && now > nextRollAt) {
+          rollStartAt = now;
+          nextRollAt = now + 30000 + rnd() * 60000;
+        }
+        const rollP = (now - rollStartAt) / 1200;
+        core.rotation.z =
+          rollP >= 0 && rollP <= 1 ? Math.sin(rollP * Math.PI * 2) * 0.02 * (1 - rollP) : 0;
+        // E4 审批决定（§11）：allow 外扩顺扫 / deny 收拢，方向语义可断言
+        if (fx.decision && fx.decision.t0 !== lastDecisionT0) {
+          lastDecisionT0 = fx.decision.t0;
+          lastDecisionDir = fx.decision.dir;
+        }
+        const fxRingMat = fxRing.material as import("three").MeshBasicMaterial;
+        const decAge = lastDecisionT0 ? (now - lastDecisionT0) / 300 : 2;
+        if (decAge >= 0 && decAge < 1) {
+          const s = lastDecisionDir === "allow" ? 0.92 + decAge * 0.3 : 1.2 - decAge * 0.3;
+          fxRing.scale.setScalar(s);
+          fxRingMat.color.setHex(lastDecisionDir === "allow" ? 0x86efac : 0xcf6f5a);
+          fxRingMat.opacity = 0.7 * (1 - decAge);
+        } else {
+          fxRingMat.opacity = 0;
+        }
+        // E2 收工（§11）：光点沿预算环巡视一圈后熄灭——「收工」句法
+        if (fx.completion && fx.completion.t0 !== lastCompletionT0) {
+          lastCompletionT0 = fx.completion.t0;
+        }
+        const patAge = lastCompletionT0 ? (now - lastCompletionT0) / 900 : 2;
+        if (patAge >= 0 && patAge < 1) {
+          const a = -Math.PI / 2 + patAge * Math.PI * 2;
+          patrolDot.position.set(Math.cos(a) * 2.15, Math.sin(a) * 2.15, 0.03);
+          (patrolDot.material as import("three").MeshBasicMaterial).opacity =
+            0.9 * (1 - patAge);
+        } else {
+          (patrolDot.material as import("three").MeshBasicMaterial).opacity = 0;
+        }
         // 滚轮缩放平滑收敛（限幅 4.8–11，构图预算外留电影式余量）
-        const cur = camera.position.length();
-        if (Math.abs(camDistTarget - cur) > 0.01) {
-          const nd = cur + (camDistTarget - cur) * Math.min(1, dt * 5);
-          camera.position.multiplyScalar(nd / cur);
+        const camCur = camera.position.length();
+        if (Math.abs(camDistTarget - camCur) > 0.01) {
+          const nd = camCur + (camDistTarget - camCur) * Math.min(1, dt * 5);
+          camera.position.multiplyScalar(nd / camCur);
           camera.lookAt(0, 0, 0);
         }
         for (const b of thinkerBodies.values()) {
-          b.phase += dt * b.speed;
+          b.phase += dt * b.speed * cur.spin;
           const r = 2.35 + (thinkerBodies.size > 1 ? [...thinkerBodies.values()].indexOf(b) * 0.5 : 0);
           b.mesh.position.set(Math.cos(b.phase) * r, 0, Math.sin(b.phase) * r);
         }

@@ -22,6 +22,7 @@ import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/loading-skeleton";
 import { Textarea } from "~/components/ui/textarea";
 import { useAutosizeTextarea } from "~/hooks/use-autosize-textarea";
+import { hasStoredName, saveName, storedName } from "~/lib/chat-name";
 import { dayLabel, localDay } from "~/lib/format";
 import {
   IN_PROGRESS_POLL_MS,
@@ -46,22 +47,8 @@ export function meta() {
   return [{ title: "mindloop · 对话" }];
 }
 
-const MY_NAME_KEY = "shellm-chat-from";
-
-// A name the user explicitly chose here (persisted), or "" if they never have.
-// When empty, we fall back to the server's CLI default (chatrc
-// default_send_from) once config loads — matching what `chat send` would use.
-function storedName(): string {
-  if (typeof window === "undefined") return "";
-  return window.localStorage.getItem(MY_NAME_KEY) || "";
-}
-
-// Whether the user has ever touched the name field. A cleared field stores ""
-// — still "touched", so the chatrc default must not refill it on remount.
-function hasStoredName(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(MY_NAME_KEY) !== null;
-}
+// 发送者名字的存储语义收敛到 lib/chat-name.ts（对话单真相源：舞台
+// 对话条 / 展开浮层 / 对话页 / PWA 同一 profile）。
 
 export default function ChatPage() {
   const { identityId = "" } = useParams();
@@ -325,7 +312,7 @@ export default function ChatPage() {
               value={myName}
               onChange={(event) => {
                 setMyName(event.target.value);
-                window.localStorage.setItem(MY_NAME_KEY, event.target.value);
+                saveName(event.target.value);
               }}
               title="你的名字（消息的 from 字段）"
               className="h-7 w-24 shrink-0 border-0 bg-transparent px-1 font-mono text-xs shadow-none focus-visible:ring-0"

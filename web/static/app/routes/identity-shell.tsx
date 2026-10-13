@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router"
 import { useEffect, useState } from "react";
 
 import { CreatureSvg } from "~/components/pet/creature";
+import { ChatOverlay } from "~/components/chat-overlay";
 import { MindlogSearch } from "~/components/mindlog-search";
 import { SceneBadge, SceneStage, useSceneStream } from "~/components/scene-layer";
 import { fetchIdentities } from "~/lib/api";
@@ -10,13 +11,12 @@ import { phaseFor } from "~/lib/pet-state";
 import type { SearchHit } from "~/lib/types";
 import { cn } from "~/lib/utils";
 
-// 身份页骨架（docs/designs/ui-language.md §5/§6）：单头 masthead（生物 ·
-// 名字 · 状态芯片）+ 7 tab（轨迹/对话/任务/记忆/运行/感知/设置）+ 子页段；
-// 页内不再自绘头部。旧 14 tab 的三视图与子页收进各自的段。
+// 身份页骨架（docs/designs/ui-language.md §5/§6 + theater.md §3 对话
+// 单真相源）：单头 masthead + tab（对话不再是 tab——收敛为头部「对话」
+// 按钮的全屏展开态与舞台对话条，/chat 路由保留作书签兜底）+ 子页段。
 
 const TABS = [
   { key: "traj", label: "轨迹", path: "" },
-  { key: "chat", label: "对话", path: "/chat" },
   { key: "tasks", label: "任务", path: "/tasks" },
   { key: "memories", label: "记忆", path: "/memories" },
   { key: "run", label: "运行", path: "/run/thinkers" },
@@ -24,7 +24,7 @@ const TABS = [
   { key: "settings", label: "设置", path: "/settings/config" },
 ] as const;
 
-type SectionKey = (typeof TABS)[number]["key"];
+type SectionKey = (typeof TABS)[number]["key"] | "chat";
 
 function sectionOf(rest: string): SectionKey {
   if (rest.startsWith("/run")) return "run";
@@ -41,6 +41,7 @@ const SEGS: Partial<Record<SectionKey, { label: string; path: string }[]>> = {
     { label: "泳道", path: "" },
     { label: "日志流", path: "/log" },
     { label: "分集", path: "/recap" },
+    { label: "回看", path: "/review" },
   ],
   run: [
     { label: "思考者", path: "/run/thinkers" },
@@ -131,12 +132,14 @@ export default function IdentityShell() {
   const section = sectionOf(rest);
   const seg = SEGS[section];
 
-  // —— 仪表盘舞台（scene.md §7 舞台形态）——场景有卡时接管整块内容
-  // 区（tab 内容收起），撤卡回归工作区；操作员「返回工作区」后，
-  // inform/ambient 新卡只给呼吸角标不抢屏，confront 始终直接接管
-  //（它的定义就是必须停下决策）。身份切换 / 场景清空即复位。
+  // —— 仪表盘舞台（scene.md §7 舞台形态 + theater.md v2）——场景有
+  // 卡时接管整块内容区（tab 内容收起），撤卡回归工作区；操作员
+  // 「返回工作区」后，inform/ambient 新卡只给呼吸角标不抢屏，
+  // confront 始终直接接管（它的定义就是必须停下决策）。身份切换 /
+  // 场景清空即复位。对话展开态（§3）舞台与工作区共用一个浮层。
   const scene = useSceneStream(identityId);
   const [stageDismissed, setStageDismissed] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   useEffect(() => {
     setStageDismissed(false);
   }, [identityId]);
@@ -149,19 +152,18 @@ export default function IdentityShell() {
   const stageActive =
     scene.surfaces.length > 0 && (!!confront || !stageDismissed);
 
-  if (stageActive) {
+  const stageBlock = stageActive ? (
     // absolute inset-0：铺满滚动容器可视区（root.tsx 的 relative 锚
     // + 内边距一并覆盖），与圆角内容卡严丝合缝——舞台高度不靠猜。
-    return (
-      <div className="absolute inset-0 z-20">
-        <SceneStage
-          surfaces={scene.surfaces}
-          identityId={identityId}
-          onBack={() => setStageDismissed(true)}
-        />
-      </div>
-    );
-  }
+    <div className="absolute inset-0 z-20">
+      <SceneStage
+        surfaces={scene.surfaces}
+        identityId={identityId}
+        onBack={() => setStageDismissed(true)}
+        onOpenChat={() => setChatOpen(true)}
+      />
+    </div>
+  ) : null;
 
   // 命中直达 canonical 轨迹视图：轨迹区任何子视图 → 泳道（?step= 由
   // TimelineView 解析：窗口内滚动+闪烁+开详情，窗口外走取单步弹窗）；
@@ -173,9 +175,10 @@ export default function IdentityShell() {
 
   return (
     <>
+      {stageBlock}
       {/* 吸附头必须不透明（/95+blur 会透字），且不做 -mt-4 负边距抵消——
          首屏视觉完全等同，钉住时头能盖满卡片顶带（滚动容器的 pt 已撤）。 */}
-      <div className="sticky top-0 z-40 -mx-5 mb-4 border-b border-border/70 bg-card px-5 pt-3 sm:-mx-6 sm:px-6">
+      <div className={cn("sticky top-0 z-40 -mx-5 mb-4 border-b border-border/70 bg-card px-5 pt-3 sm:-mx-6 sm:px-6", stageActive && "hidden")}>
         {/* 搜索在 masthead 行（而非 tab 行）：1280 宽下 7 tab + 视图段 +
             搜索同挤一行会把 tab 压成竖排两字——搜索上移后两行各得其所。 */}
         <div className="flex items-center gap-3 pt-3">
@@ -209,15 +212,31 @@ export default function IdentityShell() {
           })}
           <span className="flex-1" />
           {seg && <SubSeg base={base} items={seg} rest={rest} />}
+          {/* 对话单真相源（theater.md §3）：tab 收敛为按钮的全屏展开态 */}
+          <button
+            type="button"
+            data-testid="chat-tab"
+            onClick={() => setChatOpen(true)}
+            className={cn(
+              "ml-1 shrink-0 whitespace-nowrap rounded-md px-3 pb-2.5 pt-2 text-[13px] transition-colors",
+              section === "chat"
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            对话 <span aria-hidden>⤢</span>
+          </button>
         </div>
       </div>
-      <Outlet />
+      {/* 舞台接管态：工作区内容卸载（查询随之停），头部隐藏保持布局 */}
+      {!stageActive && <Outlet />}
       {stageDismissed && scene.surfaces.length > 0 && (
         <SceneBadge
           count={scene.surfaces.length}
           onOpen={() => setStageDismissed(false)}
         />
       )}
+      <ChatOverlay open={chatOpen} onClose={() => setChatOpen(false)} />
     </>
   );
 }

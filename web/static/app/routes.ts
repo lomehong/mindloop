@@ -12,6 +12,7 @@ export default [
     index("routes/timeline.tsx"),
     route("log", "routes/log.tsx"),
     route("recap", "routes/recap.tsx"),
+    route("review", "routes/review.tsx"),
     route("chat", "routes/chat.tsx"),
     route("tasks", "routes/identity-tasks.tsx"),
     route("memories", "routes/memories.tsx"),
