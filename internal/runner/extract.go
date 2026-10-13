@@ -134,8 +134,11 @@ func bareFinal(text string) (string, bool) {
 }
 
 // heredocOpener 检测一行里的 heredoc 开始，返回终止标记。
+// 引号感知：单/双引号内的 << 是普通字符（shell 词法如此），
+// `grep 'a<<b' f`、`echo "x << y"` 不应误开 heredoc——误判会让
+// 提取器把回复剩余全文当正文吞进脚本（2026-10-13 审查）。
 func heredocOpener(line string) (string, bool) {
-	idx := strings.Index(line, "<<")
+	idx := heredocIndex(line)
 	if idx < 0 {
 		return "", false
 	}
@@ -169,4 +172,30 @@ func heredocOpener(line string) (string, bool) {
 		}
 	}
 	return word, true
+}
+
+// heredocIndex 返回引号外第一个 << 的下标；没有则返回 -1。
+// 反斜杠转义下一个字符（\<< 是字面量），引号内全部跳过。
+func heredocIndex(line string) int {
+	var quote byte
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			quote = c
+		case '\\':
+			i++ // 转义下一个字符
+		case '<':
+			if i+1 < len(line) && line[i+1] == '<' {
+				return i
+			}
+		}
+	}
+	return -1
 }

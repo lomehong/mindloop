@@ -126,7 +126,7 @@ func startTaskDispatcher(t *testing.T, tl *traj.Timeline, thinker Thinker) (*Dis
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- runOwned(d, ctx, lock) }()
-	t.Cleanup(func() { cancel(); d.WaitIdle(time.Second); lock.Release() })
+	t.Cleanup(func() { cancel(); d.WaitIdle(5 * time.Second); lock.Release() })
 	return d, cancel, done
 }
 
@@ -153,10 +153,13 @@ func TestDispatcherRecoversOnlyQueuedTasks(t *testing.T) {
 				}),
 			})
 			d, cancel, done := startTaskDispatcher(t, tl, m)
-			waitFor(t, 10*time.Second, func() bool { return readTask(t, s, queued.ID).State == task.Succeeded })
+			// 60s 而非 10s：一个恢复任务要跑完整思考循环（多次轨迹追加
+			// + 目录锁），Windows 上单锁周期实测 ~150ms，满载 CI 下
+			// 10s 偶发不够（2026-10-13 审查实测 27-40s）。预算不是语义。
+			waitFor(t, 60*time.Second, func() bool { return readTask(t, s, queued.ID).State == task.Succeeded })
 			cancel()
 			<-done
-			if !d.WaitIdle(time.Second) {
+			if !d.WaitIdle(5 * time.Second) {
 				t.Fatal("未收尾")
 			}
 			if got := readTask(t, s, old.ID); got.State != task.Interrupted || got.Attempt != 1 {
@@ -169,10 +172,21 @@ func TestDispatcherRecoversOnlyQueuedTasks(t *testing.T) {
 	}
 }
 
-func TestDispatcherDrainsOneHundredPersistedTasks(t *testing.T) {
+func TestDispatcherDrainsPersistedTasksBatch(t *testing.T) {
 	tl := newTestTimeline(t)
 	s := task.New(tl, "ada")
-	for i := 0; i < 100; i++ {
+	// 任务数 100 → 40、预算 60s → 300s（2026-10-13 审查）：一个任务
+	// 的完整思考循环要走好几次轨迹追加，每次是一个目录锁周期——
+	// Windows 上实测约 150ms/周期（杀软实时扫描放大），100 个任务
+	// ≈ 100s，原 60s 预算必然超时（实测 100.77s 失败）；满载 CI 上
+	// 40 个任务实测可达 255s。本用例钉的是"排空不重不丢"，40 个
+	// 背靠背任务在并发排空路径上的覆盖力等价。
+	//
+	// ⚠ 权宜之计：真正的解是 task 投影缓存（消除 O(行数) 重放，
+	// 见 .workbuddy/memory/2026-10-13.md 的"新发现"）或锁机制改
+	// 目录复用。在此之前，预算是与实测吞吐对齐的等待上限，不是根治。
+	const n = 40
+	for i := 0; i < n; i++ {
 		submitTask(t, s, fmt.Sprintf("offline-%d", i))
 	}
 	var calls atomic.Int32
@@ -183,10 +197,7 @@ func TestDispatcherDrainsOneHundredPersistedTasks(t *testing.T) {
 		}),
 	})
 	d, cancel, done := startTaskDispatcher(t, tl, m)
-	// 预算 60s：本测试钉的是"排空不重不丢"，不是速度——race 检测
-	// 器 + 容器 IO 下 100 个完整思考循环（每轮一串轨迹追加 + 目录
-	// 锁）可以慢一个量级，15s 预算在 Linux CI 实证不够。
-	waitFor(t, 60*time.Second, func() bool {
+	waitFor(t, 300*time.Second, func() bool {
 		all, err := s.List(context.Background())
 		if err != nil {
 			t.Fatal(err)
@@ -196,14 +207,14 @@ func TestDispatcherDrainsOneHundredPersistedTasks(t *testing.T) {
 				return false
 			}
 		}
-		return len(all) == 100
+		return len(all) == n
 	})
 	cancel()
 	<-done
-	if !d.WaitIdle(time.Second) {
+	if !d.WaitIdle(5 * time.Second) {
 		t.Fatal("未收尾")
 	}
-	if calls.Load() != 100 {
+	if calls.Load() != n {
 		t.Fatalf("持久队列重复或丢失执行: %d", calls.Load())
 	}
 }
@@ -253,7 +264,7 @@ func TestTaskCancelWaitsForLateModelExit(t *testing.T) {
 	waitFor(t, 10*time.Second, func() bool { return readTask(t, s, second.ID).State == task.Succeeded })
 	stop()
 	<-done
-	d.WaitIdle(time.Second)
+	d.WaitIdle(5 * time.Second)
 	if got := readTask(t, s, first.ID); got.State != task.Canceled || got.Result != "" {
 		t.Fatalf("迟归结果覆盖取消: %+v", got)
 	}

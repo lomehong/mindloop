@@ -3,13 +3,30 @@ package task
 import (
 	"context"
 	"encoding/json"
+	"sync"
+	"time"
+
 	"github.com/lomehong/mindloop/internal/traj"
 )
 
-// Store 仅持有身份根轨迹句柄，进程内不缓存任务事实。
+// Store 持有身份根轨迹句柄。进程内缓存的是**投影的私有深拷贝**
+// （见 projection.go 的 read）：文件是唯一事实源，缓存只是已消费
+// 前缀的解析结果，错误出口永不推进。
 type Store struct {
 	tl       *traj.Timeline
 	identity string
+
+	cacheMu sync.Mutex
+	cache   *projectionCache
+}
+
+// projectionCache 是 read 的增量缓存状态。
+type projectionCache struct {
+	fileID   string    // 轨迹文件身份（traj.FileIdentity）——变化即重建
+	consumed int64     // 已消费的字节数（永远停在完整行尾）
+	modTime  time.Time // 全量构建/上次增量时的文件 mtime——"变了却无新增字节"= 原地重写，重建
+	lines    int       // 已消费的行数（坏行报绝对行号用）
+	proj     *projection
 }
 
 func New(tl *traj.Timeline, identity string) *Store { return &Store{tl: tl, identity: identity} }
@@ -149,7 +166,12 @@ func (s *Store) transaction(ctx context.Context, fn func(*projection) (Task, err
 	}
 	timeout := s.tl.LockTimeout
 	if timeout <= 0 {
-		timeout = traj.DefaultLockTimeout
+		// 缺省放大到 4×：任务锁在整个读-改-写事务里全程持有，
+		// 期间要重放整条轨迹投影——轨迹越长持锁越久（O(行数)），
+		// traj.DefaultLockTimeout（5s）在任务面活跃时会被后来者
+		// 吃满（2026-10-13 审查实测：并发重复提交报"等待锁超时
+		// .tasks.lock"）。显式配置的 LockTimeout 仍然优先。
+		timeout = 4 * traj.DefaultLockTimeout
 	}
 	release, err := traj.AcquireDirLock(ctx, s.tl.Path+".tasks.lock", timeout)
 	if err != nil {

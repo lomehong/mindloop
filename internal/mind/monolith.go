@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lomehong/mindloop/internal/ids"
@@ -154,6 +155,15 @@ type monolith struct {
 	opts  MonolithOptions
 	level int
 	ticks int // 当前层级的空唤醒驻留计数（Hold dwell）
+
+	// storeOnce 让 task.Store 成为进程内单例（2026-10-13 审查）：
+	// Store 的投影缓存按实例持有，每次 task.New 都从零全量重放
+	// ——monolith 的 Pending/executeTask/Recover 高频调用下缓存
+	// 形同虚设。调度器保证同一时刻至多一次唤醒在跑（busy 标志），
+	// 但 executeTask 的监督 goroutine 会与主线并发调用同一实例
+	// 的无锁读（List/Get）——Store 内部的 cacheMu 就是为此存在的。
+	storeOnce sync.Once
+	store     *task.Store
 }
 
 // NewMonolith 构造 monolith 思考者。

@@ -109,8 +109,16 @@ func TestCreateAppendTail(t *testing.T) {
 	}
 }
 
+// TestConcurrentAppends：并发追加下的互斥与字节完整。
+//
+// 锁超时显式放宽到 60s（2026-10-13 审查）：本用例是 8 路 × 25 次
+// = 200 次串行锁操作，而 Windows 上一次目录锁周期（写属主 + 读回
+// 校验 + 删目录）实测要 ~150ms——杀软实时扫描下更慢。默认 5s 预算
+// 下必然有 goroutine 排队超时，那是预算错配而非锁缺陷（把超时提到
+// 30s 实测可通过）。锁等待的时序行为由下方专门的锁用例覆盖。
 func TestConcurrentAppends(t *testing.T) {
 	tr := newTimeline(t)
+	tr.LockTimeout = 60 * time.Second
 	const goroutines, perG = 8, 25
 	var wg sync.WaitGroup
 	errs := make(chan error, goroutines)

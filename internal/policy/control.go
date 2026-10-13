@@ -1,6 +1,8 @@
 package policy
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +36,22 @@ type PendingRequest struct {
 	Created time.Time `json:"created"`
 	Expires time.Time `json:"expires"`
 	Risks   []string  `json:"risks,omitempty"`
+	// Nonce 是本次等待的随机凭据（等待方生成、决定方原样回填）。
+	// 脚本以当前用户权限运行、与控制面同盘，理论上可以预写
+	// decision-<hash>.json 把下一次审批"预批准"掉——决定文件名只由
+	// 脚本文本哈希决定，模型可预计算。nonce 在等待开始时才随机
+	// 生成（模型无从得知），预写的决定因 nonce 不符而被拒
+	// （2026-10-13 审查）。
+	Nonce string `json:"nonce"`
+}
+
+// newNonce 生成 128 位随机十六进制串。
+func newNonce() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
 }
 
 // hashRe 是完整脚本哈希（sha256 十六进制）；hashPrefixRe 是用户
@@ -65,12 +83,20 @@ func IsExpired(p PendingRequest, now time.Time) bool {
 
 // HasDecision 报告该哈希是否已有决定文件——已决定 = 不再是"待批"，
 // 哪怕等待方尚未消费（活着的消费方在毫秒级收尾；滞留即孤儿）。
+// nonce 不符的决定不算数（预写的伪决定不能把待批请求从展示面上
+// 藏起来）。
 func HasDecision(dir, hash string) bool {
 	if !hashRe.MatchString(hash) {
 		return false
 	}
-	_, err := os.Stat(filepath.Join(dir, "decision-"+hash+".json"))
-	return err == nil
+	d, ok := readDecision(filepath.Join(dir, "decision-"+hash+".json"))
+	if !ok {
+		return false
+	}
+	if p, ok := readRequest(dir, hash); ok && p.Nonce != "" {
+		return d.Nonce == p.Nonce
+	}
+	return true
 }
 
 // ListPending 读目录里的全部待批请求，按创建时间排序。目录不存在
@@ -169,8 +195,11 @@ func Decide(dir, hash string, approve bool) error {
 	if approve {
 		decision = "approve"
 	}
+	// Nonce 原样回填：等待方只认与本次请求同 nonce 的决定，预写的
+	// 决定（无 nonce 或 nonce 不符）在轮询时会被拒绝。
 	return writeJSONAtomic(filepath.Join(dir, "decision-"+full+".json"), map[string]any{
 		"decision": decision,
+		"nonce":    p.Nonce,
 		"ts":       time.Now().UTC().Format(time.RFC3339Nano),
 	})
 }
@@ -178,6 +207,7 @@ func Decide(dir, hash string, approve bool) error {
 // decisionFile 是决定文件的解码形态。
 type decisionFile struct {
 	Decision string `json:"decision"`
+	Nonce    string `json:"nonce"`
 }
 
 // readDecision 读决定文件；不存在、半写或非法值都返回 false（下一

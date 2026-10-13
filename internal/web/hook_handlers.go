@@ -165,7 +165,12 @@ func (s *Server) handleHook(w http.ResponseWriter, r *http.Request) {
 		sal, reason = sensor.S1, "quiet-held:"+reason
 	}
 
-	writeCtx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	// 写超时必须大于 traj.DefaultLockTimeout（锁等待预算）：并发
+	// webhook 会让 N 个请求排队等同一个轨迹锁，写 ctx 与锁预算同为
+	// 5s 时，先排到的请求必然砍在等锁途中 → 假 500（2026-10-13
+	// 审查实测：20 并发 POST 稳定复现，满载 CI 上 15s 仍偶发）。
+	// 30s 覆盖 40 请求 × ~300ms 锁周期（满载实测）并留足余量。
+	writeCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	if sal == sensor.S3 {
 		// s3 走告警通道（与 mind.SensorRunner.writeAlert 同一契约）：

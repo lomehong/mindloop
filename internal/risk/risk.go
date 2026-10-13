@@ -12,6 +12,9 @@
 //     互换）、heredoc 正文——一律不算只读；
 //   - 命令必须逐个出现在只读白名单；git 与 $MINDLOOP_EXE 只放行
 //     固定的只读子命令集；find 追加禁用 -exec/-delete 族；
+//   - 白名单命令的"落盘旗标"（sort -o、git log --output=、
+//     tree -o、date -s、hostname 带参）一律不算只读——命令词
+//     干净不等于输出只进 stdout；
 //   - 循环（for/while）与未知命令一律不算只读。
 //
 // 漏报（把只读判成有写）是体验问题；误放（把会写的东西判成只读）
@@ -162,6 +165,43 @@ var findForbidden = []string{
 	"-delete", "-fprint", "-fprintf", "-fls",
 }
 
+// outputForbidden 是"能凭全局旗标把输出写盘"的旗标表：命令词与
+// 重定向都干净，输出却从 stdout 拐进文件。白名单只查命令词与 > token
+// （见 readOnlySegment 的重定向检查），这类旗标此前完全在视野外：
+// `sort -o out.txt`、`git log --output=out.txt` 都拿到只读判定，
+// 进而免审批（policy）且免快照（runner）——Git Bash 下两者实测
+// 均真实落盘（2026-10-13 审查）。取向照旧：拿不准一律非只读，
+// 代价只是多点一次审批。
+var outputForbidden = map[string][]string{
+	"sort":     {"-o", "--output"}, // GNU coreutils
+	"uniq":     {"-o"},             // coreutils 8.21+（老版本无此旗标，仍拦）
+	"tree":     {"-o", "--output"}, // tree 的 -o FILE（装了 tree 的平台）
+	"date":     {"-s", "--set"},    // 改系统时钟（需特权，但特权下真实生效）
+	"hostname": nil,                // 占位：带参即改主机名（见 readOnlySegment）
+	"git":      {"--output", "--log-file"},
+}
+
+// flagForbidden 判定一个 token 是否命中禁用旗标。短选项允许粘连
+// （`-o` 与 `-oFILE` 同义），长选项允许分离与粘连两种形态
+// （`--output f` 与 `--output=f` 同义）——两种写法都得拦。
+func flagForbidden(tok string, forbidden []string) bool {
+	if len(tok) < 2 || tok[0] != '-' {
+		return false
+	}
+	for _, bad := range forbidden {
+		if strings.HasPrefix(bad, "--") {
+			if tok == bad || strings.HasPrefix(tok, bad+"=") {
+				return true
+			}
+			continue
+		}
+		if tok == bad || strings.HasPrefix(tok, bad) {
+			return true
+		}
+	}
+	return false
+}
+
 // redirBare 是允许的"独立重定向 token"：下一个 token 必须是
 // /dev/null。
 var redirBare = map[string]bool{
@@ -237,7 +277,16 @@ func readOnlySegment(seg string) bool {
 	}
 	// git：只读子命令集。
 	if cmd == "git" {
-		return len(tokens) > idx+1 && gitReadOnlySubcommands[tokens[idx+1]]
+		if len(tokens) <= idx+1 || !gitReadOnlySubcommands[tokens[idx+1]] {
+			return false
+		}
+		// 只读子命令的旗标仍可能写盘：`git log --output=out.txt`
+		// 实测落盘。子命令之后一律按禁表扫。
+		return !forbiddenIn(tokens[idx+2:], outputForbidden["git"])
+	}
+	// hostname：零参数是读，带参即改主机名（fail-closed）。
+	if cmd == "hostname" && len(tokens) > idx+1 {
+		return false
 	}
 	// find：命令本身只读，但执行/删除族旗标把它变成任意命令入口。
 	if cmd == "find" {
@@ -248,5 +297,23 @@ func readOnlySegment(seg string) bool {
 		}
 		return true
 	}
-	return readOnlyCommands[cmd]
+	if !readOnlyCommands[cmd] {
+		return false
+	}
+	// 落盘旗标层：命令词在白名单但旗标能把输出写盘（sort -o 等）。
+	forbidden, tracked := outputForbidden[cmd]
+	if !tracked {
+		return true
+	}
+	return !forbiddenIn(tokens[idx+1:], forbidden)
+}
+
+// forbiddenIn 报告参数表里是否存在命中禁旗标的 token。
+func forbiddenIn(args []string, forbidden []string) bool {
+	for _, tok := range args {
+		if flagForbidden(tok, forbidden) {
+			return true
+		}
+	}
+	return false
 }

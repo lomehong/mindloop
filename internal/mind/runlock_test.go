@@ -120,7 +120,10 @@ func TestRunOwnedRetainsLockUntilWorkerExits(t *testing.T) {
 		t.Fatalf("同一个锁不应被另一个调度器复用: %v", err)
 	}
 	h.release <- struct{}{}
-	if !d.WaitIdle(time.Second) {
+	// 5s 而非 1s：worker 被放行后要走 inflight 计数与锁释放，满载
+	// 的 CI 上 1s 偶发不够——这是等待预算，不是语义（2026-10-13
+	// 审查实测）。
+	if !d.WaitIdle(5 * time.Second) {
 		t.Fatal("旧执行未退出")
 	}
 	next, acquired, err := TryRunLock(tl)

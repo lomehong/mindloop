@@ -2,6 +2,7 @@ package policy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -41,6 +42,73 @@ func waitForPending(t *testing.T, dir string, want int) []PendingRequest {
 	}
 	t.Fatalf("等待 %d 个待批请求超时", want)
 	return nil
+}
+
+// TestDecisionNonceBindsToRequest：预写决定不能放行（2026-10-13
+// 审查）。攻击面：脚本与审批控制面同盘、同用户权限，模型能在本轮
+// 脚本里预写 decision-<h(下轮脚本)>.json，把下一次审批"预批准"。
+// 防线是每次等待随机生成的 nonce——预写的决定（无 nonce 或 nonce
+// 不符）一律不被承认。
+func TestDecisionNonceBindsToRequest(t *testing.T) {
+	g, dir := testGate(t, Ask)
+	g.ApprovalTTL = 900 * time.Millisecond // 伪决定后很快到期，证明它没生效
+	ex := testExec(t, "echo prewrite-victim", "run-1")
+	done := make(chan error, 1)
+	go func() { done <- g.Authorize(context.Background(), ex) }()
+
+	p := waitForPending(t, dir, 1)[0]
+	if p.Nonce == "" {
+		t.Fatal("待批请求必须带 nonce")
+	}
+	// 攻击者形态一：老式决定文件（无 nonce）。
+	writeRawDecision(t, dir, p.Hash, map[string]any{"decision": "approve"})
+	// 攻击者形态二：带一个猜的 nonce。
+	writeRawDecision(t, dir, p.Hash, map[string]any{
+		"decision": "approve", "nonce": "deadbeefdeadbeefdeadbeefdeadbeef",
+	})
+	select {
+	case err := <-done:
+		t.Fatalf("预写的决定不得放行，却提前返回: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	// 走到 TTL 自然否决——伪决定从头到尾没有被承认。
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrTimeout) {
+			t.Fatalf("应超时否决（伪决定被无视），得到 %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("超时未否决")
+	}
+
+	// 正路：Decide 回填真实 nonce 后放行。
+	g2, dir2 := testGate(t, Ask)
+	done2 := make(chan error, 1)
+	go func() { done2 <- g2.Authorize(context.Background(), testExec(t, "echo honest", "run-2")) }()
+	p2 := waitForPending(t, dir2, 1)[0]
+	if err := Decide(dir2, p2.Hash, true); err != nil {
+		t.Fatalf("Decide: %v", err)
+	}
+	select {
+	case err := <-done2:
+		if err != nil {
+			t.Fatalf("真批准应放行: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("真批准未放行")
+	}
+}
+
+// writeRawDecision 绕过 Decide 直写决定文件——模拟预写攻击者。
+func writeRawDecision(t *testing.T, dir, hash string, v map[string]any) {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "decision-"+hash+".json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // TestParseMode：空串是缺省 auto；非法值退到保守的 ask；ask/trusted/

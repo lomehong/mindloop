@@ -278,6 +278,37 @@ func TestExtractCodeHeredocAware(t *testing.T) {
 	}
 }
 
+// TestExtractCodeQuotedShiftIsNotHeredoc：引号内的 << 不开 heredoc
+// （2026-10-13 审查）。原实现对整行取第一个 <<，`grep 'a<<b' f`
+// 误开 heredoc、终止标记永不到达，提取器把剩余全文吞进脚本。
+func TestExtractCodeQuotedShiftIsNotHeredoc(t *testing.T) {
+	cases := []string{
+		"grep 'a<<b' notes.txt",
+		`echo "x << y"`,
+		`printf '%s\n' '<<EOF'`,
+		`grep '<<' f | wc -l`,
+	}
+	for _, script := range cases {
+		text := "```bash\n" + script + "\necho after\n```"
+		ext := extractCode(text)
+		if !strings.Contains(ext.Code, "echo after") {
+			t.Fatalf("引号内的 << 误开 heredoc，后续行被吞: %q", ext.Code)
+		}
+		if strings.Count(ext.Code, "\n") != 1 {
+			t.Fatalf("提取范围应恰为两行: %q", ext.Code)
+		}
+	}
+	// 反证：引号外的真 heredoc 仍然生效——正文中出现的 ``` 行被
+	// 当作正文照搬（不误判为 fence 闭合）。
+	ext := extractCode("```bash\ncat <<EOF\n```\nEOF\necho done\n```")
+	if !strings.Contains(ext.Code, "```") {
+		t.Fatalf("真 heredoc 应照搬正文直到终止标记: %q", ext.Code)
+	}
+	if strings.Count(ext.Code, "```") != 1 {
+		t.Fatalf("正文里的 fence 行应恰好照搬一次: %q", ext.Code)
+	}
+}
+
 func TestExtractCodeMultiBlockNotice(t *testing.T) {
 	ext := extractCode("```bash\necho one\n```\n中间话\n```bash\necho two\n```")
 	if ext.Code != "echo one" {

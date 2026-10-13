@@ -37,8 +37,15 @@ func (p BackoffPolicy) normalized() BackoffPolicy {
 	// 循环把心智烧掉。这是从一次真实事故来的：429 恢复后 ada
 	// 进入 IDLE 状态，回退每轮都重置 0，立即再醒，间隔跌到 8s→0s，
 	// 既浪费 token 也让轨迹日志被空步骤淹没。
-	if p.MinInterval < 0 {
+	//
+	// 零值必须兜底（2026-10-13 审查）：生产装配 cli/mindcmd.go 只填
+	// Base/Max/ThoughtCap/Hold，MinInterval 留零值走这里——原先判
+	// `< 0` 导致零值原样透传，地板在生产默认下形同虚设，而测试因
+	// 显式赋值 5s 全绿，缺陷被掩盖。负值保留为显式禁用（逃生口）。
+	if p.MinInterval == 0 {
 		p.MinInterval = 5 * time.Second
+	} else if p.MinInterval < 0 {
+		p.MinInterval = 0
 	}
 	if p.Hold <= 0 {
 		p.Hold = 3

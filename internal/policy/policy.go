@@ -234,12 +234,18 @@ func (g *Gate) wait(ctx context.Context, hash string, ex runner.Execution, risks
 	if err := os.MkdirAll(g.dir, 0o755); err != nil {
 		return fmt.Errorf("policy: 建审批目录: %w", err)
 	}
+	nonce, err := newNonce()
+	if err != nil {
+		// 熵源不可用就不等批准——宁可不执行，不在没有随机凭据的
+		// 情况下开闸（fail-closed）。
+		return fmt.Errorf("%w（生成审批 nonce 失败: %v）", ErrDenied, err)
+	}
 	now := g.now()
 	p := PendingRequest{
 		Hash: hash, Script: ex.Script, WorkDir: ex.WorkDir,
 		RunID: ex.RunID, TaskID: ex.TaskID, Attempt: ex.Attempt,
 		Created: now.UTC(), Expires: now.Add(g.ttl()).UTC(),
-		Risks: risks,
+		Risks: risks, Nonce: nonce,
 	}
 	if err := writeJSONAtomic(g.requestPath(hash), p); err != nil {
 		return fmt.Errorf("policy: 写待批请求: %w", err)
@@ -264,7 +270,7 @@ func (g *Gate) wait(ctx context.Context, hash string, ex runner.Execution, risks
 	tick := time.NewTicker(g.poll())
 	defer tick.Stop()
 	for {
-		if d, ok := readDecision(g.decisionPath(hash)); ok {
+		if d, ok := readDecision(g.decisionPath(hash)); ok && d.Nonce == p.Nonce {
 			if d.Decision == "approve" {
 				g.cache[approvalKey(hash, ex)] = g.now().Add(g.ttl())
 				g.audit(p, "approved")
@@ -305,6 +311,11 @@ func (g *Gate) audit(p PendingRequest, decision string) {
 		"task_id":  p.TaskID,
 		"attempt":  p.Attempt,
 		"decision": decision,
+	}
+	// nonce 只在交互等待路径上有值——记它是为了事后能把一次批准
+	// 精确对回一次等待（决定文件可能被预写伪造，nonce 是识别标志）。
+	if p.Nonce != "" {
+		entry["nonce"] = p.Nonce
 	}
 	line, err := json.Marshal(entry)
 	if err != nil {

@@ -2,6 +2,7 @@ package mind
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -155,5 +156,65 @@ func TestDispatcherNegativeWakeTimeoutDisables(t *testing.T) {
 	d.WakeTimeout = 42 * time.Second
 	if got := d.wakeTimeout(); got != 42*time.Second {
 		t.Fatalf("正值应原样生效，得到 %v", got)
+	}
+}
+
+// ctxCapturingThinker 把收到的 wake ctx 交回测试，然后挂住。
+type ctxCapturingThinker struct {
+	started chan struct{}
+	ctxs    chan context.Context
+	release chan struct{}
+}
+
+func (c *ctxCapturingThinker) Name() string { return "ctx-capture" }
+func (c *ctxCapturingThinker) Subscriptions() Subscription {
+	return Subscription{Types: []string{"message"}}
+}
+func (c *ctxCapturingThinker) Wake(ctx context.Context, _ Wake) Outcome {
+	close(c.started)
+	c.ctxs <- ctx
+	<-c.release
+	return Outcome{}
+}
+
+// TestWakeCtxCarriesCancelCauseUnderTimeout：WakeTimeout 生效时，
+// wakeCtx 仍必须携带 cancelWakeContextKey——那是任务取消/代次失效
+// 提前取消在途唤醒的信号通道（tasks.go:105 查找）。原实现用原始
+// ctx 重派生 WithTimeout 覆盖了已挂 value 的 wakeCtx，而 wakeTimeout
+// 默认 30 分钟（dispatcher.go:652）→ 默认部署必走该分支，通道恒
+// 失效（2026-10-13 审查）。
+func TestWakeCtxCarriesCancelCauseUnderTimeout(t *testing.T) {
+	d, tl := newTestDispatcher(t)
+	d.WakeTimeout = 30 * time.Second
+	c := &ctxCapturingThinker{
+		started: make(chan struct{}),
+		ctxs:    make(chan context.Context, 1),
+		release: make(chan struct{}),
+	}
+	d.Register(c)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel(); close(c.release); d.WaitIdle(time.Second) })
+	appendStep(t, tl, "message", "")
+	if err := d.step(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var wakeCtx context.Context
+	select {
+	case wakeCtx = <-c.ctxs:
+	case <-time.After(time.Second):
+		t.Fatal("未投递")
+	}
+	cancelWake, ok := wakeCtx.Value(cancelWakeContextKey{}).(context.CancelCauseFunc)
+	if !ok {
+		t.Fatal("期限生效时 wakeCtx 丢失 cancelWakeContextKey（任务取消提前中断失效）")
+	}
+	cancelWake(errors.New("代次失效"))
+	select {
+	case <-wakeCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("cancelWake 未取消 wakeCtx")
+	}
+	if got := context.Cause(wakeCtx); got == nil || got.Error() != "代次失效" {
+		t.Fatalf("取消原因未随 CancelCause 传播，得到 %v", got)
 	}
 }

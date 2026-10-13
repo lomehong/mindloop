@@ -21,8 +21,15 @@ type durableThinker interface {
 	Pending(context.Context) (Wake, bool, error)
 }
 
+// taskStore 惰性单例：Store 的投影缓存按实例持有（O(n²) 专项
+// 2026-10-13），每次 task.New 都从零全量重放——Pending/executeTask/
+// Recover 的高频调用会让缓存形同虚设。首个使用者负责构造，此后
+// 全部走同一实例；并发安全由 Store 内部的 cacheMu 承担。
 func (m *monolith) taskStore() *task.Store {
-	return task.New(m.opts.Timeline, m.fromName())
+	m.storeOnce.Do(func() {
+		m.store = task.New(m.opts.Timeline, m.fromName())
+	})
+	return m.store
 }
 
 func (m *monolith) Recover(ctx context.Context) error {

@@ -578,7 +578,13 @@ func (d *Dispatcher) deliver(ctx context.Context, w *worker, wake Wake) {
 		wakeCtx = context.WithValue(wakeCtx, cancelWakeContextKey{}, cancelWake)
 		if timeout := d.wakeTimeout(); timeout > 0 {
 			var cancel context.CancelFunc
-			wakeCtx, cancel = context.WithTimeout(ctx, timeout)
+			// 必须从带 value 的 wakeCtx 派生，而非原始 ctx：原实现
+			// 用 ctx 重派生把 cancelWakeContextKey 整体覆盖，而
+			// wakeTimeout 默认 30 分钟（dispatcher.go:652）→ 默认
+			// 部署必走此分支，任务取消/代次失效的提前取消信号在
+			// tasks.go 的 cancelWakeContextKey 查找处永远落空
+			// （2026-10-13 审查）。
+			wakeCtx, cancel = context.WithTimeout(wakeCtx, timeout)
 			defer cancel()
 		}
 		watchDone := make(chan struct{})

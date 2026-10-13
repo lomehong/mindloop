@@ -19,7 +19,19 @@ const (
 	// lockGrace 覆盖 Mkdir 与写属主文件之间崩溃的窗口：年轻且无属主
 	// 的锁先不动它。
 	lockGrace = 2 * time.Second
-	ownerFile = "owner.json"
+	// probeInterval 是等待方的观察节流（2026-10-13 审查）：观察会
+	// 打开锁目录与属主文件，高竞争下持续观察会让释放者永远删不掉
+	// 锁目录。50ms 远小于 2s 年龄门槛，不影响任何判定精度。
+	probeInterval = 50 * time.Millisecond
+	// releaseRetryBudget 是释放者删锁目录的等待预算——读者句柄撞出
+	// 的 delete-pending 会在句柄释放后自愈。10s 来自实测：单次失败
+	// 的 RemoveAll 在 NTFS 上要 108ms（杀软扫描放大），杀软重压时
+	// 句柄窗口可能到秒级；预算太短会留下悬挂锁让后来者吃满超时
+	// （2026-10-13 审查里 TestHookStatesIdentityScopedAndConcurrent
+	// 的假 500 就是这条链：删不掉 → 等待者更久 → web 侧 5s 写超时
+	// 先到期）。
+	releaseRetryBudget = 10 * time.Second
+	ownerFile          = "owner.json"
 )
 
 type lockOwner struct {
@@ -98,6 +110,13 @@ func LockOwnerAlive(dir string) bool {
 func acquireDirLock(ctx context.Context, dir string, timeout time.Duration) (func() error, error) {
 	deadline := time.Now().Add(timeout)
 	absentDenied := 0
+	// 观察节流：stealLock 每次都要打开锁目录与属主文件（Windows 上
+	// 这些是实打实的句柄）。8 个竞争者每 10ms 一次观察会制造持续的
+	// 句柄窗口，释放者的 RemoveAll 每次都撞上、永远删不掉锁目录
+	// （实测：单次失败的 RemoveAll 内核侧要耗 108ms，等待方 5s
+	// 超时先到）。节流到 50ms 让删除有真正的空档——偷锁判定本来
+	// 就有 2s 年龄门槛，精度需求远低于 10ms。
+	var lastProbe time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -133,8 +152,11 @@ func acquireDirLock(ctx context.Context, dir string, timeout time.Duration) (fun
 		} else {
 			return nil, fmt.Errorf("mindloop: 锁 %s: %w", dir, err)
 		}
-		if rel, ok := stealLock(dir); ok {
-			return rel, nil
+		if time.Since(lastProbe) >= probeInterval {
+			lastProbe = time.Now()
+			if rel, ok := stealLock(dir); ok {
+				return rel, nil
+			}
 		}
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("%w: 锁 %s（%s）", ErrLockTimeout, dir, probeLock(dir))
@@ -189,6 +211,14 @@ func (v lockView) sameAs(other lockView) bool {
 		v.dirMod.Equal(other.dirMod)
 }
 
+// dirEmpty 报告目录是否存在且内容为空——delete-pending 悬挂锁的
+// 辅助特征（属主文件已被释放者删掉，目录壳还在；delete-pending 的
+// 属主条目可能仍留在列表里读不到，所以空目录只是其中一种形态）。
+func dirEmpty(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	return err == nil && len(entries) == 0
+}
+
 // stealLock 以 rename CAS 完成"校验 → 原子移走 → 校验残躯 → 原地
 // 声明"的偷锁序列。破坏性动作不是 RemoveAll 而是 rename：rename 在
 // 内核级原子，两个并发偷取者只有一个能把原路径的目录成功移走——
@@ -211,6 +241,19 @@ func stealLock(dir string) (release func() error, ok bool) {
 	// /已消失——放弃，不动任何人的锁。
 	scratch := fmt.Sprintf("%s.stealing-%d-%s", dir, os.Getpid(), ids.Short(ids.NewUUID(), 8))
 	if err := os.Rename(dir, scratch); err != nil {
+		// delete-pending 自愈（2026-10-13 审查，实测 Windows）：
+		// 释放者的 RemoveAll 删掉属主文件后，若目录删除被并发读者的
+		// 句柄挂起，目录就悬挂在"stat 得到、mkdir 报 AlreadyExists、
+		// rename 永远失败"的状态里——NTFS 不会自动清除（实测读者
+		// 关闭 500ms 后仍在），只有再做一次成功的 RemoveAll 才消失。
+		// 此前无人推进这一步，等待方一路等到超时（实测
+		// TestConcurrentAppends 必败，报错正是"目录存在但为空且无
+		// 属主文件"）。
+		//
+		// 到这里 observeLock 已判定 stealable：无属主且目录够老
+		// （lockGrace 2s 挡住"mkdir 成功、属主未写"的声明窗口），
+		// 目录里不可能有活属主，删它零损失。删不掉就放弃，下轮再试。
+		_ = os.RemoveAll(dir)
 		return nil, false
 	}
 	// 移走的残躯必须仍是当初观测到的那把死锁：极端交错下它可能是
@@ -348,15 +391,24 @@ func writeClaim(dir string, wantID string) (release func() error, claimed []byte
 		// Windows: 只要还有并发读者握着 owner.json 的句柄（读取只
 		// 有微秒级），目录就处于 delete-pending，RemoveAll 会失败。
 		// 短暂重试直到句柄全部关闭——静默放弃的代价是锁永久泄漏，
-		// 所有后来者吃满超时，值得多花几毫秒。
+		// 所有后来者吃满超时。
+		//
+		// 重试用时间预算而非次数（2026-10-13 实测标定）：单次失败的
+		// RemoveAll 在 NTFS 上要耗 108ms，次数与实际等待时间完全
+		// 不成比例。2s 预算对应约 18 次真实尝试——足够跨过并发读者
+		// 的句柄窗口，又不会让正常 append 明显变慢（无竞争时第一
+		// 次就成功）。
+		start := time.Now()
 		var err error
-		for i := 0; i < 200; i++ {
+		for {
 			if err = os.RemoveAll(dir); err == nil {
 				return nil
 			}
+			if time.Since(start) > releaseRetryBudget {
+				return err
+			}
 			time.Sleep(5 * time.Millisecond)
 		}
-		return err
 	}
 	return release, claimed, nil
 }

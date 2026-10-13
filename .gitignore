@@ -39,3 +39,6 @@ go-test.zip
 # mimosa 扫描产物
 .mimosa/
 .zcode/
+
+# WorkBuddy 会话工作数据（本地）
+.workbuddy/

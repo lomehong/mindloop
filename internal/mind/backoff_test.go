@@ -89,3 +89,24 @@ func TestMinIntervalPreventsIdleZeroLoop(t *testing.T) {
 		t.Fatalf("Level=2 思考型应保持 10s（高于 MinInterval），得到 %v", got)
 	}
 }
+
+// TestMinIntervalZeroValueGetsDefault：生产装配回归（2026-10-13
+// 审查）。cli/mindcmd.go 只填 Base/Max/ThoughtCap/Hold，MinInterval
+// 留零值——原实现只兜底负值，零值原样透传导致地板失效：level=0
+// 的思考型唤醒拿到 0 秒，"IDLE→0秒→醒来"紧密循环重现（正是本
+// 缺陷存在的原始事故）。上一条测试显式赋值 5s 全绿，掩盖了它。
+func TestMinIntervalZeroValueGetsDefault(t *testing.T) {
+	// 生产装配形态：不填 MinInterval。
+	p := BackoffPolicy{Base: 5 * time.Second, Max: 5 * time.Minute, ThoughtCap: 60 * time.Second}
+	if got := p.Delay(0, true); got != 5*time.Second {
+		t.Fatalf("零值 MinInterval 应兜底为 5 秒地板，得到 %v", got)
+	}
+	if got := p.Delay(0, false); got != 0 {
+		t.Fatalf("零值 MinInterval 不影响主动型 0 秒语义，得到 %v", got)
+	}
+	// 负值保留显式禁用语义（逃生口）：地板为 0，曲线原样透出。
+	off := BackoffPolicy{Base: 2 * time.Second, Max: time.Minute, ThoughtCap: 30 * time.Second, MinInterval: -1}
+	if got := off.Delay(0, true); got != 0 {
+		t.Fatalf("负值 MinInterval 应显式禁用地板，得到 %v", got)
+	}
+}

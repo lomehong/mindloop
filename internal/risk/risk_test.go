@@ -30,6 +30,8 @@ func TestReadOnlyAllowlist(t *testing.T) {
 		{"引号内分隔符是普通字符", `echo "a;b" | wc -l`, true},
 		{"FINAL 协议赋值（补全轮）", `FINAL="看完了"`, true},
 		{"FINAL 赋值后跟只读命令", `FINAL="x" && ls`, true},
+		{"干净的 sort", "sort f.txt\nsort -n -r f.txt\nsort -k2 f.txt | uniq", true},
+		{"grep -o 是取匹配不是落盘", "grep -o foo f.txt", true},
 
 		// —— 判假侧：每一个都是具体绕过尝试 ——
 		{"未知命令", "rm -rf /", false},
@@ -56,6 +58,24 @@ func TestReadOnlyAllowlist(t *testing.T) {
 		{"tee 落盘", "echo x | tee out.txt", false},
 		{"改权限", "chmod 777 f", false},
 		{"未加引号分隔符永远切开", "echo hi;rm -rf x", false},
+
+		// —— 落盘旗标（2026-10-13 审查）——命令词干净、输出落盘：
+		// 实测 sort -o 与 git log --output= 在 Git Bash 下真实写盘，
+		// 原实现却判只读 → 免审批且免快照。
+		{"sort -o 分离形态", "sort -o out.txt f.txt", false},
+		{"sort -o 粘连形态", "sort -oout.txt f.txt", false},
+		{"sort --output 分离形态", "sort --output out.txt f.txt", false},
+		{"sort --output= 粘连形态", "sort --output=out.txt f.txt", false},
+		{"uniq -o", "uniq -o out.txt f.txt", false},
+		{"tree -o", "tree -o out.txt .", false},
+		{"date -s 改系统时钟", `date -s "2000-01-01"`, false},
+		{"hostname 带参改主机名", "hostname evil-name", false},
+		{"git log --output= 粘连", "git log --output=out.txt", false},
+		{"git log --output 分离", "git log --output out.txt", false},
+		{"git --output 即便指 /dev/null 也拦", "git log --output /dev/null", false},
+		{"git diff --output=", "git diff --output=out.txt", false},
+		{"git log --log-file=", "git log --log-file=out.txt", false},
+		{"落盘旗标混在管道里", "ls | sort -o out.txt", false},
 	}
 	for _, tc := range cases {
 		if got := ReadOnly(tc.script); got != tc.want {
