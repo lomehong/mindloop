@@ -104,8 +104,10 @@ export function SceneCosmos({ identityId }: { identityId: string }) {
       // 构图预算：相机距离按"核心球+最外轨道环"整体入画取值——
       // 半高 = tan(fov/2)×dist ≈ 3.2，须 ≥ 最外轨道延伸（~3.0）。
       // 此前只对心不拉远，宽屏窄高比下轨道环与星体上下出画（实测）。
+      // 滚轮缩放：操作员可推近/拉远（限幅+平滑，BaiLongma 地球同款）。
       camera.position.set(0, 1.4, 7.6);
       camera.lookAt(0, 0, 0);
+      let camDistTarget = camera.position.length();
 
       scene.add(new THREE.AmbientLight(0xdfffe8, 0.5));
       const key = new THREE.PointLight(0x9fffcf, 40, 60);
@@ -191,7 +193,6 @@ export function SceneCosmos({ identityId }: { identityId: string }) {
       const dataGroup = new THREE.Group();
       scene.add(dataGroup);
       const thinkerBodies = new Map<string, { mesh: import("three").Mesh; orbit: import("three").Group; speed: number; phase: number }>();
-      const orbitArcs: import("three").Line[] = [];
       let budgetRing: import("three").Mesh | null = null;
 
       const ORBIT_PALETTE = [0x86efac, 0x93c5fd, 0xfcd34d, 0xf9a8d4];
@@ -231,24 +232,28 @@ export function SceneCosmos({ identityId }: { identityId: string }) {
           });
         });
       }
+      // 任务轨道弧：心智 working 时的活动轨迹。固定对称相位（此前
+      // 随机朝向+残缺形态看着像画错了），整组绕核慢旋表达"推进中"。
+      const arcGroup = new THREE.Group();
+      dataGroup.add(arcGroup);
       function ensureTaskArcs(count: number) {
-        while (orbitArcs.length > count) {
-          dataGroup.remove(orbitArcs.pop()!);
+        while (arcGroup.children.length > count) {
+          const line = arcGroup.children.pop() as import("three").Line;
+          line.geometry.dispose();
         }
-        while (orbitArcs.length < count) {
-          const i = orbitArcs.length;
+        while (arcGroup.children.length < count) {
+          const i = arcGroup.children.length;
           const geo = new THREE.BufferGeometry().setFromPoints(
-            new THREE.EllipseCurve(0, 0, 3.05 + i * 0.4, 3.05 + i * 0.4, 0, Math.PI * (0.5 + rnd() * 0.3))
+            new THREE.EllipseCurve(0, 0, 3.05 + i * 0.4, 3.05 + i * 0.4, 0, Math.PI * 0.62)
               .getPoints(64)
               .map((p) => new THREE.Vector3(p.x, 0, p.y))
           );
           const line = new THREE.Line(
             geo,
-            new THREE.LineBasicMaterial({ color: 0x9fffcf, transparent: true, opacity: 0.16 })
+            new THREE.LineBasicMaterial({ color: 0x9fffcf, transparent: true, opacity: 0.3 })
           );
-          line.rotation.set(1.1 + i * 0.4, 0, i * 0.7);
-          dataGroup.add(line);
-          orbitArcs.push(line);
+          line.rotation.set(1.05 + i * 0.5, i * Math.PI, 0); // 镜像对称
+          arcGroup.add(line);
         }
       }
       function ensureBudgetRing(ratio: number | null) {
@@ -308,6 +313,14 @@ export function SceneCosmos({ identityId }: { identityId: string }) {
         t0 = now;
         core.rotation.y += dt * 0.12;
         stars.rotation.y += dt * 0.008;
+        arcGroup.rotation.y += dt * 0.1; // 任务弧整组慢旋：推进中的观感
+        // 滚轮缩放平滑收敛（限幅 4.8–11，构图预算外留电影式余量）
+        const cur = camera.position.length();
+        if (Math.abs(camDistTarget - cur) > 0.01) {
+          const nd = cur + (camDistTarget - cur) * Math.min(1, dt * 5);
+          camera.position.multiplyScalar(nd / cur);
+          camera.lookAt(0, 0, 0);
+        }
         for (const b of thinkerBodies.values()) {
           b.phase += dt * b.speed;
           const r = 2.35 + (thinkerBodies.size > 1 ? [...thinkerBodies.values()].indexOf(b) * 0.5 : 0);
@@ -338,6 +351,12 @@ export function SceneCosmos({ identityId }: { identityId: string }) {
       };
       const ro = new ResizeObserver(onResize);
       ro.observe(canvas);
+      // 滚轮缩放：只在宇宙画布空域生效（卡片区域的滚轮仍归卡片滚动）。
+      const onWheel = (e: WheelEvent) => {
+        e.preventDefault();
+        camDistTarget = Math.min(11, Math.max(4.8, camDistTarget + e.deltaY * 0.004));
+      };
+      canvas.addEventListener("wheel", onWheel, { passive: false });
       // prefers-reduced-motion：只渲一帧静场
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         renderer.render(scene, camera);
@@ -358,6 +377,7 @@ export function SceneCosmos({ identityId }: { identityId: string }) {
         stop();
         if (dataTimer) clearInterval(dataTimer);
         document.removeEventListener("visibilitychange", onVis);
+        canvas.removeEventListener("wheel", onWheel);
         ro.disconnect();
         renderer.dispose();
         coreTex.dispose();
