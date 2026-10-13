@@ -8,6 +8,7 @@
  * 崩溃——对应协议"shell 不认识的 kind 应当降级渲染或忽略"。 */
 import { useEffect, useRef, useState } from "react";
 import { openSceneStream, postSceneIntent, type SceneSurface, type SceneState } from "~/lib/scene";
+import { SceneCosmos } from "~/components/scene-cosmos";
 import { cn } from "~/lib/utils";
 
 const EMPTY_SCENE: SceneState = { rev: 0, surfaces: [] };
@@ -198,8 +199,12 @@ export function SceneStage({
   );
   const others = surfaces.filter((s) => s !== confront);
   return (
-    <div data-testid="scene-stage" className="flex h-full flex-col bg-card">
-      <div className="flex items-center gap-3 border-b border-border/70 px-5 py-3">
+    <div data-testid="scene-stage" className="relative flex h-full flex-col bg-card">
+      {/* 心智舞台宇宙：氛围层（星空/核心球）+ 活动星图（思考者绕轨、
+          任务轨道弧、预算外环）——装饰与数据都来自既有 API，零新增
+          抓取；WebGL 失败降级 CSS 星空，卡片面不受影响。 */}
+      <SceneCosmos identityId={identityId} />
+      <div className="relative z-10 flex items-center gap-3 border-b border-border/70 bg-card/80 px-5 py-3 backdrop-blur-sm">
         <span className="font-mono text-[11px] tracking-[0.14em] text-primary">
           AGENT 舞台
         </span>
@@ -211,12 +216,12 @@ export function SceneStage({
           type="button"
           data-testid="scene-stage-back"
           onClick={onBack}
-          className="rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="rounded-md border border-border bg-card/80 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
           返回工作区
         </button>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 overflow-y-auto p-8">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-center gap-6 overflow-y-auto p-8">
         {confront && (
           <div
             data-testid="scene-card"
