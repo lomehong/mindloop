@@ -101,10 +101,10 @@ export function SceneCosmos({ identityId }: { identityId: string }) {
       // 让星空/辉光在两种主题下都有对比（UI 铬件仍走主题色）。
       scene.background = new THREE.Color(0x081712);
       const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 200);
-      // lookAt 球心构图：核心球+大气完整居中（宽屏下球底曾被裁出画
-      // 外——相机只平视不对心，球体沉到下缘）；轨道环出画属电影式
-      // 裁切，允许。
-      camera.position.set(0, 1.0, 6.3);
+      // 构图预算：相机距离按"核心球+最外轨道环"整体入画取值——
+      // 半高 = tan(fov/2)×dist ≈ 3.2，须 ≥ 最外轨道延伸（~3.0）。
+      // 此前只对心不拉远，宽屏窄高比下轨道环与星体上下出画（实测）。
+      camera.position.set(0, 1.4, 7.6);
       camera.lookAt(0, 0, 0);
 
       scene.add(new THREE.AmbientLight(0xdfffe8, 0.5));
@@ -210,9 +210,9 @@ export function SceneCosmos({ identityId }: { identityId: string }) {
           orbit.rotation.x = 0.42 + i * 0.5;
           orbit.rotation.z = i * 0.35;
           const color = ORBIT_PALETTE[i % ORBIT_PALETTE.length];
-          // 轨道细环
+          // 轨道细环（半径与相机半高 3.2 联动：最外 2.85+星体 ≤ 3.0）
           const ring = new THREE.Mesh(
-            new THREE.TorusGeometry(2.9 + i * 0.55, 0.006, 8, 96),
+            new THREE.TorusGeometry(2.35 + i * 0.5, 0.006, 8, 96),
             new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.22 })
           );
           ring.rotation.x = Math.PI / 2;
@@ -238,7 +238,7 @@ export function SceneCosmos({ identityId }: { identityId: string }) {
         while (orbitArcs.length < count) {
           const i = orbitArcs.length;
           const geo = new THREE.BufferGeometry().setFromPoints(
-            new THREE.EllipseCurve(0, 0, 3.6 + i * 0.5, 3.6 + i * 0.5, 0, Math.PI * (0.5 + rnd() * 0.3))
+            new THREE.EllipseCurve(0, 0, 3.05 + i * 0.4, 3.05 + i * 0.4, 0, Math.PI * (0.5 + rnd() * 0.3))
               .getPoints(64)
               .map((p) => new THREE.Vector3(p.x, 0, p.y))
           );
@@ -310,7 +310,7 @@ export function SceneCosmos({ identityId }: { identityId: string }) {
         stars.rotation.y += dt * 0.008;
         for (const b of thinkerBodies.values()) {
           b.phase += dt * b.speed;
-          const r = 2.9 + (thinkerBodies.size > 1 ? [...thinkerBodies.values()].indexOf(b) * 0.55 : 0);
+          const r = 2.35 + (thinkerBodies.size > 1 ? [...thinkerBodies.values()].indexOf(b) * 0.5 : 0);
           b.mesh.position.set(Math.cos(b.phase) * r, 0, Math.sin(b.phase) * r);
         }
         renderer.render(scene, camera);
