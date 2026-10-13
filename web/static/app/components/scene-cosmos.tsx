@@ -101,7 +101,11 @@ export function SceneCosmos({ identityId }: { identityId: string }) {
       // 让星空/辉光在两种主题下都有对比（UI 铬件仍走主题色）。
       scene.background = new THREE.Color(0x081712);
       const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 200);
-      camera.position.set(0, 0.6, 7.2);
+      // lookAt 球心构图：核心球+大气完整居中（宽屏下球底曾被裁出画
+      // 外——相机只平视不对心，球体沉到下缘）；轨道环出画属电影式
+      // 裁切，允许。
+      camera.position.set(0, 1.0, 6.3);
+      camera.lookAt(0, 0, 0);
 
       scene.add(new THREE.AmbientLight(0xdfffe8, 0.5));
       const key = new THREE.PointLight(0x9fffcf, 40, 60);
