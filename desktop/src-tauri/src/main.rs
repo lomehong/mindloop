@@ -89,6 +89,11 @@ fn main() {
                 // 关窗 = 缩入托盘（与主流桌面应用一致）；真正退出走托盘菜单。
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
+                    // on_window_event 给的是 &Window：转回 WebviewWindow
+                    //（几何 API 相同，但 save/restore 的签名以前者为准）。
+                    if let Some(wv) = window.app_handle().get_webview_window("main") {
+                        save_window_geometry(&wv);
+                    }
                     let _ = window.hide();
                     crate::pet::sync_with_main(window.app_handle(), false);
                 }
@@ -123,6 +128,7 @@ fn main() {
             if let Some(w) = handle.get_webview_window("main") {
                 #[cfg(windows)]
                 round_corners(&w);
+                restore_window_geometry(&w);
                 // --pet：主窗不露脸，让宠物以桌面形态登场。
                 if !want_pet {
                     let _ = w.show();
@@ -199,60 +205,119 @@ fn run_supervisor(app: tauri::AppHandle) {
         );
     }
 
-    let mut failures: u32 = 0;
+    // —— 监督状态（审查 #2/#3 修复）——
+    let mut failures: u32 = 0; // 连续启动失败计数（>3 转 halted）
+    let mut probe_fail_streak: u32 = 0; // 运行态探测失败迟滞（#3）
+    let mut attach_fail_streak: u32 = 0; // attached 失联计数（#2②）
+    let mut restart_at: Option<std::time::Instant> = None; // 启动退避（#2①）
+
     loop {
         std::thread::sleep(Duration::from_millis(300));
 
         // 宠物形态对账：主窗隐藏/最小化 → 悬浮窗上岗；主窗现形 → 收窗停靠。
         crate::pet::sync(&app);
 
-        let mut b = st.backend.lock().unwrap();
+        // 锁内快照 + 收尸判定（try_wait 非阻塞，持锁微秒级）；网络探测
+        // 在锁外做——单次探测可阻塞 1.5s，持锁会卡死托盘与状态查询
+        //（审查 #5「锁内阻塞探测」）。
+        let (attached, user_stopped, halted, port, has_child, child_exited) = {
+            let mut b = st.backend.lock().unwrap();
+            let child_exited = match b.child.as_mut() {
+                Some(c) => c.try_wait().ok().flatten().is_some(),
+                None => true,
+            };
+            (
+                b.attached,
+                b.user_stopped,
+                b.halted,
+                b.port,
+                b.child.is_some(),
+                child_exited,
+            )
+        };
 
-        if b.attached {
-            let ok = health::probe(b.port);
-            st.set_status(
-                &app,
-                BackendStatus {
-                    state: if ok { "running".into() } else { "connecting".into() },
-                    attached: true,
-                    port: b.port,
-                    detail: if ok {
-                        "已连接现有 mindloop 服务".into()
-                    } else {
-                        "现有服务未响应…".into()
+        if attached {
+            let ok = health::probe(port);
+            if ok {
+                attach_fail_streak = 0;
+                st.set_status(
+                    &app,
+                    BackendStatus {
+                        state: "running".into(),
+                        attached: true,
+                        port,
+                        detail: "已连接现有 mindloop 服务".into(),
                     },
-                },
-            );
+                );
+            } else {
+                attach_fail_streak += 1;
+                if attach_fail_streak >= ATTACH_FAIL_LIMIT {
+                    // 外部实例消失 → failover（审查 #2②）：清 attached
+                    // 走 spawn 路径，壳自己把仪表盘撑起来，不再永久
+                    // 卡「未响应」。
+                    {
+                        let mut b = st.backend.lock().unwrap();
+                        b.attached = false;
+                    }
+                    attach_fail_streak = 0;
+                    failures = 0;
+                    st.set_status(
+                        &app,
+                        BackendStatus {
+                            state: "connecting".into(),
+                            attached: false,
+                            port,
+                            detail: "现有服务已消失——拉起内嵌 sidecar".into(),
+                        },
+                    );
+                } else {
+                    st.set_status(
+                        &app,
+                        BackendStatus {
+                            state: "connecting".into(),
+                            attached: true,
+                            port,
+                            detail: format!(
+                                "现有服务未响应…（{attach_fail_streak}/{ATTACH_FAIL_LIMIT}）"
+                            ),
+                        },
+                    );
+                }
+            }
             tray::update_status(&app, &st);
             continue;
         }
 
-        if b.user_stopped {
-            if let Some(mut c) = b.child.take() {
-                let _ = c.kill();
-                let _ = c.wait();
+        if user_stopped {
+            {
+                let mut b = st.backend.lock().unwrap();
+                if let Some(mut c) = b.child.take() {
+                    let _ = c.kill();
+                    let _ = c.wait();
+                }
             }
             st.set_status(
                 &app,
                 BackendStatus {
                     state: "stopped".into(),
                     attached: false,
-                    port: b.port,
+                    port,
                     detail: "已停止".into(),
                 },
             );
             tray::update_status(&app, &st);
             failures = 0;
+            restart_at = None;
             continue;
         }
 
-        if b.halted {
+        if halted {
             st.set_status(
                 &app,
                 BackendStatus {
                     state: "stopped".into(),
                     attached: false,
-                    port: b.port,
+                    port,
                     detail: "反复启动失败已暂停——托盘「启动 mindloop web」可重试".into(),
                 },
             );
@@ -260,42 +325,35 @@ fn run_supervisor(app: tauri::AppHandle) {
             continue;
         }
 
-        // 子进程存活 → 探测回报。
-        let exited = match b.child.as_mut() {
-            Some(c) => c.try_wait().ok().flatten().is_some(),
-            None => true,
-        };
-        if !exited {
-            let port = b.port;
-            if health::probe(port) {
+        // 子进程存活 → 探测回报（迟滞：偶发超时不闪遮罩，审查 #3）。
+        if has_child && !child_exited {
+            let ok = health::probe(port);
+            let (running, streak) = running_hysteresis(ok, probe_fail_streak);
+            probe_fail_streak = streak;
+            if ok {
                 failures = 0;
-                st.set_status(
-                    &app,
-                    BackendStatus {
-                        state: "running".into(),
-                        attached: false,
-                        port,
-                        detail: "运行中".into(),
-                    },
-                );
-            } else {
-                st.set_status(
-                    &app,
-                    BackendStatus {
-                        state: "connecting".into(),
-                        attached: false,
-                        port,
-                        detail: "等待响应…".into(),
-                    },
-                );
+                restart_at = None;
             }
+            st.set_status(
+                &app,
+                BackendStatus {
+                    state: if running { "running".into() } else { "connecting".into() },
+                    attached: false,
+                    port,
+                    detail: if running {
+                        "运行中".into()
+                    } else {
+                        "等待响应…".into()
+                    },
+                },
+            );
             tray::update_status(&app, &st);
             continue;
         }
 
-        // 需要拉起（首次 / 意外退出后的自动重启）。
-        if b.child.is_some() {
-            // 先收尸，拿到退出码便于诊断。
+        // 子进程已退出：先收尸拿退出码（诊断用），再决定退避/暂停/重启。
+        if has_child {
+            let mut b = st.backend.lock().unwrap();
             if let Some(mut c) = b.child.take() {
                 let st2 = c.wait();
                 #[cfg(debug_assertions)]
@@ -305,18 +363,51 @@ fn run_supervisor(app: tauri::AppHandle) {
                 }
             }
         }
-        failures += 1;
-        if failures > 3 {
-            b.halted = true;
-            tray::update_status(&app, &st);
-            continue;
+
+        match restart_at {
+            // 退避窗口内：等（README「每次退避 2 秒」——秒死进程不再
+            // 一个 tick 烧光 3 次额度，审查 #2①）。
+            Some(t) if std::time::Instant::now() < t => {
+                tray::update_status(&app, &st);
+                continue;
+            }
+            // 退避期满：执行本轮重启。
+            Some(_) => {
+                restart_at = None;
+            }
+            // 刚发现的退出：记账并进入退避。
+            None => {
+                failures += 1;
+                if failures > 3 {
+                    let mut b = st.backend.lock().unwrap();
+                    b.halted = true;
+                    tray::update_status(&app, &st);
+                    continue;
+                }
+                restart_at = Some(std::time::Instant::now() + RESTART_BACKOFF);
+                st.set_status(
+                    &app,
+                    BackendStatus {
+                        state: "connecting".into(),
+                        attached: false,
+                        port,
+                        detail: format!("sidecar 已退出——2 秒后重启（第 {failures}/3 次）"),
+                    },
+                );
+                tray::update_status(&app, &st);
+                continue;
+            }
         }
+
         let port = health::pick_free_port(cfg.preferred_port);
         match proc::spawn_backend(&app, port) {
             Ok((child, job)) => {
-                b.child = Some(child);
-                b._job = job;
-                b.port = port;
+                {
+                    let mut b = st.backend.lock().unwrap();
+                    b.child = Some(child);
+                    b._job = job;
+                    b.port = port;
+                }
                 st.set_status(
                     &app,
                     BackendStatus {
@@ -340,6 +431,47 @@ fn run_supervisor(app: tauri::AppHandle) {
             }
         }
         tray::update_status(&app, &st);
+    }
+}
+
+/// attached 实例连续失联阈值：~3s+（每 tick 300ms + 探测耗时）未
+/// 响应即判消失并 failover 到 spawn（审查 #2②）。
+const ATTACH_FAIL_LIMIT: u32 = 10;
+/// 意外退出后的重启退避（与 README「每次退避 2 秒」对齐，审查 #2①）。
+const RESTART_BACKOFF: Duration = Duration::from_secs(2);
+
+/// 运行态探测迟滞（审查 #3，纯函数配测试）：偶发单次失败（杀软
+/// 扫描/系统唤醒导致的 1.5s 探测超时）保持 running 不闪 boot 遮罩；
+/// 连续 PROBE_FAIL_LIMIT 次失败才降级 connecting。
+const PROBE_FAIL_LIMIT: u32 = 3;
+
+fn running_hysteresis(ok: bool, streak: u32) -> (bool, u32) {
+    if ok {
+        (true, 0)
+    } else {
+        let s = streak + 1;
+        (s < PROBE_FAIL_LIMIT, s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hysteresis_success_resets_streak() {
+        assert_eq!(running_hysteresis(true, 2), (true, 0));
+    }
+
+    #[test]
+    fn hysteresis_single_fail_stays_running() {
+        assert_eq!(running_hysteresis(false, 0), (true, 1));
+        assert_eq!(running_hysteresis(false, 1), (true, 2));
+    }
+
+    #[test]
+    fn hysteresis_third_fail_degrades() {
+        assert_eq!(running_hysteresis(false, 2), (false, 3));
     }
 }
 
@@ -375,7 +507,64 @@ pub fn toggle_backend(app: &tauri::AppHandle) {
     }
 }
 
+// —— 主窗位置/尺寸记忆（审查 #5：此前写死 1280×832 居中，每次开
+// 都是出厂位）——落 app_config_dir/window.json，关窗（缩托盘）与
+// 退出时保存，启动时恢复。坐标粗校验防拔显示器后的离屏幽灵窗。
+#[derive(serde::Serialize, serde::Deserialize)]
+struct WindowGeometry {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+fn window_geometry_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join("window.json"))
+}
+
+fn save_window_geometry(w: &tauri::WebviewWindow) {
+    let Some(path) = window_geometry_path(w.app_handle()) else {
+        return;
+    };
+    let (Ok(pos), Ok(size)) = (w.outer_position(), w.inner_size()) else {
+        return;
+    };
+    let doc = WindowGeometry {
+        x: pos.x,
+        y: pos.y,
+        width: size.width,
+        height: size.height,
+    };
+    if let Ok(dir) = path.parent().map(|d| d.to_path_buf()).ok_or(()) {
+        let _ = dir; // create_dir_all 已在 setup 做过；防御性忽略
+    }
+    if let Ok(text) = serde_json::to_string(&doc) {
+        let _ = std::fs::write(&path, text);
+    }
+}
+
+fn restore_window_geometry(w: &tauri::WebviewWindow) {
+    let Some(path) = window_geometry_path(w.app_handle()) else {
+        return;
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    let Ok(g) = serde_json::from_str::<WindowGeometry>(&text) else {
+        return; // 坏文件：用出厂位
+    };
+    // 粗校验：坐标离谱（拔显示器的离屏残留）不恢复。
+    if g.x < -20000 || g.y < -20000 || g.width < 200 || g.height < 200 {
+        return;
+    }
+    let _ = w.set_position(tauri::PhysicalPosition::new(g.x, g.y));
+    let _ = w.set_size(tauri::PhysicalSize::new(g.width, g.height));
+}
+
 fn do_quit(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        save_window_geometry(&w);
+    }
     let st = app.state::<AppState>();
     {
         let mut b = st.backend.lock().unwrap();

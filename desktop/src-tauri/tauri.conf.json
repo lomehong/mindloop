@@ -30,9 +30,6 @@
     "active": true,
     "targets": ["nsis"],
     "icon": ["icons/icon.ico"],
-    "resources": {
-      "viewer-static": "viewer"
-    },
     "externalBin": ["binaries/mindloop"],
     "windows": {
       "webviewInstallMode": {

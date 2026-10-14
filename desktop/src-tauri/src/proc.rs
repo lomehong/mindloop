@@ -76,15 +76,20 @@ pub fn spawn_backend(
 
     // 子进程 stderr/stdout 落独立文件（debug 构建排障用）：秒死时
     // 能拿到 Go 侧的最后输出或 usage 文本。
-    let args: Vec<String> = vec![
+    // --viewer-dir 仅在资源目录真实存在时传（release sidecar 已用
+    // -tags release 内嵌 viewer——双份分发白吃安装包体积，审查 #5；
+    // dev 流程由 build.ps1 先拷 viewer-static，此处自动回退磁盘目录）。
+    let mut args: Vec<String> = vec![
         "web".into(),
         "--no-build".into(),
         "--no-open".into(),
         "--port".into(),
         port.to_string(),
-        "--viewer-dir".into(),
-        viewer.to_string_lossy().into_owned(),
     ];
+    if viewer.exists() {
+        args.push("--viewer-dir".into());
+        args.push(viewer.to_string_lossy().into_owned());
+    }
     let mut cmd = std::process::Command::new("mindloop.exe");
     cmd.args(&args);
     // 排障实验：debug 构建不设 CREATE_NO_WINDOW，验证子进程秒退是否
