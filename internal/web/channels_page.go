@@ -29,6 +29,7 @@ type channelView struct {
 	Allow     []string `json:"allow"`      // 白名单 userid
 	Ready     bool     `json:"ready"`      // 三项齐备（可启动 bridge）
 	Cursor    bool     `json:"cursor_exists"`
+	Mirror    bool     `json:"mirror"` // 离开镜像（theater.md §8，默认关）
 	Note      string   `json:"note"`
 }
 
@@ -38,6 +39,9 @@ const (
 	wecomKeyBotID  = "WECOM_BOT_ID"
 	wecomKeySecret = "WECOM_BOT_SECRET"
 	wecomKeyAllow  = "WECOM_ALLOW"
+	// wecomKeyMirror 是离开镜像开关（theater.md §8，默认关）：
+	// 1 = 操作员离开期间 inform 及以上事件摘要镜像推企微。
+	wecomKeyMirror = "MINDLOOP_WECOM_MIRROR"
 )
 
 // handleChannels GET /api/identities/{id}/channels 与
@@ -82,6 +86,7 @@ func (s *Server) wecomView(id *identity.Identity) channelView {
 		Allow:     allow,
 		Ready:     botID != "" && strings.TrimSpace(secret) != "" && len(allow) > 0,
 		Cursor:    cursorErr == nil,
+		Mirror:    lookup(wecomKeyMirror) == "1",
 		Note: "在企微管理后台「应用 → 智能机器人 → API 接收事件 → 长连接」获取 BotID 与 Secret；" +
 			"白名单外的消息不落轨迹（fail-closed）。用户需先给机器人发过一条消息（解锁会话）才能收到主动推送。",
 	}
@@ -94,6 +99,7 @@ func (s *Server) handleChannelWecomPut(w http.ResponseWriter, r *http.Request, i
 		BotID  string   `json:"bot_id"`
 		Secret string   `json:"secret"`
 		Allow  []string `json:"allow"`
+		Mirror *bool    `json:"mirror"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 		writeError(w, 400, "请求体解析失败: "+err.Error())
@@ -119,6 +125,15 @@ func (s *Server) handleChannelWecomPut(w http.ResponseWriter, r *http.Request, i
 			return
 		}
 		patch[wecomKeyAllow] = strings.Join(allow, ",")
+	}
+	if req.Mirror != nil {
+		// 镜像开关整体可写（默认关）：开 = 1，关 = 显式 0（删除键的
+		// 语义由读取端 == "1" 判定承担，写 0 即关）。
+		if *req.Mirror {
+			patch[wecomKeyMirror] = "1"
+		} else {
+			patch[wecomKeyMirror] = "0"
+		}
 	}
 	if len(patch) == 0 {
 		writeError(w, 400, "没有可写入的字段（secret 留空 = 保持既有值）")

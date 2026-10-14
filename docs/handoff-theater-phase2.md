@@ -104,13 +104,15 @@ partitionCards「单行不占配额」逻辑，接上即可）；隔夜由账卡
 - **TanStack Virtual**：回看章节 >200 条时再引（当前 7 天窗口普通
   列表够用，review.tsx 已留「随滚动加载」的 elide 文案）。
 
-### 2.5 企微镜像（theater.md §8，默认关）
+### 2.5 企微镜像（theater.md §8，默认关）——✅ 已落地（2026-10-14）
 
-后端渠道能力：presence=离开时，inform 及以上事件摘要推企微（审批
-已有渠道，inform 走同管道）。挂点：internal/connector 的 wecom 渠道
-（连接页已有基础设施）+ 设置页开关（默认 off）。**不要在前端假装
-这个能力**——在场芯片的文案已写明「默认关，设置页可开」，设置页
-开关落地前该文案保持诚实。
+实现走「presence 落轨迹 + mind 注入纪律」的架构内生路径，无新增
+发送边：`traj.TypePresence` 步骤（web `GET/POST /api/identities/:id/
+presence` 写入，stage-hud 在场芯片同步）→ monolith 唤醒注入
+`presenceManifest` 折叠段（离开 + MINDLOOP_WECOM_MIRROR=1 + 渠道
+就绪才注入，>24h 陈旧离开静默）→ 模型按纪律用既有 message→出站泵
+通道投递 inform 及以上摘要。开关在连接页 wecom 渠道卡（写 .env 同
+一键，心智重启后生效）。
 
 ### 2.6 记忆式落地（theater.md §5，可选打磨）
 
@@ -154,7 +156,7 @@ home.tsx 承担）。加全局「需要你」行动条（待审批/预算≥80%/
 
 ## 5. 交接自检清单
 
-- [ ] `git pull --rebase` 后全量 `go test ./...` 与 `cd web/static && npm test` 基线绿
-- [ ] 加固线已合并（internal/ 无未提交改动）→ 开工 2.1 协议三改
-- [ ] 每步：本地三件套（typecheck/test/build）+ Go 侧 gofmt index 检查 → 提交（中文信息）→ push → 匿名 API 确认 CI 三 job 绿
-- [ ] 2.1-2.3 完成后按 §3 验收条款逐条核验，更新 theater.md 状态行
+- [x] `git pull --rebase` 后全量 `go test ./...` 与 `cd web/static && npm test` 基线绿（2026-10-14，另一台机器已完成 2.1/2.2/2.3/2.4-cmdk/2.6）
+- [x] 2.1 协议三改 + 2.2 ambient 沉淀 + 2.3 E1/E3 + 2.6 记忆式落地（b7bba9c 等提交）
+- [x] 2.5 企微镜像（本文档 §2.5，2026-10-14 本机落地）
+- [ ] 余项：motion 引库深化动效契约（§12 表）、TanStack Virtual（回看数据量上来后）、按 §3 验收条款逐条核验

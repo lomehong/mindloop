@@ -64,6 +64,11 @@ const (
 	TypeIntent = "intent" // 界面意图回流（scene/intent 端点写入）：
 	// surface + name + data——用户在卡片上的有语义交互（v1 只有
 	// choice→审批一条闭环，其余只落轨迹作上下文，不叫醒心智）。
+	TypePresence = "presence" // 操作员在场状态（presence 端点写入，theater.md §8）：
+	// state=present|away + since——mind 唤醒注入折叠它派生
+	// 镜像纪律（离开时 inform 镜像推企微，默认关），policy 与
+	// 回看可读；渲染层与 scene/intent 同类：协议步骤不进模型
+	// 原文视图（prompt.dropProtocolSteps）。
 )
 
 // reservedTypes 是结构性步骤类型，它们永远不会从环境继承 run id
@@ -75,6 +80,7 @@ var reservedTypes = map[string]bool{
 	TypeRun:        true,
 	TypeScene:      true,
 	TypeIntent:     true,
+	TypePresence:   true,
 }
 
 // IsReservedType 报告 typ 是否为结构性步骤类型。

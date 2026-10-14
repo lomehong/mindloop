@@ -91,6 +91,25 @@ export default function ConnectionsPage() {
     },
     onError: (error: Error) => toast.error(error.message),
   });
+  // 离开镜像开关（theater.md §8，默认关）：只写 mirror 一项，其余
+  // 字段不传 = 保持既有值（后端按缺省跳过）。
+  const toggleMirror = useMutation({
+    mutationFn: (channel: { channel: string; mirror: boolean }) => {
+      if (channel.channel !== "wecom") {
+        throw new Error("未知渠道: " + channel.channel);
+      }
+      return updateWecomChannel(identityId, { mirror: !channel.mirror });
+    },
+    onSuccess: (result) => {
+      toast.success(
+        result.mirror
+          ? "离开镜像已开启——操作员离开期间 inform 及以上事件镜像推企微"
+          : "离开镜像已关闭"
+      );
+      queryClient.invalidateQueries({ queryKey: ["connections", identityId] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
 
   if (isError) {
     return (
@@ -226,6 +245,13 @@ export default function ConnectionsPage() {
               setAllowText={setAllowText}
               onSave={() => saveChannel.mutate()}
               saving={saveChannel.isPending}
+              onToggleMirror={() =>
+                toggleMirror.mutate({
+                  channel: channel.channel,
+                  mirror: channel.mirror,
+                })
+              }
+              mirrorSaving={toggleMirror.isPending}
             />
           ))}
         </section>
@@ -245,6 +271,7 @@ function ChannelCard(props: {
     allow: string[];
     ready: boolean;
     cursor_exists: boolean;
+    mirror: boolean;
     note: string;
   };
   botId: string;
@@ -255,6 +282,10 @@ function ChannelCard(props: {
   setAllowText: (value: string) => void;
   onSave: () => void;
   saving: boolean;
+  /** 离开镜像开关（theater.md §8，默认关）：独立于「保存」按钮——
+   * 即点即生效（后端写 .env 同一键，mind 重启后生效）。 */
+  onToggleMirror: () => void;
+  mirrorSaving: boolean;
 }) {
   const { channel } = props;
   return (
@@ -306,6 +337,40 @@ function ChannelCard(props: {
             placeholder="zhangsan,lisi"
             className="h-8 max-w-[260px] font-mono text-xs"
           />
+        </label>
+        <label className="grid grid-cols-1 items-center gap-x-3 gap-y-1 md:grid-cols-[200px_1fr]">
+          <span className="font-mono text-[11.5px] text-muted-foreground">
+            离开镜像（默认关）
+          </span>
+          <span className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="wecom-mirror-toggle"
+              onClick={props.onToggleMirror}
+              disabled={props.mirrorSaving || !channel.ready}
+              title={
+                channel.ready
+                  ? "操作员离开期间，inform 及以上事件摘要镜像推企微（心智重启后生效）"
+                  : "渠道配置就绪后才能开启"
+              }
+              className={
+                "relative h-5 w-9 rounded-full transition-colors disabled:opacity-40 " +
+                (channel.mirror ? "bg-primary" : "bg-muted")
+              }
+            >
+              <span
+                className={
+                  "absolute top-0.5 size-4 rounded-full bg-card shadow transition-all " +
+                  (channel.mirror ? "left-[18px]" : "left-0.5")
+                }
+              />
+            </button>
+            <span className="text-[11.5px] text-muted-foreground">
+              {channel.mirror
+                ? "开——离开时 inform 及以上镜像推企微"
+                : "关"}
+            </span>
+          </span>
         </label>
       </div>
 

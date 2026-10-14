@@ -122,6 +122,7 @@ const connectionsView = {
       allow: ["zhangsan"],
       ready: true,
       cursor_exists: false,
+      mirror: false,
       note: "在企微管理后台获取 BotID 与 Secret。",
     },
   ],

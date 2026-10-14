@@ -800,6 +800,9 @@ export interface ChannelEntry {
   ready: boolean;
   /** 出站游标是否存在（bridge 曾运行过）。 */
   cursor_exists: boolean;
+  /** 离开镜像开关（theater.md §8，默认关）：操作员离开期间 inform
+   * 及以上事件摘要镜像推企微。 */
+  mirror: boolean;
   note: string;
 }
 

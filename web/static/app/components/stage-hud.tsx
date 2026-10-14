@@ -11,8 +11,10 @@ import {
   fetchActivity,
   fetchApprovals,
   fetchIdentityStatus,
+  fetchPresence,
   fetchTasks,
   fetchUsage,
+  postPresence,
 } from "~/lib/api";
 import {
   fmtWaiting,
@@ -88,10 +90,44 @@ export function usePresence(identityId: string): {
     };
   }, []);
 
+  // 服务端同步：打开舞台时采纳服务端最新声明（跨设备真相——另一台
+  // 机器切过离开，本机不该还显示在座）。unstated = 轨迹从未声明过
+  //（新身份），保持本机缓存不冒充。失败静默：localStorage 仍是本机
+  // 可用的降级面。
+  useEffect(() => {
+    let cancelled = false;
+    fetchPresence(identityId)
+      .then((p) => {
+        if (cancelled || p.unstated) return;
+        const next: Presence = {
+          away: p.state === "away",
+          sinceMs: p.since_ts ? Date.parse(p.since_ts) : 0,
+        };
+        setPresence(next);
+        writePresence(identityId, next);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [identityId]);
+
   const setAway = (away: boolean) => {
     const next: Presence = { away, sinceMs: away ? Date.now() : 0 };
     setPresence(next);
     writePresence(identityId, next);
+    // 落轨迹（presence 步骤）：mind 唤醒注入折叠它派生镜像纪律。
+    // 落盘失败回滚本机并静默——芯片退化为会话内状态，不假装已同步。
+    postPresence(identityId, away)
+      .then((p) => {
+        const synced: Presence = {
+          away: p.state === "away",
+          sinceMs: p.since_ts ? Date.parse(p.since_ts) : away ? Date.now() : 0,
+        };
+        setPresence(synced);
+        writePresence(identityId, synced);
+      })
+      .catch(() => {});
   };
 
   return { presence, setAway, lastVisibleMs };

@@ -134,6 +134,7 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 		SkillsDirs:         skillsDirs,
 		MCPServers:         mcpServers,
 		ConnectorAddresses: connectorAddresses(),
+		MirrorWecomTargets: wecomMirrorTargets(),
 		ExtraEnv:           extraEnv,
 		SetLogger:          o.logger,
 		BeforeExecute:      gate.Authorize,
@@ -254,6 +255,17 @@ func connectorAddresses() []string {
 		out = append(out, "wecom:"+uid)
 	}
 	return out
+}
+
+// wecomMirrorTargets 折算离开镜像纪律的投递目标（theater.md §8，
+// 默认关）：MINDLOOP_WECOM_MIRROR=1 且 wecom 渠道就绪才返回地址表
+// ——缺任一条件返回 nil，monolith 的在场段整体不注入。开关由连接
+// 页的 wecom 渠道卡切换（写身份 .env 的同一键）。
+func wecomMirrorTargets() []string {
+	if os.Getenv("MINDLOOP_WECOM_MIRROR") != "1" {
+		return nil
+	}
+	return connectorAddresses()
 }
 
 // schedulePaths 汇总身份日程的三处文件（装配与 CLI 子命令同源）。

@@ -152,11 +152,38 @@ function putJson<T>(path: string, body: unknown): Promise<T> {
 /** 保存企微渠道配置；secret 留空 = 保持既有值（后端不回显凭据）。 */
 export function updateWecomChannel(
   identityId: string,
-  body: { bot_id?: string; secret?: string; allow?: string[] }
+  body: { bot_id?: string; secret?: string; allow?: string[]; mirror?: boolean }
 ): Promise<ChannelEntry> {
   return putJson(
     `/api/identities/${encodeURIComponent(identityId)}/channels/wecom`,
     body
+  );
+}
+
+/** 操作员在场状态（theater.md §8）：服务端折叠的最新 presence 步骤。
+ * unstated = 轨迹从未声明过（前端此时用本机缓存，不冒充服务端已知）。 */
+export interface PresenceState {
+  state: "present" | "away";
+  since_ts?: string;
+  updated_ts?: string;
+  unstated: boolean;
+}
+
+export function fetchPresence(identityId: string): Promise<PresenceState> {
+  return getJson(
+    `/api/identities/${encodeURIComponent(identityId)}/presence`
+  );
+}
+
+/** 在场切换落轨迹（presence 步骤）：mind 唤醒注入折叠它派生镜像
+ * 纪律（离开时 inform 镜像推企微，默认关），policy 与回看可读。 */
+export async function postPresence(
+  identityId: string,
+  away: boolean
+): Promise<PresenceState> {
+  return postJson(
+    `/api/identities/${encodeURIComponent(identityId)}/presence`,
+    { away }
   );
 }
 

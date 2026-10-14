@@ -175,6 +175,8 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 		s.handleThinkerSync(w, r, id)
 	case "scene":
 		s.routeScene(w, r, id, rest)
+	case "presence":
+		s.routePresence(w, r, id)
 	case "dispatch":
 		s.handleDispatchLog(w, r, id, rest)
 	case "health":

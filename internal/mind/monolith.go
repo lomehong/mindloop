@@ -114,6 +114,11 @@ type MonolithOptions struct {
 	ProfileDir string
 	// ProfileBytes 是用户画像段上限（0 取 DefaultProfileBudget）。
 	ProfileBytes int
+	// MirrorWecomTargets 是离开镜像纪律的投递目标（wecom:<uid> 列表，
+	// theater.md §8）。空 = 镜像关闭（默认）——不在场段不注入，模型
+	// 不会因操作员离开而外发任何摘要。装配层按 MINDLOOP_WECOM_MIRROR=1
+	// 且 wecom 渠道就绪（bot/secret/allow 齐）折算。
+	MirrorWecomTargets []string
 	// RequestThinker 是请求档思考者（可选；nil = 单档）。反应式
 	// 唤醒——外部步骤触发（观察/合并，通常是 responder 报告人类
 	// 来话或外部产物）——用它；自发的定时/watchdog 空唤醒用
@@ -570,6 +575,17 @@ func (m *monolith) wakeTask(ctx context.Context, reason string, w Wake) string {
 			b.WriteString(seg)
 		}
 	}
+	// 操作员在场（theater.md §8）：离开且镜像开启时注入镜像纪律段——
+	// inform 及以上事件摘要投递 wecom，ambient 不打扰。默认关
+	//（MirrorWecomTargets 空 = 永不注入）；presence 步骤原文已在
+	// 渲染层排除（dropProtocolSteps），此段是模型知道在场的唯一通道。
+	if presence := presenceManifest(
+		m.presenceSnapshot(), m.opts.MirrorWecomTargets, time.Now()); presence != "" {
+		if seg := budget.TakeCapped("presence", presence, presenceCap); seg != "" {
+			b.WriteString("\n\n")
+			b.WriteString(seg)
+		}
+	}
 	// 开放线索（thread）：话题级的工作指针——"进度怎么样""那个事"
 	// 的指代解析靠线索清单在眼前。与任务看板相邻：taskboard 是强
 	// 承诺的状态，thread 是弱线索的上下文，一个回答"要我做什么"、
@@ -639,6 +655,20 @@ func sceneCap(v int) int {
 		return prompt.DefaultSceneBudget
 	}
 	return v
+}
+
+// presenceCap 是在场镜像纪律段上限：一段固定教学文案，长度稳定，
+// 无需配置旋钮。
+const presenceCap = 600
+
+// presenceSnapshot 从轨迹折叠当前在场状态（现场 replay，与
+// sceneManifest 同款：毫秒级，不维护长驻状态）。
+func (m *monolith) presenceSnapshot() PresenceSnapshot {
+	steps, err := m.opts.Timeline.Steps()
+	if err != nil {
+		return PresenceSnapshot{}
+	}
+	return FoldPresence(steps)
 }
 
 // threadCap 折算开放线索段上限（0 取默认，负值同）。
