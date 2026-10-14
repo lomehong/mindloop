@@ -11,7 +11,6 @@ import { useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 
-import { fmtDuration } from "~/components/activity-badge";
 import { AuthenticatedDownload } from "~/components/authenticated-download";
 import { ConfirmDialog } from "~/components/confirm-dialog";
 import { CreatureSvg } from "~/components/pet/creature";
@@ -41,7 +40,7 @@ import {
   importIdentities,
   killAll,
 } from "~/lib/api";
-import { formatClock, formatCount, formatRelativeTime } from "~/lib/format";
+import { formatCount, formatRelativeTime } from "~/lib/format";
 import { phaseFor } from "~/lib/pet-state";
 import { STATUS_BACKGROUND_POLL_MS, USAGE_IDLE_POLL_MS } from "~/lib/polling";
 import type {

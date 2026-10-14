@@ -35,6 +35,7 @@ import {
   webCredentialRevision,
   type ReplyStreamEvent,
 } from "~/lib/api";
+import { truncateToBytes } from "~/lib/use-chat";
 import {
   approvalAnnouncement,
   breakerAnnouncement,
@@ -222,7 +223,12 @@ export function usePet(options: UsePetOptions = {}): UsePetResult {
   const [announcer, setAnnouncer] = useState(() => createAnnouncer(Date.now()));
 
   const replyToRef = useRef("");
-  const dndRef = useRef(isDnd(loadDnd(), Date.now()));
+  // 勿扰初值 false（未勿扰），挂载后按真实时钟对齐——渲染期禁
+  // Date.now（react-compiler 纯性门禁）。
+  const dndRef = useRef(false);
+  useEffect(() => {
+    dndRef.current = isDnd(loadDnd(), Date.now());
+  }, []);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearHideTimer = useCallback(() => {
@@ -263,7 +269,9 @@ export function usePet(options: UsePetOptions = {}): UsePetResult {
           break;
         }
         case "delta": {
-          setStreamText((prev) => prev.slice(0, ev.offset) + ev.text);
+          // offset 是 UTF-8 字节游标（与 use-chat 同一协议）：必须按
+          // 字节截断再拼接，String.slice 按码元切会把中文流切花。
+          setStreamText((prev) => truncateToBytes(prev, ev.offset) + ev.text);
           setStreamVisible(true);
           break;
         }
@@ -357,7 +365,8 @@ export function usePet(options: UsePetOptions = {}): UsePetResult {
     enabled: identityId !== null,
     refetchInterval: PET_USAGE_POLL_MS,
   });
-  const healthQ = useQuery({
+  // 只为轮询副作用保留（健康度进 announcer/告警），结果值不直接消费。
+  useQuery({
     queryKey: ["pet-llm-health", credentialRevision],
     queryFn: silent(fetchLlmHealth),
     refetchInterval: PET_HEALTH_POLL_MS,
@@ -517,15 +526,15 @@ export function usePet(options: UsePetOptions = {}): UsePetResult {
     return `${MOOD_LABEL[mood]} · ${ageText(activityQ.data?.last_step_age_s ?? null)}`;
   }, [identitiesQ.data, identities.length, identityId, mood, activityQ.data]);
 
-  const bubble = useMemo(() => {
-    if (streamVisible && streamText.trim() !== "") {
-      return { kind: "stream" as const, text: tailText(streamText) };
-    }
-    if (announcer.current) {
-      return { kind: announcer.current.kind, text: announcer.current.text };
-    }
-    return null;
-  }, [streamVisible, streamText, announcer.current]);
+  // 气泡派生：读 announcer.current（可变字段）无法被 React 编译器
+  // 记忆化（preserve-manual-memoization 门禁）——字符串现算，开销
+  // 可忽略，直接每次渲染求值。
+  const bubble =
+    streamVisible && streamText.trim() !== ""
+      ? { kind: "stream" as const, text: tailText(streamText) }
+      : announcer.current
+        ? { kind: announcer.current.kind, text: announcer.current.text }
+        : null;
 
   // ---- 菜单与动作 ----
   const [chatDraft, setChatDraft] = useState("");

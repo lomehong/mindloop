@@ -291,8 +291,11 @@ function utf8ByteLength(text: string): number {
   return streamEncoder.encode(text).length;
 }
 
-/** 截断到不超过 n 个 UTF-8 字节的码点边界（绝不切碎多字节字符）。 */
-function truncateToBytes(text: string, n: number): string {
+/** 截断到不超过 n 个 UTF-8 字节的码点边界（绝不切碎多字节字符）。
+ * 导出：SSE offset 全协议是字节游标（replies 与 pet 共用同一流），
+ * 消费端必须用它按字节拼接——use-pet 曾误用 String.slice 按码元切，
+ * 中文流式必错位（2026-10-14 审查修复）。 */
+export function truncateToBytes(text: string, n: number): string {
   let bytes = 0;
   let out = "";
   for (const ch of text) {

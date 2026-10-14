@@ -89,6 +89,8 @@ jobs:
       # npm ci 严格按 package-lock.json 安装，lock 漂移直接失败。
       - run: npm ci --no-audit --no-fund
       - run: npx react-router typegen && npx tsc --noEmit
+      # ESLint 门禁（2026-10-14 清零后上锁；warnings 按原计划另行迁移）。
+      - run: npm run lint
       - run: npm test
       # 生产构建（react-router build）进门禁：bundling 断裂、
       # 重依赖解析问题不能等本机构建才暴露。

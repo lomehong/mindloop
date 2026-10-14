@@ -21,8 +21,33 @@ export function PetApp() {
   // 根元素引用：目光追随的 CSS 变量挂在它上面
   const rootRef = useRef<HTMLDivElement>(null);
   // ---- 壳环境（Tauri）与信号层 ----
-  const tauri = useMemo(
-    () => (typeof window !== "undefined" ? (window as { __TAURI__?: any }).__TAURI__ ?? null : null),
+  // 壳 IPC 的最小类型面（no-explicit-any）：pet 实际用到 core.invoke、
+  // window.getCurrentWindow 与 dpi.PhysicalPosition 三处。
+  const tauri = useMemo<
+    | {
+        core?: { invoke?: (cmd: string, args?: unknown) => Promise<unknown> };
+        window?: {
+          getCurrentWindow?: () => {
+            hide?: () => Promise<void>;
+            isVisible?: () => Promise<boolean>;
+            setPosition?: (p: unknown) => Promise<void>;
+            setIgnoreCursorEvents?: (ignore: boolean) => Promise<void>;
+            startDragging?: () => Promise<void>;
+            cursorPosition?: () => Promise<{ x: number; y: number } | null>;
+            outerPosition?: () => Promise<{ x: number; y: number }>;
+            onMoved?: (
+              cb: (e: { payload: { x: number; y: number } }) => void
+            ) => Promise<() => void>;
+          };
+        };
+        dpi?: { PhysicalPosition?: new (x: number, y: number) => unknown };
+      }
+    | null
+  >(
+    () =>
+      typeof window !== "undefined"
+        ? ((window as { __TAURI__?: never }).__TAURI__ ?? null)
+        : null,
     []
   );
   // ---- 目光追随：瞳孔朝光标方向微微偏移（rAF 节流，限幅 ±2px） ----
@@ -179,18 +204,18 @@ export function PetApp() {
   useEffect(() => {
     if (!win || restoredRef.current) return;
     restoredRef.current = true;
-    let raw: string | null = null;
+    let raw: string | null;
     try {
       raw = localStorage.getItem(POS_KEY);
     } catch {
-      return;
+      return; // 存储不可用：用默认位置。
     }
     if (!raw) return;
     try {
       const pos = JSON.parse(raw) as { x?: number; y?: number };
       if (typeof pos.x === "number" && typeof pos.y === "number") {
         const P = tauri?.dpi?.PhysicalPosition;
-        win.setPosition(P ? new P(pos.x, pos.y) : { x: pos.x, y: pos.y }).catch(() => {});
+        win.setPosition?.(P ? new P(pos.x, pos.y) : { x: pos.x, y: pos.y }).catch(() => {});
       }
     } catch {
       // 坏数据：用默认位置。
@@ -202,7 +227,7 @@ export function PetApp() {
     if (!win) return;
     const save = () => {
       win
-        .outerPosition()
+        .outerPosition?.()
         .then((p: { x: number; y: number }) => {
           try {
             localStorage.setItem(POS_KEY, JSON.stringify({ x: p.x, y: p.y }));
@@ -256,7 +281,7 @@ export function PetApp() {
     (async () => {
       while (!stopped) {
         try {
-          const cur = await win.cursorPosition();
+          const cur = (await win.cursorPosition?.()) ?? null;
           const dpr = window.devicePixelRatio || 1;
           let solid = false;
           if (cur && Number.isFinite(cur.x) && Number.isFinite(cur.y)) {
@@ -275,7 +300,7 @@ export function PetApp() {
           }
           if (solid !== !ignoring) {
             ignoring = !solid;
-            await win.setIgnoreCursorEvents(ignoring);
+            await win.setIgnoreCursorEvents?.(ignoring);
           }
         } catch {
           // cursorPosition 不可用：保持当前模式（可从托盘恢复）。

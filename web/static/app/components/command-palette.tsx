@@ -3,7 +3,7 @@
 // 控制在几百内（无虚拟化），全文搜索仍走各页搜索框（§4 职责表）。
 
 import { Command } from "cmdk";
-import { Link, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 
 import { useQuery } from "@tanstack/react-query";
 
