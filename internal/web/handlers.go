@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/thread"
 	"github.com/lomehong/mindloop/internal/traj"
 )
 
@@ -153,6 +154,15 @@ func (s *Server) routeIdentity(w http.ResponseWriter, r *http.Request) {
 		s.handleMemories(w, r, id, rest)
 	case "mem-recall":
 		s.handleMemRecall(w, r, id)
+	case "threads":
+		// 线索行（theater.md 舞台底部）：只读投影，写侧在心智进程
+		//（thread.Add/Update 经模型工具），web 不开口。
+		items, err := thread.Load(id.Dir)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "线索读取失败: "+err.Error())
+			return
+		}
+		writeJSON(w, 200, items)
 	case "replies":
 		s.routeReplies(w, r, id, rest)
 	case "thinkers":

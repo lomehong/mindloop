@@ -55,6 +55,9 @@ function stubFetch(opts: { approvals?: unknown[] } = {}) {
     if (url.includes("/status")) {
       return json({ live: true, step_count: 431 });
     }
+    if (url.includes("/threads")) {
+      return json([]);
+    }
     if (url.includes("/approvals")) {
       return json(opts.approvals ?? []);
     }
@@ -107,8 +110,7 @@ function renderStage(surfaces: SceneSurface[], approvals: unknown[] = []) {
           pulse={null}
           leaving={[]}
           sedimented={[]}
-          onBack={() => {}}
-          onOpenChat={() => {}}
+          onExpand={() => {}}
         />
       </MemoryRouter>
     </QueryClientProvider>

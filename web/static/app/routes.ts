@@ -9,7 +9,8 @@ export default [
   route("talk/:identityId", "routes/talk-chat.tsx"),
   route("talk/:identityId/tasks", "routes/tasks.tsx"),
   route("i/:identityId", "routes/identity-shell.tsx", [
-    index("routes/timeline.tsx"),
+    index("routes/identity-stage.tsx"),
+    route("traj", "routes/timeline.tsx"),
     route("log", "routes/log.tsx"),
     route("recap", "routes/recap.tsx"),
     route("review", "routes/review.tsx"),

@@ -325,6 +325,63 @@ export interface LeavingCard {
   key: number;
 }
 
+/** ThreadsRow 是舞台左下的线索行（theater.md 线索层）：只读投影，
+ * 进行中/搁置线索一眼可见；数据来自 /threads（心智进程 threads.json），
+ * web 侧不开写口。 */
+function ThreadsRow({ identityId }: { identityId: string }) {
+  const { data: threads } = useQuery({
+    queryKey: ["threads", identityId],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/identities/${encodeURIComponent(identityId)}/threads`
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as Array<{
+        id: string;
+        title: string;
+        note?: string;
+        status: string;
+      }>;
+    },
+    refetchInterval: 15_000,
+  });
+  // 数组守卫：端点异常/桩测试返回非数组时不渲染（不是崩溃）。
+  const open = (Array.isArray(threads) ? threads : [])
+    .filter((t) => t.status !== "done")
+    .slice(0, 4);
+  if (open.length === 0) return null;
+  return (
+    <div className="absolute bottom-6 left-6 z-20 w-[300px] rounded-xl border border-line bg-card/85 p-3 backdrop-blur-[8px]">
+      <div className="mb-2 font-mono text-[10px] tracking-[0.08em] text-faint">
+        线索
+      </div>
+      {open.map((t) => (
+        <div
+          key={t.id}
+          className="flex items-baseline gap-2 rounded-md px-1 py-1 text-[12px] hover:bg-muted/40"
+        >
+          <span
+            className={cn(
+              "shrink-0 rounded-full px-1.5 font-mono text-[10px]",
+              t.status === "parked"
+                ? "bg-resin/10 text-resin"
+                : "bg-primary/10 text-primary"
+            )}
+          >
+            {t.status === "parked" ? "搁置" : "进行中"}
+          </span>
+          <span className="min-w-0 truncate text-foreground">{t.title}</span>
+          {t.note && (
+            <span className="min-w-0 truncate text-[11px] text-faint">
+              {t.note}
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** SceneStage 是仪表盘的舞台形态（theater.md v2 分区制）：宇宙铺
  * 底；conform 卡遮罩独占中央；inform/ambient 右列至多 3 张整卡 +
  * 溢出折叠 chip + 变奏/沉淀单行卡；底部心跳行 + 对话条；顶栏在场
@@ -333,25 +390,28 @@ export interface LeavingCard {
 export function SceneStage({
   surfaces,
   identityId,
-  onBack,
-  onOpenChat,
   pulse,
   leaving,
   sedimented,
+  onExpand,
 }: {
   surfaces: SceneSurface[];
   identityId: string;
-  onBack: () => void;
-  onOpenChat: () => void;
   /** E1 推卡前兆（theater.md §11）：upsert 事件派生的核心球脉冲。 */
   pulse: StageFx["pulse"];
   /** 退场中的卡（按 reason 播退场动效，宿主定时清理）。 */
   leaving: LeavingCard[];
   /** TTL 沉淀卡（§16.2）：降为单行摘要条，不占右列 3 张配额。 */
   sedimented: Array<{ surface: SceneSurface }>;
+  /** 对话条展开（对话单真相源，theater.md §3）。 */
+  onExpand: () => void;
 }) {
   const tele = useStageTelemetry(identityId);
-  const { presence, setAway, lastVisibleMs } = usePresence(identityId);
+  // 隔夜账卡的判定基准（§6）：离开时刻取本机可见性账本。
+  const { presence, lastVisibleMs: seen } = usePresence(identityId);
+  const lastSeenMs = presence.away
+    ? Math.min(seen, presence.sinceMs || seen)
+    : seen;
   const [expanded, setExpanded] = useState(false);
   const [listening, setListening] = useState(false);
   const [decisionFx, setDecisionFx] = useState<StageFx["decision"]>(null);
@@ -395,7 +455,9 @@ export function SceneStage({
   }
   const enterStyle = (id: string) => {
     const delay = enterDelaysRef.current.get(id) ?? 0;
-    return { animation: `scene-card-in 320ms cubic-bezier(.2,.9,.25,1) ${delay}ms both` };
+    return {
+      animation: `scene-card-in 320ms cubic-bezier(.2,.9,.25,1) ${delay}ms both`,
+    };
   };
   const exitStyle = (reason: SceneExitReason) => {
     const name =
@@ -408,161 +470,135 @@ export function SceneStage({
             : "scene-card-out-ttl";
     return { animation: `${name} 260ms ease-in both` };
   };
-  // 隔夜判定基准：显式离开取「可见时刻与离开时刻的较早者」。
-  const lastSeenMs = presence.away
-    ? Math.min(lastVisibleMs, presence.sinceMs || lastVisibleMs)
-    : lastVisibleMs;
 
   return (
-    <div data-testid="scene-stage" className="relative flex h-full flex-col bg-card">
+    <div data-testid="scene-stage" className="absolute inset-0">
       <SceneCosmos identityId={identityId} fx={fx} />
-      {/* 顶栏：读数 + 在场 + 对话展开 + 返回工作区 */}
-      <div className="relative z-40 flex items-center gap-3 border-b border-border/70 bg-card/80 px-5 py-3 backdrop-blur-sm">
-        <span className="font-mono text-[11px] tracking-[0.14em] text-primary">
-          AGENT 舞台
-        </span>
-        <span className="text-xs text-muted-foreground">
-          Agent 正在驱动这块仪表盘 · {surfaces.length} 张卡片
-        </span>
-        <span className="flex-1" />
-        <PresenceChip presence={presence} onToggle={() => setAway(!presence.away)} />
-        <button
-          type="button"
-          data-testid="stage-chat-expand"
-          onClick={onOpenChat}
-          className="rounded-md border border-border bg-card/80 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-        >
-          对话 ⤢
-        </button>
-        <button
-          type="button"
-          data-testid="scene-stage-back"
-          onClick={onBack}
-          className="rounded-md border border-border bg-card/80 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-        >
-          返回工作区
-        </button>
+
+      {/* 隔夜账卡（§6）：左上钉顶，dismiss 当天不再合成 */}
+      <div className="absolute left-6 top-5 z-20 w-[min(400px,42vw)]">
+        <OvernightDigest identityId={identityId} tele={tele} lastSeenMs={lastSeenMs} />
       </div>
 
-      <div className="relative min-h-0 flex-1">
-        {/* 右列（分区制 §2）：隔夜账卡钉顶 + 整卡 ≤3 + 溢出 chip + 单行卡 */}
-        <div className="absolute bottom-28 right-4 top-4 z-20 flex w-[min(360px,38vw)] flex-col gap-3 overflow-y-auto pb-1">
-          <OvernightDigest identityId={identityId} tele={tele} lastSeenMs={lastSeenMs} />
-          {visibleCards.map((s) => (
+      {/* 线索行（mockup .threads）：左下，只读投影 */}
+      <ThreadsRow identityId={identityId} />
+
+      {/* 右列（分区制 §2）：整卡 ≤3 + 溢出 chip + 变奏/沉淀单行（玻璃浮层） */}
+      <div className="absolute right-6 top-5 z-20 flex max-h-[calc(100%-7rem)] w-[316px] flex-col gap-3 overflow-y-auto">
+        {visibleCards.map((s) => (
+          <div
+            key={s.id}
+            data-testid="scene-card"
+            data-scene-id={s.id}
+            style={enterStyle(s.id)}
+            className={cn(
+              "rounded-2xl border border-line bg-card/86 p-4 shadow-[0_8px_28px_rgba(0,0,0,0.45)] backdrop-blur-[10px]",
+              s.intent === "ambient" && "opacity-80"
+            )}
+          >
+            <SurfaceCard surface={s} identityId={identityId} onDecision={(dir) => setDecisionFx({ dir, t0: Date.now() })} />
+          </div>
+        ))}
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            data-testid="scene-overflow"
+            onClick={() => setExpanded(!expanded)}
+            className="self-end rounded-full border border-border bg-card/95 px-3 py-1 font-mono text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {expanded ? "收起 ⌃" : `还有 ${hiddenCount} 项 ⌄`}
+          </button>
+        )}
+        {expanded &&
+          others
+            .filter((s) => !visible.includes(s.id) && !isCompact(s))
+            .map((s) => (
+              <div
+                key={s.id}
+                data-testid="scene-card"
+                data-scene-id={s.id}
+                className="rounded-2xl border border-line bg-card/86 p-4 shadow-[0_8px_28px_rgba(0,0,0,0.45)] backdrop-blur-[10px]"
+              >
+                <SurfaceCard surface={s} identityId={identityId} />
+              </div>
+            ))}
+        {compactCards.map((s) => (
+          <div
+            key={s.id}
+            data-testid="scene-card"
+            data-scene-id={s.id}
+            data-compact="true"
+            className="rounded-xl border border-border/70 bg-card/85 px-3 py-2"
+          >
+            <SurfaceCard surface={s} identityId={identityId} compact />
+          </div>
+        ))}
+        {/* TTL 沉淀条（§16.2）：单行摘要，不占 3 张配额，隔夜并入账卡 */}
+        {sedimented.map(({ surface }) => (
+          <div
+            key={`sed-${surface.id}`}
+            data-testid="scene-sediment"
+            data-scene-id={surface.id}
+            data-compact="sediment"
+            className="rounded-xl border border-border/50 bg-card/60 px-3 py-2 opacity-70"
+          >
+            <SurfaceCard surface={surface} identityId={identityId} compact />
+          </div>
+        ))}
+        {/* 退场中的卡（§16.7）：按 reason 播退场动效后由宿主清理 */}
+        {leaving.map(({ surface, reason, key }) => (
+          <div
+            key={`leave-${key}`}
+            data-testid="scene-card-leaving"
+            style={exitStyle(reason)}
+            className="pointer-events-none rounded-2xl border border-line bg-card/86 p-4"
+          >
+            <SurfaceCard surface={surface} identityId={identityId} compact />
+          </div>
+        ))}
+      </div>
+
+      {/* confront 全局遮罩（§2：中央独占，宇宙压暗由遮罩承担） */}
+      {confront && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/60 p-6 backdrop-blur-[2px]">
+          <div
+            data-testid="scene-card"
+            data-scene-id={confront.id}
+            style={enterStyle(confront.id)}
+            className="w-full max-w-[460px] rounded-2xl border border-primary/40 bg-card p-6 shadow-[0_24px_70px_rgba(0,0,0,0.6)]"
+          >
+            <SurfaceCard surface={confront} identityId={identityId} onDecision={(dir) => setDecisionFx({ dir, t0: Date.now() })} />
+          </div>
+        </div>
+      )}
+      {/* 退场中的 confront 卡：遮罩已撤，居中播收合动效 */}
+      {leaving
+        .filter((l) => l.surface.intent === "confront" || l.surface.focus)
+        .map(({ surface, reason, key }) => (
+          <div
+            key={`leave-c-${key}`}
+            className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center"
+          >
             <div
-              key={s.id}
-              data-testid="scene-card"
-              data-scene-id={s.id}
-              style={enterStyle(s.id)}
-              className={cn(
-                "rounded-xl border border-border bg-card/95 p-4 shadow-md",
-                s.intent === "ambient" && "opacity-80"
-              )}
-            >
-              <SurfaceCard surface={s} identityId={identityId} onDecision={(dir) => setDecisionFx({ dir, t0: Date.now() })} />
-            </div>
-          ))}
-          {hiddenCount > 0 && (
-            <button
-              type="button"
-              data-testid="scene-overflow"
-              onClick={() => setExpanded(!expanded)}
-              className="self-end rounded-full border border-border bg-card/95 px-3 py-1 font-mono text-[10px] text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {expanded ? "收起 ⌃" : `还有 ${hiddenCount} 项 ⌄`}
-            </button>
-          )}
-          {expanded &&
-            others
-              .filter((s) => !visible.includes(s.id) && !isCompact(s))
-              .map((s) => (
-                <div
-                  key={s.id}
-                  data-testid="scene-card"
-                  data-scene-id={s.id}
-                  className="rounded-xl border border-border bg-card/95 p-4 shadow-md"
-                >
-                  <SurfaceCard surface={s} identityId={identityId} />
-                </div>
-              ))}
-          {compactCards.map((s) => (
-            <div
-              key={s.id}
-              data-testid="scene-card"
-              data-scene-id={s.id}
-              data-compact="true"
-              className="rounded-lg border border-border/70 bg-card/85 px-3 py-2"
-            >
-              <SurfaceCard surface={s} identityId={identityId} compact />
-            </div>
-          ))}
-          {/* TTL 沉淀条（§16.2）：单行摘要，不占 3 张配额，隔夜并入账卡 */}
-          {sedimented.map(({ surface }) => (
-            <div
-              key={`sed-${surface.id}`}
-              data-testid="scene-sediment"
-              data-scene-id={surface.id}
-              data-compact="sediment"
-              className="rounded-lg border border-border/50 bg-card/60 px-3 py-2 opacity-70"
-            >
-              <SurfaceCard surface={surface} identityId={identityId} compact />
-            </div>
-          ))}
-          {/* 退场中的卡（§16.7）：按 reason 播退场动效后由宿主清理 */}
-          {leaving.map(({ surface, reason, key }) => (
-            <div
-              key={`leave-${key}`}
               data-testid="scene-card-leaving"
               style={exitStyle(reason)}
-              className="pointer-events-none rounded-xl border border-border bg-card/95 p-4 shadow-md"
+              className="mx-4 w-full max-w-[460px] rounded-2xl border border-border bg-card p-6"
             >
-              <SurfaceCard surface={surface} identityId={identityId} compact />
-            </div>
-          ))}
-        </div>
-
-        {/* confront 全局遮罩（§2：中央独占，宇宙压暗由遮罩承担） */}
-        {confront && (
-          <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/60 p-6 backdrop-blur-[2px]">
-            <div
-              data-testid="scene-card"
-              data-scene-id={confront.id}
-              style={enterStyle(confront.id)}
-              className="w-full max-w-xl rounded-2xl border border-primary/40 bg-card p-6 shadow-2xl ring-1 ring-primary/20"
-            >
-              <SurfaceCard surface={confront} identityId={identityId} onDecision={(dir) => setDecisionFx({ dir, t0: Date.now() })} />
+              <SurfaceCard surface={surface} identityId={identityId} />
             </div>
           </div>
-        )}
-        {/* 退场中的 confront 卡：遮罩已撤，居中播收合动效 */}
-        {leaving
-          .filter((l) => l.surface.intent === "confront" || l.surface.focus)
-          .map(({ surface, reason, key }) => (
-            <div
-              key={`leave-c-${key}`}
-              className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center"
-            >
-              <div
-                data-testid="scene-card-leaving"
-                style={exitStyle(reason)}
-                className="mx-4 w-full max-w-xl rounded-2xl border border-border bg-card p-6"
-              >
-                <SurfaceCard surface={surface} identityId={identityId} />
-              </div>
-            </div>
-          ))}
+        ))}
 
-        {/* 底部：心跳行 + 对话条（§3 对话单真相源 + §7 时间感） */}
-        <div className="absolute bottom-4 left-4 z-20 flex flex-col gap-2">
-          <WorkHeartbeat tele={tele} />
-        </div>
-        <div className="absolute bottom-4 left-1/2 z-20 w-[min(560px,44vw)] -translate-x-1/2">
-          <TalkStrip
-            identityId={identityId}
-            onExpand={onOpenChat}
-            onListeningChange={setListening}
-          />
-        </div>
+      {/* 底部：心跳行 + 对话条（§3 对话单真相源 + §7 时间感），居中 */}
+      <div className="absolute bottom-[4.5rem] left-1/2 z-20 w-[min(620px,60vw)] -translate-x-1/2">
+        <WorkHeartbeat tele={tele} />
+      </div>
+      <div className="absolute bottom-6 left-1/2 z-20 w-[min(620px,60vw)] -translate-x-1/2">
+        <TalkStrip
+          identityId={identityId}
+          onExpand={onExpand}
+          onListeningChange={setListening}
+        />
       </div>
     </div>
   );

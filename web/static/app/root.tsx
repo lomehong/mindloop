@@ -178,6 +178,13 @@ export default function App() {
                 <main className="flex min-h-0 flex-1 flex-col">{canvas}</main>
               </div>
             )
+          ) : identityMode ? (
+            /* 心智页 = 剧场（theater-stage.html 完整还原，2026-10-14
+               拍板）：顶栏 + 舞台/引擎视图自持整窗——NavRail/档案卡/
+               状态坞是工作台语汇，不进剧场。 */
+            <div className="flex h-screen flex-col overflow-hidden bg-background">
+              {canvas}
+            </div>
           ) : (
             <div className="relative flex h-screen min-w-0 bg-background">
               {/* 窗口右上角控件簇：主题切换 +（壳内）窗控三钮——浮在
