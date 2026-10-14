@@ -46,7 +46,9 @@ export function ChatOverlay({
             收起
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        {/* ChatPage 自带高度契约（消息区自滚、输入坞贴底）：宿主只
+            让位，不再包一层滚动——否则表单跟着内容滚、底部留空腔。 */}
+        <div className="flex min-h-0 flex-1 flex-col p-5">
           <ChatPage />
         </div>
       </div>

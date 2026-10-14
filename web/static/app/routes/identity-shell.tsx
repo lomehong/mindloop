@@ -233,7 +233,15 @@ export default function IdentityShell() {
             />
           </>
         ) : (
-          <div className="h-full overflow-y-auto px-5 pb-8 sm:px-6">
+          <div
+            className={
+              // 对话页（书签兜底路由）同样履行 ChatPage 的高度契约：
+              // 宿主定界为 flex 列、自身不滚——消息区自滚、输入坞贴底。
+              section === "chat"
+                ? "flex h-full flex-col overflow-hidden px-5 pb-4 sm:px-6"
+                : "h-full overflow-y-auto px-5 pb-8 sm:px-6"
+            }
+          >
             <NeedYouBar identityId={identityId} />
             {/* engine-head（theater-stage.html .engine-head）：标题左、
                 搜索右（仅轨迹——记忆页有自己的搜索记忆框） */}
@@ -273,7 +281,13 @@ export default function IdentityShell() {
                 })}
               </div>
             )}
-            <Outlet />
+            <div
+              className={
+                section === "chat" ? "flex min-h-0 flex-1 flex-col" : undefined
+              }
+            >
+              <Outlet />
+            </div>
           </div>
         )}
       </div>

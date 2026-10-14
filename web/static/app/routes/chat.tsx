@@ -170,9 +170,12 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [itemCount, reply?.text.length, chatActivity.length]);
 
+  // 高度契约：宿主给多高就占多高（浮层/引擎视图），消息区 flex-1
+  // 自滚、输入坞 shrink-0 恒贴底——输入条不随消息流滚动（2026-10-14
+  // 用户反馈：展开态输入坞要钉在对话框最下面）。
   return (
-    <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
-      <div className="mx-auto flex w-full max-w-3xl flex-col">
+    <div className="mx-auto flex h-full w-full max-w-7xl flex-col 2xl:max-w-[1600px]">
+      <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">
 
       {controlsEnabled && !dispatcherRunning && (
         <div className="mb-4 flex items-center gap-3 rounded-xl border border-resin/40 bg-resin/5 px-3.5 py-2.5 text-xs text-foreground">
@@ -185,10 +188,10 @@ export default function ChatPage() {
         </div>
       )}
 
-      <div className="relative">
+      <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         ref={scrollRef}
-        className="flex max-h-[68vh] min-h-[40vh] flex-col overflow-y-auto px-1 py-2"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto px-1 py-2"
       >
         {isLoading ? (
           <div className="space-y-5 py-6">
@@ -278,7 +281,7 @@ export default function ChatPage() {
 
       {controlsEnabled && (
         <form
-          className="mt-4 rounded-[14px] border border-line bg-secondary/60 p-3 shadow-sm"
+          className="mt-4 shrink-0 rounded-[14px] border border-line bg-secondary/60 p-3 shadow-sm"
           onSubmit={(event) => {
             event.preventDefault();
             if (!draft.trim() || isSending) return;
