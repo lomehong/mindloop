@@ -204,6 +204,18 @@ func envBytes(name string) int {
 // 开启（含未设置——流式是默认行为）。
 func streamEnabled() bool { return os.Getenv("MINDLOOP_STREAM") != "0" }
 
+// sceneTTLFromEnv 折算 MINDLOOP_SCENE_TTL（ambient 卡保鲜期，时长
+// 语法；缺省 1h，≤0 关闭清扫）——theater.md §16.2 ambient 过期沉淀
+// 的服务端时钟。
+func sceneTTLFromEnv() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("MINDLOOP_SCENE_TTL")); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return time.Hour
+}
+
 // responderStreamFn 把 llm.Client 的 CompleteStream 适配成 responder
 // 的 StreamFn 调用面——参数同构，请求收敛成结构化请求。用量观测
 // 走 CompleteStream 内部的 OnDone，与非流式路径同一份台账。
@@ -349,7 +361,12 @@ func sceneApprovalHook(tl *traj.Timeline, logger func(string, ...any)) func(runn
 	return func(ex runner.Execution, waiting bool) {
 		surfaceID := "approve-" + policy.ScriptHash(ex.Script)[:8]
 		if !waiting {
-			if err := appendSceneStep(tl, map[string]any{"op": "remove", "id": surfaceID}); err != nil && logger != nil {
+			// 撤卡带生命周期括号（theater.md §16.7）：审批等待的离开
+			// （批准/拒绝/超时/取消）对这张卡都是"完成"——决策已发生，
+			// 投影端按 done 选收工退场动效。
+			if err := appendSceneStep(tl, map[string]any{
+				"op": "remove", "id": surfaceID, "exit_reason": "done",
+			}); err != nil && logger != nil {
 				logger("审批卡撤销失败: %v", err)
 			}
 			return

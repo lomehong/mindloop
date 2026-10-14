@@ -9,7 +9,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
-import { openSceneStream, postSceneIntent, type SceneSurface, type SceneState } from "~/lib/scene";
+import { openSceneStream, postSceneIntent, type SceneExitReason, type SceneStreamEvent, type SceneSurface, type SceneState } from "~/lib/scene";
 import { fetchApprovals } from "~/lib/api";
 import { fmtWaiting, loadDecision, partitionCards, saveDecision, variationCompactIds } from "~/lib/theater";
 import { cn } from "~/lib/utils";
@@ -28,9 +28,18 @@ const EMPTY_SCENE: SceneState = { rev: 0, surfaces: [] };
 
 /** useSceneStream 维护一条场景流的生命周期：连接 → 状态折叠 → 断线
  * 重连（2s 起步指数退避，封顶 15s）。identityId 变化即重建（切身份
- * = 换一条流）。visibility 无关：卡片面在任何 tab 都在场。 */
-export function useSceneStream(identityId: string): SceneState {
+ * = 换一条流）。onEvent 可选：op 级事件在状态更新前发出（E1 推卡
+ * 脉冲 / 按 reason 退场动画的派生源，theater.md §11/§16.7）。
+ * visibility 无关：卡片面在任何 tab 都在场。 */
+export function useSceneStream(
+  identityId: string,
+  onEvent?: (ev: SceneStreamEvent) => void
+): SceneState {
   const [state, setState] = useState<SceneState>(EMPTY_SCENE);
+  const eventRef = useRef(onEvent);
+  useEffect(() => {
+    eventRef.current = onEvent;
+  }, [onEvent]);
   useEffect(() => {
     if (!identityId) return;
     const controller = new AbortController();
@@ -39,7 +48,11 @@ export function useSceneStream(identityId: string): SceneState {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const connect = () => {
       if (stopped) return;
-      openSceneStream(identityId, setState, { signal: controller.signal })
+      openSceneStream(
+        identityId,
+        setState,
+        { signal: controller.signal, onEvent: (ev) => eventRef.current?.(ev) }
+      )
         .then(() => {
           // 服务端正常关闭（如身份被删）：按断线处理走重连。
           if (!stopped) timer = setTimeout(connect, backoff);
@@ -295,12 +308,21 @@ function ChoiceCard({
   );
 }
 
-/** 舞台宇宙的特效信号（E2 收工 / E4 决定 / 在听）——SceneStage 从
- * 场景流与对话条派生，传给宇宙层驱动一次性动画。 */
+/** 舞台宇宙的特效信号（E1 推卡前兆 / E2 收工 / E4 决定 / 在听）——
+ * SceneStage 从场景流与对话条派生，传给宇宙层驱动一次性动画。 */
 export interface StageFx {
+  pulse: { t0: number; quadrant: "center" | "right" } | null;
   decision: { dir: "allow" | "deny"; t0: number } | null;
   completion: { t0: number } | null;
   listening: boolean;
+}
+
+/** 退场卡（theater.md §16.7）：remove 已发生，内容保留到退场动画
+ * 播完（按 reason 选动效，scene.css keyframes），随后由宿主清理。 */
+export interface LeavingCard {
+  surface: SceneSurface;
+  reason: SceneExitReason;
+  key: number;
 }
 
 /** SceneStage 是仪表盘的舞台形态（theater.md v2 分区制）：宇宙铺
@@ -313,11 +335,20 @@ export function SceneStage({
   identityId,
   onBack,
   onOpenChat,
+  pulse,
+  leaving,
+  sedimented,
 }: {
   surfaces: SceneSurface[];
   identityId: string;
   onBack: () => void;
   onOpenChat: () => void;
+  /** E1 推卡前兆（theater.md §11）：upsert 事件派生的核心球脉冲。 */
+  pulse: StageFx["pulse"];
+  /** 退场中的卡（按 reason 播退场动效，宿主定时清理）。 */
+  leaving: LeavingCard[];
+  /** TTL 沉淀卡（§16.2）：降为单行摘要条，不占右列 3 张配额。 */
+  sedimented: Array<{ surface: SceneSurface }>;
 }) {
   const tele = useStageTelemetry(identityId);
   const { presence, setAway, lastVisibleMs } = usePresence(identityId);
@@ -347,7 +378,36 @@ export function SceneStage({
     if (newly.length > 0) setCompletionFx({ t0: Date.now() });
   }, [surfaces]);
 
-  const fx: StageFx = { decision: decisionFx, completion: completionFx, listening };
+  const fx: StageFx = {
+    pulse,
+    decision: decisionFx,
+    completion: completionFx,
+    listening,
+  };
+  // 入场 stagger（§12 batch 多卡 40ms）：新卡按到达序分配 40ms 槽位。
+  // 渲染期调整模式（ref 记账，不触发重渲染）；既有卡不重播。
+  const enterDelaysRef = useRef(new Map<string, number>());
+  const prevIdsRef = useRef<Set<string>>(new Set());
+  const fresh = surfaces.filter((s) => !prevIdsRef.current.has(s.id));
+  if (fresh.length > 0) {
+    fresh.forEach((s, i) => enterDelaysRef.current.set(s.id, i * 40));
+    prevIdsRef.current = new Set(surfaces.map((s) => s.id));
+  }
+  const enterStyle = (id: string) => {
+    const delay = enterDelaysRef.current.get(id) ?? 0;
+    return { animation: `scene-card-in 320ms cubic-bezier(.2,.9,.25,1) ${delay}ms both` };
+  };
+  const exitStyle = (reason: SceneExitReason) => {
+    const name =
+      reason === "done"
+        ? "scene-card-out-done"
+        : reason === "dismissed"
+          ? "scene-card-out-dismissed"
+          : reason === "superseded"
+            ? "scene-card-out-superseded"
+            : "scene-card-out-ttl";
+    return { animation: `${name} 260ms ease-in both` };
+  };
   // 隔夜判定基准：显式离开取「可见时刻与离开时刻的较早者」。
   const lastSeenMs = presence.away
     ? Math.min(lastVisibleMs, presence.sinceMs || lastVisibleMs)
@@ -393,6 +453,7 @@ export function SceneStage({
               key={s.id}
               data-testid="scene-card"
               data-scene-id={s.id}
+              style={enterStyle(s.id)}
               className={cn(
                 "rounded-xl border border-border bg-card/95 p-4 shadow-md",
                 s.intent === "ambient" && "opacity-80"
@@ -435,6 +496,29 @@ export function SceneStage({
               <SurfaceCard surface={s} identityId={identityId} compact />
             </div>
           ))}
+          {/* TTL 沉淀条（§16.2）：单行摘要，不占 3 张配额，隔夜并入账卡 */}
+          {sedimented.map(({ surface }) => (
+            <div
+              key={`sed-${surface.id}`}
+              data-testid="scene-sediment"
+              data-scene-id={surface.id}
+              data-compact="sediment"
+              className="rounded-lg border border-border/50 bg-card/60 px-3 py-2 opacity-70"
+            >
+              <SurfaceCard surface={surface} identityId={identityId} compact />
+            </div>
+          ))}
+          {/* 退场中的卡（§16.7）：按 reason 播退场动效后由宿主清理 */}
+          {leaving.map(({ surface, reason, key }) => (
+            <div
+              key={`leave-${key}`}
+              data-testid="scene-card-leaving"
+              style={exitStyle(reason)}
+              className="pointer-events-none rounded-xl border border-border bg-card/95 p-4 shadow-md"
+            >
+              <SurfaceCard surface={surface} identityId={identityId} compact />
+            </div>
+          ))}
         </div>
 
         {/* confront 全局遮罩（§2：中央独占，宇宙压暗由遮罩承担） */}
@@ -443,12 +527,30 @@ export function SceneStage({
             <div
               data-testid="scene-card"
               data-scene-id={confront.id}
+              style={enterStyle(confront.id)}
               className="w-full max-w-xl rounded-2xl border border-primary/40 bg-card p-6 shadow-2xl ring-1 ring-primary/20"
             >
               <SurfaceCard surface={confront} identityId={identityId} onDecision={(dir) => setDecisionFx({ dir, t0: Date.now() })} />
             </div>
           </div>
         )}
+        {/* 退场中的 confront 卡：遮罩已撤，居中播收合动效 */}
+        {leaving
+          .filter((l) => l.surface.intent === "confront" || l.surface.focus)
+          .map(({ surface, reason, key }) => (
+            <div
+              key={`leave-c-${key}`}
+              className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center"
+            >
+              <div
+                data-testid="scene-card-leaving"
+                style={exitStyle(reason)}
+                className="mx-4 w-full max-w-xl rounded-2xl border border-border bg-card p-6"
+              >
+                <SurfaceCard surface={surface} identityId={identityId} />
+              </div>
+            </div>
+          ))}
 
         {/* 底部：心跳行 + 对话条（§3 对话单真相源 + §7 时间感） */}
         <div className="absolute bottom-4 left-4 z-20 flex flex-col gap-2">

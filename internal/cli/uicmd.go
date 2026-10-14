@@ -42,6 +42,7 @@ metric（数值）。intent 是语义重要性：ambient（氛围）/ inform（�
 func (c *CLI) newUISetCmd() *cobra.Command {
 	var kindP, intentP, summaryP, dataP string
 	var removeP bool
+	var batchP, exitReasonP string
 	cmd := &cobra.Command{
 		Use:   "set <身份名> <id>",
 		Short: "幂等声明一个界面卡片（--remove 移除）",
@@ -59,13 +60,29 @@ func (c *CLI) newUISetCmd() *cobra.Command {
 			store := mind.NewSceneStore()
 			store.Replay(steps)
 
+			// choreography 批号（theater.md §16.7）：同一编排事务的多张
+			// 卡共享 batch_id，投影端单帧批量落位 + stagger 40ms。模型
+			// 在一个 bash 块里连发多张卡时传同一 --batch 即可断言。
+			batchFields := func(fields map[string]any) map[string]any {
+				if batchP != "" {
+					fields["batch_id"] = batchP
+				}
+				return fields
+			}
+
 			if removeP {
 				changed := store.Remove(surfaceID)
 				if !changed {
 					fmt.Fprintf(c.stdout, "卡片 %s 不存在，无需移除\n", surfaceID)
 					return nil
 				}
-				if err := appendSceneStep(id.Timeline, map[string]any{"op": "remove", "id": surfaceID}); err != nil {
+				fields := map[string]any{"op": "remove", "id": surfaceID}
+				// exit_reason 生命周期括号（theater.md §16.7）：ttl/
+				// superseded/done/dismissed——投影端按 reason 选退场动效。
+				if exitReasonP != "" {
+					fields["exit_reason"] = exitReasonP
+				}
+				if err := appendSceneStep(id.Timeline, batchFields(fields)); err != nil {
 					return c.fail(err)
 				}
 				fmt.Fprintf(c.stdout, "已移除卡片 %s\n", surfaceID)
@@ -121,7 +138,7 @@ func (c *CLI) newUISetCmd() *cobra.Command {
 			if len(data) > 0 {
 				fields["data"] = string(data) // 扁平 fields 存标量：JSON 字符串化
 			}
-			if err := appendSceneStep(id.Timeline, fields); err != nil {
+			if err := appendSceneStep(id.Timeline, batchFields(fields)); err != nil {
 				return c.fail(err)
 			}
 			fmt.Fprintf(c.stdout, "已声明卡片 %s（%s）\n", surfaceID, kindP)
@@ -134,6 +151,8 @@ func (c *CLI) newUISetCmd() *cobra.Command {
 	fs.StringVar(&summaryP, "summary", "", "一行摘要（manifest 回注与降级占位共用，≤80 字节）")
 	fs.StringVar(&dataP, "data", "", "卡片数据（合法 JSON 字符串，≤16KB）")
 	fs.BoolVar(&removeP, "remove", false, "移除该卡片")
+	fs.StringVar(&batchP, "batch", "", "choreography 批号：同批多卡共享（投影端单帧批量落位+stagger）")
+	fs.StringVar(&exitReasonP, "exit-reason", "", "remove 的生命周期括号：ttl/superseded/done/dismissed（投影端按 reason 选退场动效）")
 	return cmd
 }
 

@@ -939,3 +939,47 @@ html.dark .pet-shadow { opacity: 0.32; }
   color: var(--muted-foreground);
   word-break: break-all;
 }
+
+/* —— 剧场舞台卡片动效（theater.md §12 动效契约的 CSS 实现）——
+   enter/morph/exit 按 intent 分形；batch 多卡由内联 animation-delay
+   stagger 40ms；reduced-motion 全部退化为瞬时（契约要求）。 */
+@keyframes scene-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+}
+
+@keyframes scene-card-out-done {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+}
+
+@keyframes scene-card-out-dismissed {
+  to {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+@keyframes scene-card-out-superseded {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes scene-card-out-ttl {
+  to {
+    opacity: 0.55;
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [style*="scene-card-"] {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+  }
+}

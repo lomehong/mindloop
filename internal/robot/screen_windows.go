@@ -167,14 +167,20 @@ func ScreenshotPNG() ([]byte, ScreenInfo, error) {
 	return buf.Bytes(), info, nil
 }
 
-// ForegroundTitle 返回前台窗口标题；无前台窗口（锁屏/安全桌面）
-// 返回 ok=false。
+// ForegroundTitle 返回前台窗口标题；无前台窗口（锁屏/安全桌面）或
+// 前台无标题（桌面/特殊系统面）一律返回 ok=false——ok 的契约是
+// "有可用前台标题"，不是"有前台窗口"（空标题对所有调用方等价于
+// 不可用：敏感词不命中、白名单不匹配）。
 func ForegroundTitle() (string, bool) {
 	h, _, _ := procGetForegroundWindow.Call()
 	if h == 0 {
 		return "", false
 	}
-	return windowTitle(h), true
+	title := windowTitle(h)
+	if title == "" {
+		return "", false
+	}
+	return title, true
 }
 
 // windowTitle 读窗口标题（UTF-16 → string）。

@@ -104,6 +104,9 @@ function renderStage(surfaces: SceneSurface[], approvals: unknown[] = []) {
         <SceneStage
           surfaces={surfaces}
           identityId="ada"
+          pulse={null}
+          leaving={[]}
+          sedimented={[]}
           onBack={() => {}}
           onOpenChat={() => {}}
         />

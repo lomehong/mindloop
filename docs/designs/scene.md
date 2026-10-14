@@ -108,6 +108,13 @@ canonical JSON 序列化后比对。
 - 其余 intent 只落轨迹（历史与上下文材料），**不叫醒心智、不触发
   任何执行**——生命周期信号（dismiss 等）同理，只作上下文。
 
+**interrupt/resume 语义对齐（theater.md §16.7，AG-UI 术语映射）**：
+审批等待即 AG-UI 的 interrupt——任务执行流在 gate 处挂起，confront
+choice 卡是挂起态的可见投影；intent `select` 回流经 `policy.Decide`
+落决策文件即 resume——执行流恢复。字段命名对照：AG-UI `interrupted`
+↔ 本协议无新增字段（挂起态由 choice 卡存在性表达，remove 的
+`exit_reason: done` 即 resume 完成）；不引 AG-UI 框架，只对齐语义。
+
 ## 4. kind 词汇表 v1
 
 每个 kind：用途 + data schema + 上行 intent。渲染端不认识的 kind

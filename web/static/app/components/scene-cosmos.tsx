@@ -17,10 +17,12 @@ import { useEffect, useRef, useState } from "react";
 
 import { MIND_STATE_PARAMS, mindStateOf, type MindState } from "~/lib/theater";
 
-/** 舞台特效信号（theater.md §11/§13）：E4 审批决定环、E2 收工巡视、
- * 在听辉光。由 scene-layer 从场景流与对话条派生（真实交互派生，
- * 无装饰性假状态），结构兼容即可——渲染端只读 t0/dir。 */
+/** 舞台特效信号（theater.md §11/§13）：E1 推卡前兆脉冲、E4 审批
+ * 决定环、E2 收工巡视、在听辉光。由 scene-layer 从场景流与对话条
+ * 派生（真实交互派生，无装饰性假状态），结构兼容即可——渲染端只读
+ * t0/dir/quadrant。 */
 export interface CosmosFx {
+  pulse: { t0: number; quadrant: "center" | "right" } | null;
   decision: { dir: "allow" | "deny"; t0: number } | null;
   completion: { t0: number } | null;
   listening: boolean;
@@ -124,7 +126,12 @@ export function SceneCosmos({ identityId, fx }: { identityId: string; fx?: Cosmo
     () => typeof window !== "undefined" && !window.WebGLRenderingContext
   );
   // 特效信号经 ref 进渲染循环：props 变化不重建整个 three.js 场景。
-  const fxRef = useRef<CosmosFx>({ decision: null, completion: null, listening: false });
+  const fxRef = useRef<CosmosFx>({
+    pulse: null,
+    decision: null,
+    completion: null,
+    listening: false,
+  });
   useEffect(() => {
     if (fx) fxRef.current = fx;
   }, [fx]);
@@ -395,10 +402,49 @@ export function SceneCosmos({ identityId, fx }: { identityId: string; fx?: Cosmo
       // —— 数据轮询（轻：30s；失败静默保持上一态）——
       let mindState: MindState = "idle";
       let tickCount = -1;
+
+      // E3 错误碎粒（theater.md §11）：陶土色碎粒自核心近轨弹出又坠
+      // 回（抛物线 700ms）——"疼了一下"而非"坏了"。
+      const debris: Array<{ mesh: import("three").Mesh; vel: import("three").Vector3 }> = [];
+      let debrisT0 = -1e9;
+      const spawnDebris = () => {
+        if (disposed) return;
+        // 清上一轮（触发间隔 > 动画时长，理论不会重叠——防御性清理）。
+        for (const d of debris) {
+          scene.remove(d.mesh);
+          d.mesh.geometry.dispose();
+          (d.mesh.material as import("three").Material).dispose();
+        }
+        debris.length = 0;
+        for (let i = 0; i < 4; i++) {
+          const mesh = new THREE.Mesh(
+            new THREE.SphereGeometry(0.055, 10, 10),
+            new THREE.MeshBasicMaterial({ color: 0xcf6f5a, transparent: true })
+          );
+          const a = (i / 4) * Math.PI * 2 + rnd() * 0.6;
+          debris.push({
+            mesh,
+            vel: new THREE.Vector3(
+              Math.cos(a) * (0.9 + rnd() * 0.4),
+              1.5 + rnd() * 0.5,
+              Math.sin(a) * (0.9 + rnd() * 0.4)
+            ),
+          });
+          mesh.position.set(0, 1.65, 0);
+          scene.add(mesh);
+        }
+        debrisT0 = performance.now();
+      };
+
       const poll = async () => {
         try {
           const d = await fetchCosmosData(identityId);
           if (disposed) return;
+          // E3 错误碎粒：mindState 转入 error 的瞬间（边沿，非持续）
+          // ——伤害是事件不是状态（theater.md §11）。
+          if (d.state === "error" && mindState !== "error") {
+            spawnDebris();
+          }
           mindState = d.state;
           ensureThinkerBodies(d.thinkers.map((t) => t.name));
           for (const t of d.thinkers) {
@@ -472,6 +518,38 @@ export function SceneCosmos({ identityId, fx }: { identityId: string; fx?: Cosmo
           tintMat.opacity = Math.max(0, tintMat.opacity - dt * 0.5);
         }
         core.rotation.y += dt * 0.12 * cur.spin;
+        // E1 推卡前兆（theater.md §11）：核心球朝卡片象限单侧脉冲
+        // +0.1（120ms）——说话有身体前兆，卡才是"它推的"。
+        if (fx.pulse && now - fx.pulse.t0 < 120) {
+          const env = 1 - (now - fx.pulse.t0) / 120;
+          coreMat.emissiveIntensity += 0.1 * env;
+          core.position.x = (fx.pulse.quadrant === "right" ? 0.07 : 0) * env;
+        } else {
+          core.position.x = 0;
+        }
+        // E3 碎粒动画：抛物线 700ms（上抛+重力回落），尾段淡出。
+        if (debris.length > 0) {
+          const age = now - debrisT0;
+          if (age >= 700) {
+            for (const d of debris) {
+              scene.remove(d.mesh);
+              d.mesh.geometry.dispose();
+              (d.mesh.material as import("three").Material).dispose();
+            }
+            debris.length = 0;
+          } else {
+            const s = age / 1000;
+            for (const d of debris) {
+              d.mesh.position.set(
+                d.vel.x * s,
+                1.65 + d.vel.y * s - 4.5 * s * s,
+                d.vel.z * s
+              );
+              (d.mesh.material as import("three").MeshBasicMaterial).opacity =
+                Math.max(0, 1 - age / 700);
+            }
+          }
+        }
         stars.rotation.y += dt * 0.008;
         arcGroup.rotation.y += dt * 0.1 * cur.spin;
         // 闲置微翻身：短促一晃后归位

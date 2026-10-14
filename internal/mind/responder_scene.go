@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/lomehong/mindloop/internal/ids"
 )
 
 // sceneReplyKinds 是对话面允许的 kind 词汇表（scene.md §4 v1 子集）。
@@ -24,14 +26,17 @@ const (
 )
 
 // sceneReplyRequest 是围栏块的载荷（scene 步骤字段的对话面子集）。
+// ExitReason 只在 op=remove 时有意义（theater.md §16.7 生命周期括号：
+// ttl/superseded/done/dismissed，缺省 dismissed——对话里手动收起）。
 type sceneReplyRequest struct {
-	Op      string          `json:"op"`
-	ID      string          `json:"id"`
-	Kind    string          `json:"kind"`
-	Intent  string          `json:"intent"`
-	Focus   bool            `json:"focus"`
-	Summary string          `json:"summary"`
-	Data    json.RawMessage `json:"data"`
+	Op         string          `json:"op"`
+	ID         string          `json:"id"`
+	Kind       string          `json:"kind"`
+	Intent     string          `json:"intent"`
+	Focus      bool            `json:"focus"`
+	Summary    string          `json:"summary"`
+	Data       json.RawMessage `json:"data"`
+	ExitReason string          `json:"exit_reason"`
 }
 
 // splitSceneBlocks 把回复拆成（纯文本, 围栏块体列表）。围栏允许
@@ -74,6 +79,10 @@ func (r *Responder) applySceneBlocks(reply string) (string, int, int) {
 		store.Replay(steps)
 	}
 
+	// choreography 批号（theater.md §16.7）：一条回复里的全部围栏块
+	// 是同一编排事务——共享 batch_id，投影端单帧批量落位 + stagger。
+	batchID := "resp-" + ids.Short(ids.NewUUID(), 8)
+
 	placed, bad := 0, 0
 	for _, body := range bodies {
 		var req sceneReplyRequest
@@ -87,7 +96,13 @@ func (r *Responder) applySceneBlocks(reply string) (string, int, int) {
 				bad++
 				continue
 			}
-			if err := AppendSceneStep(r.opts.Timeline, map[string]any{"op": "remove", "id": id}); err != nil {
+			fields := map[string]any{"op": "remove", "id": id, "batch_id": batchID}
+			reason := strings.TrimSpace(req.ExitReason)
+			if reason == "" {
+				reason = "dismissed"
+			}
+			fields["exit_reason"] = reason
+			if err := AppendSceneStep(r.opts.Timeline, fields); err != nil {
 				bad++
 				continue
 			}
@@ -125,7 +140,8 @@ func (r *Responder) applySceneBlocks(reply string) (string, int, int) {
 		fields := map[string]any{
 			"op": "upsert", "id": id, "kind": req.Kind,
 			"intent": req.Intent, "summary": summary,
-			"data": string(req.Data),
+			"data":     string(req.Data),
+			"batch_id": batchID,
 		}
 		if req.Focus {
 			fields["focus"] = "true"

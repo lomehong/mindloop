@@ -1,13 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { CreatureSvg } from "~/components/pet/creature";
 import { ChatOverlay } from "~/components/chat-overlay";
 import { MindlogSearch } from "~/components/mindlog-search";
-import { SceneBadge, SceneStage, useSceneStream } from "~/components/scene-layer";
+import { NeedYouBar } from "~/components/need-you-bar";
+import {
+  SceneBadge,
+  SceneStage,
+  useSceneStream,
+  type LeavingCard,
+} from "~/components/scene-layer";
 import { fetchIdentities } from "~/lib/api";
 import { phaseFor } from "~/lib/pet-state";
+import type { SceneStreamEvent, SceneSurface } from "~/lib/scene";
 import type { SearchHit } from "~/lib/types";
 import { cn } from "~/lib/utils";
 
@@ -137,7 +144,42 @@ export default function IdentityShell() {
   // 「返回工作区」后，inform/ambient 新卡只给呼吸角标不抢屏，
   // confront 始终直接接管（它的定义就是必须停下决策）。身份切换 /
   // 场景清空即复位。对话展开态（§3）舞台与工作区共用一个浮层。
-  const scene = useSceneStream(identityId);
+  //
+  // op 级事件（theater.md §11/§16.7）：upsert → E1 推卡前兆脉冲；
+  // remove → ttl 沉淀为单行摘要、其余 reason 播退场动效后由定时器
+  // 清理（scene.css 的退场 keyframes 260ms 内播完）。
+  const [pulseFx, setPulseFx] = useState<
+    { t0: number; quadrant: "center" | "right" } | null
+  >(null);
+  const [leavingCards, setLeavingCards] = useState<LeavingCard[]>([]);
+  const [sedimented, setSedimented] = useState<
+    Array<{ surface: SceneSurface }>
+  >([]);
+  const onSceneEventHandler = useCallback((ev: SceneStreamEvent) => {
+    if (ev.type === "upsert") {
+      setPulseFx({
+        t0: ev.t0,
+        quadrant:
+          ev.surface.intent === "confront" || ev.surface.focus
+            ? "center"
+            : "right",
+      });
+      return;
+    }
+    if (ev.reason === "ttl") {
+      setSedimented((prev) => [...prev.slice(-5), { surface: ev.surface }]);
+      return;
+    }
+    setLeavingCards((prev) => [
+      ...prev.slice(-4),
+      { surface: ev.surface, reason: ev.reason, key: ev.t0 },
+    ]);
+    setTimeout(
+      () => setLeavingCards((prev) => prev.filter((l) => l.key !== ev.t0)),
+      600
+    );
+  }, []);
+  const scene = useSceneStream(identityId, onSceneEventHandler);
   const [stageDismissed, setStageDismissed] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   useEffect(() => {
@@ -159,6 +201,9 @@ export default function IdentityShell() {
       <SceneStage
         surfaces={scene.surfaces}
         identityId={identityId}
+        pulse={pulseFx}
+        leaving={leavingCards}
+        sedimented={sedimented}
         onBack={() => setStageDismissed(true)}
         onOpenChat={() => setChatOpen(true)}
       />
@@ -173,9 +218,32 @@ export default function IdentityShell() {
       ? navigate(`${base}?step=${encodeURIComponent(hit.step_id)}`)
       : navigate(`${base}/log?step=${encodeURIComponent(hit.step_id)}`);
 
+  // 记忆式落地（theater.md §5）：/i/:id 裸入口 → 上次停留的视图；
+  // 显式段不重定向，首次（无存留）恒轨迹。
+  useEffect(() => {
+    if (rest !== "" || !identityId) return;
+    const saved = window.localStorage.getItem(
+      `mindloop-last-section:${identityId}`
+    );
+    if (saved && saved !== "traj" && saved !== section) {
+      navigate(`${base}${saved === "chat" ? "/chat" : `/${saved}`}`, {
+        replace: true,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identityId]);
+  useEffect(() => {
+    if (!identityId) return;
+    window.localStorage.setItem(
+      `mindloop-last-section:${identityId}`,
+      section
+    );
+  }, [section, identityId]);
+
   return (
     <>
       {stageBlock}
+      {!stageActive && <NeedYouBar identityId={identityId} />}
       {/* 吸附头必须不透明（/95+blur 会透字），且不做 -mt-4 负边距抵消——
          首屏视觉完全等同，钉住时头能盖满卡片顶带（滚动容器的 pt 已撤）。 */}
       <div className={cn("sticky top-0 z-40 -mx-5 mb-4 border-b border-border/70 bg-card px-5 pt-3 sm:-mx-6 sm:px-6", stageActive && "hidden")}>

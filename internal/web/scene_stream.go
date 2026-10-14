@@ -12,6 +12,7 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"time"
@@ -41,28 +42,32 @@ type sceneSurfaces struct {
 	rev      int // 折叠过的 scene 步骤计数（快照帧的版本号）
 }
 
-// applyScene 把一条 scene 步骤折叠进状态，返回要广播的 patch 帧
-// （remove 返回 op=remove，upsert 返回完整 surface）。非 scene 步骤
-// 返回 nil。帧形与 scene.ts 客户端契约一致：patch 帧带 type 字段，
-// data 字段从轨迹里的 JSON 字符串解码为对象（前端按对象读选项/进度）。
-func (sv *sceneSurfaces) applyScene(line []byte) *sceneFrame {
-	var raw struct {
-		Type string `json:"type"`
-		Op   string `json:"op"`
-		ID   string `json:"id"`
-	}
-	if json.Unmarshal(line, &raw) != nil || raw.Type != traj.TypeScene || raw.ID == "" {
-		return nil
-	}
-	sv.rev++
-	if raw.Op == "remove" {
-		delete(sv.surfaces, raw.ID)
-		payload, _ := json.Marshal(map[string]any{"type": "scene.patch", "rev": sv.rev, "ops": []map[string]any{{"op": "remove", "id": raw.ID}}})
-		return &sceneFrame{event: "scene.patch", data: string(payload)}
-	}
+// applyScene 把一条 scene 步骤折叠进状态，返回单条 patch op 与其
+// choreography 批号（theater.md §16.7：同批多卡由 watcher 缓冲聚合成
+// 单帧批量落位 + stagger）。非 scene 步骤返回 (nil, "")。data 在轨迹
+// 里是 JSON 字符串，投影端解码为对象——客户端按对象读选项与进度值。
+func (sv *sceneSurfaces) applyScene(line []byte) (map[string]any, string) {
 	var fields map[string]any
 	if json.Unmarshal(line, &fields) != nil || fields == nil {
-		return nil
+		return nil, ""
+	}
+	typ, _ := fields["type"].(string)
+	op, _ := fields["op"].(string)
+	id, _ := fields["id"].(string)
+	batchID, _ := fields["batch_id"].(string)
+	if typ != traj.TypeScene || id == "" {
+		return nil, ""
+	}
+	sv.rev++
+	if op == "remove" {
+		delete(sv.surfaces, id)
+		m := map[string]any{"op": "remove", "id": id}
+		// exit_reason 生命周期括号（theater.md §16.7）：ttl/superseded/
+		// done/dismissed——透传给投影端，按 reason 选退场动效。
+		if er, ok := fields["exit_reason"].(string); ok && er != "" {
+			m["exit_reason"] = er
+		}
+		return m, batchID
 	}
 	// 收窄到协议字段：轨迹行信封（step_id/ts/type）不进投影端。
 	surface := map[string]any{}
@@ -71,17 +76,31 @@ func (sv *sceneSurfaces) applyScene(line []byte) *sceneFrame {
 			surface[k] = v
 		}
 	}
-	// data 在轨迹里是 JSON 字符串（appendSceneStep 落盘形态），投影端
-	// 解码为对象——客户端按对象读选项与进度值。
 	if s, ok := surface["data"].(string); ok {
 		var decoded any
 		if json.Unmarshal([]byte(s), &decoded) == nil {
 			surface["data"] = decoded
 		}
 	}
-	sv.surfaces[raw.ID] = surface
-	payload, _ := json.Marshal(map[string]any{"type": "scene.patch", "rev": sv.rev, "ops": []map[string]any{{"op": "upsert", "surface": surface}}})
-	return &sceneFrame{event: "scene.patch", data: string(payload)}
+	sv.surfaces[id] = surface
+	return map[string]any{"op": "upsert", "surface": surface}, batchID
+}
+
+// scenePatchPayload 序列化一帧 patch：batchId 统一携带（无批号时用
+// rev 派生，协议形状一致、客户端可断言）；staggerHint 仅多卡批携带
+//（0/缺省 = 无 stagger，逐卡立即落位）。
+func scenePatchPayload(rev int, batchID string, staggerHint int, ops []map[string]any) string {
+	m := map[string]any{
+		"type":    "scene.patch",
+		"rev":     rev,
+		"batchId": batchID,
+		"ops":     ops,
+	}
+	if staggerHint > 0 {
+		m["staggerHint"] = staggerHint
+	}
+	payload, _ := json.Marshal(m)
+	return string(payload)
 }
 
 // snapshot 序列化当前折叠态（全量帧）。surfaces 按 id 排序——同一
@@ -147,13 +166,84 @@ func (w *identityWatcher) initSceneLocked() {
 	}
 }
 
-// applySceneLine 是 pollTrail 的 scene 分支：折叠 + 广播 patch。
+// scenePendingBatch 是 choreography 批缓冲：同 batch_id 的连续 scene
+// 步骤聚合成一帧批量落位（theater.md §16.7）——状态即时入折叠（快照
+// 不受影响），只有 patch 帧的发出被缓冲。边界：非 scene 步骤、不同
+// 批号、或 150ms 静默定时器任一到达即 flush。
+type scenePendingBatch struct {
+	id  string
+	rev int
+	ops []map[string]any
+}
+
+// applySceneLine 是 pollTrail 的 scene 分支：折叠 + 批缓冲 + 广播。
 // line 已是完整 JSONL 行。
 func (w *identityWatcher) applySceneLine(line []byte) {
 	w.initSceneLocked()
-	if f := w.scene.applyScene(line); f != nil {
-		w.emitSceneLocked(*f)
+	op, batchID := w.scene.applyScene(line)
+	if op == nil {
+		// 非 scene 步骤：编排事务的边界——未决批立即成帧。
+		w.flushScenePendingLocked()
+		return
 	}
+	if batchID != "" && w.scenePending != nil && w.scenePending.id == batchID {
+		w.scenePending.ops = append(w.scenePending.ops, op)
+		w.scenePending.rev = w.scene.rev
+		w.armSceneFlushLocked()
+		return
+	}
+	w.flushScenePendingLocked()
+	if batchID != "" {
+		w.scenePending = &scenePendingBatch{
+			id: batchID, rev: w.scene.rev, ops: []map[string]any{op},
+		}
+		w.armSceneFlushLocked()
+		return
+	}
+	// 无批号：单 op 即帧（batchId 统一携带——rev 派生，客户端可断言）。
+	w.emitSceneLocked(sceneFrame{
+		event: "scene.patch",
+		data:  scenePatchPayload(w.scene.rev, fmt.Sprintf("r%d", w.scene.rev), 0, []map[string]any{op}),
+	})
+}
+
+// flushScenePendingLocked 把未决批成帧返回（无未决返回 nil）。
+// 调用方持 w.mu。
+func (w *identityWatcher) flushScenePendingLocked() *sceneFrame {
+	if w.sceneFlushTimer != nil {
+		w.sceneFlushTimer.Stop()
+		w.sceneFlushTimer = nil
+	}
+	if w.scenePending == nil {
+		return nil
+	}
+	p := w.scenePending
+	w.scenePending = nil
+	stagger := 0
+	if len(p.ops) > 1 {
+		stagger = 40 // theater.md §12：batch 多卡 stagger 40ms
+	}
+	return &sceneFrame{
+		event: "scene.patch",
+		data:  scenePatchPayload(p.rev, p.id, stagger, p.ops),
+	}
+}
+
+// armSceneFlushLocked 给未决批上 150ms 静默定时器：批尾之后不再有
+// 同批步骤（尾批收不到"下一个不同步骤"的边界信号）时定时成帧——
+// 否则最后一批永远悬在缓冲里。回调自带锁，与 pollTrail 临界区串行。
+func (w *identityWatcher) armSceneFlushLocked() {
+	if w.sceneFlushTimer != nil {
+		w.sceneFlushTimer.Reset(150 * time.Millisecond)
+		return
+	}
+	w.sceneFlushTimer = time.AfterFunc(150*time.Millisecond, func() {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		if frame := w.flushScenePendingLocked(); frame != nil {
+			w.emitSceneLocked(*frame)
+		}
+	})
 }
 
 // emitSceneLocked 广播一帧给全部场景订阅者（慢订阅者弃用，与

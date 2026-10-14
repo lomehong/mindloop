@@ -1,6 +1,13 @@
 # 体验架构：「剧场」v2 — 从此刻到时间线
 
-状态：**v2 定稿（2026-10-13 用户确认）**——三视角头脑风暴打磨 +
+状态：**v2 定稿（2026-10-13 用户确认）；二期 2.1-2.3 已落地（2026-10-14）**——
+协议轨道三改（choreography batchId/staggerHint + exit_reason 生命周期
+括号 + interrupt/resume 语义对齐，scene.md §3.3 附注）、ambient TTL
+沉淀（MINDLOOP_SCENE_TTL，缺省 1h，清扫器随心智进程运行）、E1 推卡
+前兆脉冲与 E3 错误碎粒（scene-cosmos 边沿触发）、记忆式落地与全局
+「需要你」行动条（lib/need-you.ts + NeedYouBar）。2.4 引库三件按需
+缓引（动效契约当前 CSS 近似已可用）、2.5 企微镜像默认关（渠道能力
+未落地前在场芯片文案保持诚实）、2.6 已落地。三视角头脑风暴打磨 +
 Agent UI 前沿调研校准（docs/research/agent-ui-frontier.md），
 五个决策点已裁决（§15），调研增补八条已并入（§16）。
 v1（同文件前身）确立了双隐喻（观测台+剧场）、舞台四层、全局审批层；

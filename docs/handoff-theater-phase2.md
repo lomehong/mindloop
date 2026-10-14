@@ -1,9 +1,29 @@
 # 剧场 v2 二期交接文档
 
-状态：一期已落地（2026-10-14），本文档交接剩余工作。
-读者：在另一台机器上接续推进的会话/操作员。
-设计真相源：**docs/designs/theater.md（v2 定稿）**——本文只做索引与
-交接，冲突时以设计文档为准；前沿依据在 docs/research/agent-ui-frontier.md。
+状态：**二期 2.1-2.3 + 2.6 已落地（2026-10-14，接手会话完成）**；
+2.4 引库三件按设计"按需启用"缓引（动效契约 CSS 近似可用、命令面板
+与 Virtual 待真实需求）；2.5 企微镜像需渠道能力（WeCom 渠道 + 设置页
+开关）落地后启用，在场芯片文案当前保持诚实。历史内容见下。
+读者：继续推进的会话/操作员。
+设计真相源：**docs/designs/theater.md（v2 定稿，状态行已更新）**；
+前沿依据在 docs/research/agent-ui-frontier.md。
+
+**已落地记录（2026-10-14）**：
+- 2.1 协议三改：scene 步骤 batch_id/exit_reason 字段（uicmd
+  --batch/--exit-reason、responder 按回复共享批号、审批钩子撤卡
+  done）；web 折叠端批缓冲（150ms 静默定时器兜底）+ patch 帧统一
+  batchId（无批号 rev 派生）+ staggerHint 40；scene.md §3.3 附注
+  interrupt/resume 语义映射（不引框架）；
+- 2.2 TTL 沉淀：ExpiredSceneIDs（作用域仅 ambient）+ SceneTTLSweeper
+  （随心智进程，MINDLOOP_SCENE_TTL 缺省 1h）+ 前端 ttl→单行沉淀条；
+- 2.3 E1/E3：scene.ts op 级事件（本地镜像取被撤卡内容）；E1 核心
+  球象限脉冲 120ms；E3 error 边沿陶土碎粒抛物线 700ms；
+- 2.6：记忆式落地（localStorage last section）+ NeedYouBar 全局
+  行动条（signalsFor 升格 lib/need-you.ts，home 重导出保测试）；
+- 基线红修复：ForegroundTitle 契约收紧（空标题前台一律 ok=false，
+  三处调用方语义核实兼容）。
+- 验证：Go 五包全绿、前端 233 测全绿、typecheck/build 过、S17
+  sceneCards 回归过（stage testids 未变）。
 
 ## 0. 现状快照
 

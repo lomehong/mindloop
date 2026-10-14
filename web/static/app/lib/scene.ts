@@ -7,6 +7,11 @@ import { apiRequest, API_BASE } from "./api";
 
 export type SceneIntent = "ambient" | "inform" | "confront";
 
+/** remove 的生命周期括号（theater.md §16.7）：投影端按 reason 选退场
+ * 动效——ttl 蒸发沉淀 / superseded 替换淡切 / done 收工 / dismissed
+ * 手动收起。 */
+export type SceneExitReason = "ttl" | "superseded" | "done" | "dismissed";
+
 /** 场景单元：协议字段是纯数据（无样式），结构由 kind 词汇表定义。 */
 export type SceneSurface = {
   id: string;
@@ -22,18 +27,44 @@ export type SceneState = {
   surfaces: SceneSurface[];
 };
 
+/** 场景流事件（theater.md §11 E1/E3 的派生源）：op 在状态更新前
+ * 发出，remove 事件携带被撤卡的完整内容（退场动画要用它渲染）。 */
+export type SceneStreamEvent =
+  | {
+      type: "upsert";
+      id: string;
+      surface: SceneSurface;
+      batchId?: string;
+      /** 批内序号（0 起）——enter 动画 stagger = index × 40ms。 */
+      batchIndex: number;
+      t0: number;
+    }
+  | {
+      type: "remove";
+      id: string;
+      surface: SceneSurface;
+      reason: SceneExitReason;
+      t0: number;
+    };
+
 type SceneFrame =
   | { type: "scene"; state: SceneState }
   | {
       type: "scene.patch";
       rev: number;
+      /** choreography 批号（theater.md §16.7）：同批多卡单帧落位。 */
+      batchId?: string;
+      /** 批内 stagger 步长 ms（仅多卡批携带）。 */
+      staggerHint?: number;
       ops: Array<
         | { op: "upsert"; surface: SceneSurface }
-        | { op: "remove"; id: string }
+        | { op: "remove"; id: string; exit_reason?: SceneExitReason }
       >;
     };
 
 /** 打开场景流并逐帧回调折叠后的状态，直到连接关闭、出错或 abort。
+ * onEvent 可选：每次 upsert/remove 在状态更新前发出（E1 推卡脉冲 /
+ * 按 reason 退场动画的派生源；remove 事件携带被撤卡的完整内容）。
  * SSE 解析与 api.ts 的 openReplyStream 同规范（event:/data: 行、`:`
  * 注释 ping、空行分界），事件类型不同（scene / scene.patch）故独立
  * 实现——两处解析各自轻量，泛化抽象反而把 replies 的类型耦合进来。
@@ -41,7 +72,10 @@ type SceneFrame =
 export async function openSceneStream(
   identityId: string,
   onState: (update: (prev: SceneState) => SceneState) => void,
-  opts: { signal?: AbortSignal } = {}
+  opts: {
+    signal?: AbortSignal;
+    onEvent?: (ev: SceneStreamEvent) => void;
+  } = {}
 ): Promise<void> {
   const headers: Record<string, string> = { Accept: "text/event-stream" };
   const response = await apiRequest(
@@ -56,28 +90,54 @@ export async function openSceneStream(
   let buffer = "";
   let eventName = "";
   const dataLines: string[] = [];
+  // 本地镜像：op 级事件需要"被撤卡的完整内容"，从镜像取——不在
+  // onState 的 updater 里取（updater 必须纯，StrictMode 双跑会重复
+  // 发事件）。
+  let cur: SceneState = { rev: 0, surfaces: [] };
 
   const apply = (frame: SceneFrame) => {
     if (frame.type === "scene") {
+      cur = frame.state;
       onState(() => frame.state);
       return;
     }
     // patch：upsert 整体替换（无字段级深合并——协议约束，service 端
     // 已保证 surface 是不可分割整体）；remove 缺失忽略。
     // rev 不做间隙检测：SSE 有序 + 断线即重发全量，间隙不会发生。
-    onState((prev) => {
-      let surfaces = prev.surfaces;
-      for (const op of frame.ops) {
-        if (op.op === "upsert") {
-          surfaces = surfaces.some((s) => s.id === op.surface.id)
-            ? surfaces.map((s) => (s.id === op.surface.id ? op.surface : s))
-            : [...surfaces, op.surface];
-        } else {
-          surfaces = surfaces.filter((s) => s.id !== op.id);
+    const events: SceneStreamEvent[] = [];
+    let surfaces = cur.surfaces;
+    let upsertIndex = 0;
+    for (const op of frame.ops) {
+      if (op.op === "upsert") {
+        events.push({
+          type: "upsert",
+          id: op.surface.id,
+          surface: op.surface,
+          batchId: frame.batchId,
+          batchIndex: upsertIndex++,
+          t0: Date.now(),
+        });
+        surfaces = surfaces.some((s) => s.id === op.surface.id)
+          ? surfaces.map((s) => (s.id === op.surface.id ? op.surface : s))
+          : [...surfaces, op.surface];
+      } else {
+        const gone = surfaces.find((s) => s.id === op.id);
+        if (gone) {
+          events.push({
+            type: "remove",
+            id: op.id,
+            surface: gone,
+            reason: op.exit_reason ?? "dismissed",
+            t0: Date.now(),
+          });
         }
+        surfaces = surfaces.filter((s) => s.id !== op.id);
       }
-      return { rev: frame.rev, surfaces };
-    });
+    }
+    cur = { rev: frame.rev, surfaces };
+    // 事件先于状态：处理器可在状态落地前捕获被撤卡的内容。
+    if (opts.onEvent) for (const ev of events) opts.onEvent(ev);
+    onState(() => ({ rev: frame.rev, surfaces }));
   };
 
   const dispatch = () => {

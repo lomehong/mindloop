@@ -79,6 +79,11 @@ monolith 负责自主行动；闲置时指数回退（每级驻留 --idle-hold �
 				return c.fail(err)
 			}
 			fmt.Fprintf(c.stderr, "心智 %s 启动（Ctrl+C 停机）。与它对话: mindloop chat %[1]s 或 mindloop mind say %[1]s \"...\"\n", id.Name)
+			// 场景卡片 TTL 清扫（theater.md §16.2）：ambient 卡超龄
+			// 沉淀为单行摘要（exit_reason=ttl），随心智生命周期运行。
+			sweepCtx, sweepCancel := context.WithCancel(c.ctx)
+			defer sweepCancel()
+			go mind.SceneTTLSweeper(sweepCtx, id.Timeline, sceneTTLFromEnv(), c.mindLog)
 			// 持锁启动：持久任务恢复只允许在身份运行权下进行；在途执行
 			// 未退出前锁不释放（defer lock.Release() 只请求释放）。
 			runErr := stack.dispatcher.RunOwned(c.ctx, lock)

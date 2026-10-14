@@ -226,9 +226,12 @@ type identityWatcher struct {
 	tlPending   []byte
 
 	// 场景折叠状态与订阅者（scene_stream.go）：scene 步骤经
-	// pollTrail 逐行流入 applySceneLine 折叠广播。
-	scene     *sceneSurfaces
-	sceneSubs map[*sceneSub]bool
+	// pollTrail 逐行流入 applySceneLine 折叠广播。scenePending/
+	// sceneFlushTimer 是 choreography 批缓冲（theater.md §16.7）。
+	scene           *sceneSurfaces
+	sceneSubs       map[*sceneSub]bool
+	scenePending    *scenePendingBatch
+	sceneFlushTimer *time.Timer
 
 	// 事件日志：序号 + 环形缓冲（断线续接的窗口）
 	seq     int64
