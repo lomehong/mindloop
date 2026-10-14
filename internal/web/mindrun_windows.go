@@ -21,7 +21,7 @@ func mindRunSysProcAttr() *syscall.SysProcAttr {
 
 // mindRunFallbackWithoutAttr 报告 err 是否为「Job 不允许 breakaway」
 // 的启动失败（ERROR_ACCESS_DENIED）。此时降级为不脱离重试——旧语义
-//（壳退出连坐）回归，但启动可用；配合壳侧放行 BREAKAWAY_OK 后正常
+// （壳退出连坐）回归，但启动可用；配合壳侧放行 BREAKAWAY_OK 后正常
 // 路径永远走不到这里。
 func mindRunFallbackWithoutAttr(err error) bool {
 	return errors.Is(err, syscall.ERROR_ACCESS_DENIED)

@@ -18,7 +18,6 @@ import {
 } from "react-router";
 import { toast, Toaster } from "sonner";
 
-import { IdentityDossier } from "~/components/identity-dossier";
 import { NavRail, ShellControls, ShellDragArea, useRailCollapsed } from "~/components/nav-rail";
 import { StatusDock } from "~/components/status-dock";
 import { SystemPanel } from "~/components/system-panel";
