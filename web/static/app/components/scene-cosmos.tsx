@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { apiRequest } from "~/lib/api";
 import { MIND_STATE_PARAMS, mindStateOf, type MindState } from "~/lib/theater";
 
 /** 舞台特效信号（theater.md §11/§13）：E1 推卡前兆脉冲、E4 审批
@@ -40,13 +41,12 @@ type CosmosData = {
 const COSMOS_POLL_MS = 30_000;
 
 async function fetchCosmosData(identityId: string): Promise<CosmosData> {
-  const headers = { Accept: "application/json" };
   const [thinkersRes, usageRes, activityRes, approvalsRes, tasksRes] = await Promise.all([
-    fetch(`/api/identities/${encodeURIComponent(identityId)}/thinkers`, { headers }).catch(() => null),
-    fetch(`/api/identities/${encodeURIComponent(identityId)}/usage`, { headers }).catch(() => null),
-    fetch(`/api/identities/${encodeURIComponent(identityId)}/activity`, { headers }).catch(() => null),
-    fetch(`/api/identities/${encodeURIComponent(identityId)}/approvals`, { headers }).catch(() => null),
-    fetch(`/api/identities/${encodeURIComponent(identityId)}/tasks`, { headers }).catch(() => null),
+    apiRequest(`/api/identities/${encodeURIComponent(identityId)}/thinkers`).catch(() => null),
+    apiRequest(`/api/identities/${encodeURIComponent(identityId)}/usage`).catch(() => null),
+    apiRequest(`/api/identities/${encodeURIComponent(identityId)}/activity`).catch(() => null),
+    apiRequest(`/api/identities/${encodeURIComponent(identityId)}/approvals`).catch(() => null),
+    apiRequest(`/api/identities/${encodeURIComponent(identityId)}/tasks`).catch(() => null),
   ]);
   const thinkers: Array<{ name: string; state: string }> = [];
   if (thinkersRes?.ok) {

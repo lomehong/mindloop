@@ -53,7 +53,10 @@ export function useSceneStream(
         { signal: controller.signal, onEvent: (ev) => eventRef.current?.(ev) }
       )
         .then(() => {
-          // 服务端正常关闭（如身份被删）：按断线处理走重连。
+          // 服务端正常关闭（如身份被删）：按断线处理走重连。健康
+          // 会话结束要把退避归位——否则长会话后的首次断线要白等
+          // 已涨到 15s 的间隔（2026-10-14 审查 #11）。
+          backoff = 2000;
           if (!stopped) timer = setTimeout(connect, backoff);
         })
         .catch(() => {

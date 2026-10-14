@@ -217,7 +217,8 @@ export default function App() {
                     </div>
                     <StatusDock />
                   </main>
-                  {identityMode ? <IdentityDossier /> : <SystemPanel />}
+                  {/* identityMode 已被上方三元分支吃掉：这里恒工作台语汇 */}
+                  <SystemPanel />
                 </div>
               </div>
             </div>

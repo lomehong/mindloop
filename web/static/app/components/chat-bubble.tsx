@@ -4,6 +4,7 @@
 // 的消息渲染 Markdown、时间靠右、圆角更大。mine 判定、时间格式化、乐观
 // 气泡与失败重试只有这一份实现。
 
+import { memo } from "react";
 import { ExternalLink } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -24,15 +25,11 @@ export function messageTime(ts: string | null): string {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export function ChatBubble({
-  message,
-  mine,
-  variant = "desktop",
-  fromMind,
-  onConvertToTask,
-  taskHref,
-  domId,
-}: {
+// 对话列表的性能边界（2026-10-14 审查 #10）：输入草稿每键重渲
+// ChatPage，列表里的气泡不该跟着重渲。自定义比较器忽略
+// onConvertToTask 的函数身份（每渲染重建，但闭包捕获同一 message
+// ——message 等价即语义等价），其余 prop 逐一对齐。
+interface ChatBubbleProps {
   message: ChatMessage;
   mine: boolean;
   variant?: ChatBubbleVariant;
@@ -47,7 +44,17 @@ export function ChatBubble({
   taskHref?: string;
   /** 目录/深链的定位锚点（对话回合大纲用）。 */
   domId?: string;
-}) {
+}
+
+export const ChatBubble = memo(function ChatBubble({
+  message,
+  mine,
+  variant = "desktop",
+  fromMind,
+  onConvertToTask,
+  taskHref,
+  domId,
+}: ChatBubbleProps) {
   const talk = variant === "talk";
   const isTask = message.kind === "task";
   const sourceUrl =
@@ -171,7 +178,16 @@ export function ChatBubble({
       </div>
     </div>
   );
-}
+}, (a: ChatBubbleProps, b: ChatBubbleProps) =>
+  // 比较器忽略 onConvertToTask 的函数身份（每渲染重建，但闭包捕获
+  // 同一 message——message 等价即语义等价），其余 prop 逐一对齐。
+  a.message === b.message &&
+  a.mine === b.mine &&
+  a.variant === b.variant &&
+  a.fromMind === b.fromMind &&
+  a.taskHref === b.taskHref &&
+  a.domId === b.domId
+);
 
 /** 乐观气泡：发送中半透明，失败后原地提供重试入口。 */
 export function PendingChatBubble({
