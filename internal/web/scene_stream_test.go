@@ -155,30 +155,38 @@ func TestSceneBatchBuffering(t *testing.T) {
 		}
 	}
 
-	// 批内第一张：不立即成帧（缓冲等同批兄弟；60ms < 150ms flush 定时）。
+	// 批缓冲的核心不变量是"聚合成一帧"（不是"某时刻前无帧"——
+	// 短窗断言在 CI 满载时会闯进 150ms 定时器，交接文档警告的反
+	// 模式）。收集全部帧：两张同批卡必须恰好合成一帧 2 ops。
 	w.mu.Lock()
 	w.applySceneLine(sceneLine(`op":"upsert","id":"c1","kind":"text","summary":"一","batch_id":"choreo-1"`))
 	w.mu.Unlock()
-	if f, ok := readFrame(60 * time.Millisecond); ok {
-		t.Fatalf("批内首卡应缓冲不成帧, got %v", f)
-	}
-	// 批内第二张：仍缓冲（flush 定时器被 Reset，再等 150ms）。
 	w.mu.Lock()
 	w.applySceneLine(sceneLine(`op":"upsert","id":"c2","kind":"text","summary":"二","batch_id":"choreo-1"`))
 	w.mu.Unlock()
-	if f, ok := readFrame(60 * time.Millisecond); ok {
-		t.Fatalf("批内第二卡应继续缓冲, got %v", f)
+	var batchFrame map[string]any
+	deadline := time.After(2 * time.Second)
+collect:
+	for {
+		select {
+		case f := <-sub.ch:
+			var m map[string]any
+			if err := json.Unmarshal([]byte(f.data), &m); err != nil {
+				t.Fatalf("帧 data 非法: %s", f.data)
+			}
+			if m["batchId"] == "choreo-1" {
+				batchFrame = m
+				break collect
+			}
+		case <-deadline:
+			t.Fatal("2s 内未收到 choreo-1 批帧")
+		}
 	}
-	// 150ms 静默定时器兜底：尾批成帧。
-	f1, ok := readFrame(1500 * time.Millisecond)
-	if !ok {
-		t.Fatal("静默定时器应成帧")
+	if batchFrame["staggerHint"] != float64(40) {
+		t.Fatalf("批帧应带 staggerHint 40: %v", batchFrame)
 	}
-	if f1["batchId"] != "choreo-1" || f1["staggerHint"] != float64(40) {
-		t.Fatalf("批帧应带 batchId+staggerHint: %v", f1)
-	}
-	if ops, ok := f1["ops"].([]any); !ok || len(ops) != 2 {
-		t.Fatalf("批帧应含 2 ops: %v", f1)
+	if ops, ok := batchFrame["ops"].([]any); !ok || len(ops) != 2 {
+		t.Fatalf("批帧应含 2 ops（聚合成一帧）: %v", batchFrame)
 	}
 
 	// 不同批号单卡：150ms 定时成帧（单 op 无 staggerHint）。

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -174,6 +175,25 @@ func submittedTask(step traj.Step, identity string, req Submission) Task {
 //   - 缓存投影是 Store 的私有状态，read 返回深拷贝：transaction 的
 //     writeEvent 会就地 apply 返回的投影，共享指针会污染缓存。
 func (s *Store) read(ctx context.Context, syncExisting bool) (*projection, error) {
+	// 并发读者限次重试：另一进程正在追加时，本进程的 ReadFile 可能
+	// 观察到半行或半写内容（Windows 实证：WriteFile 字节落盘与长度
+	// 可见之间有窗口，读到的行可以是撕裂尾或非法 JSON）——ErrCorrupt
+	// 类错误等一拍重读即完整；写入方真崩溃留下的持久损坏重试耗尽后
+	// 依旧拒绝（ErrCorrupt 契约不变：拒绝推断、不推进缓存）。
+	const attempts = 4
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		p, err := s.readOnce(ctx, syncExisting)
+		if err == nil || !errors.Is(err, ErrCorrupt) {
+			return p, err
+		}
+		lastErr = err
+		time.Sleep(time.Duration(50*(i+1)) * time.Millisecond)
+	}
+	return nil, lastErr
+}
+
+func (s *Store) readOnce(ctx context.Context, syncExisting bool) (*projection, error) {
 	if s.tl == nil || s.tl.Path == "" || !validKey(s.identity) {
 		return nil, ErrInvalid
 	}
