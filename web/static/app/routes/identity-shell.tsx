@@ -18,6 +18,7 @@ import { MindlogSearch } from "~/components/mindlog-search";
 import { NeedYouBar } from "~/components/need-you-bar";
 import IdentityStage from "~/routes/identity-stage";
 import { PresenceChip, usePresence } from "~/components/stage-hud";
+import { ShellDragArea, WindowButtons } from "~/components/nav-rail";
 import { fetchIdentities } from "~/lib/api";
 import { phaseFor } from "~/lib/pet-state";
 import type { SearchHit } from "~/lib/types";
@@ -145,10 +146,17 @@ export default function IdentityShell() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
-      {/* 全局顶栏（theater-stage.html #topbar）：身份 + 分区导航 + 在场 */}
+      {/* 全局顶栏（theater-stage.html #topbar）＝无边框窗的标题栏：
+          拖动层铺满整条（空隙可拖 + 双击最大化），交互元素 relative
+          z-10 盖在其上正常点击，右端窗控三钮（壳外不渲染）。心智页
+          自持整窗（root.tsx 不给这条分支挂壳控件），窗口管理必须
+          自配——否则整窗拖不动也关不掉（2026-10-14 实测）。 */}
       <header className="relative z-40 flex h-14 shrink-0 items-center gap-3 border-b border-border/70 bg-background/90 px-5 backdrop-blur">
-        <Masthead identityId={identityId} />
-        <nav className="flex gap-0.5">
+        <ShellDragArea className="absolute inset-0" />
+        <div className="relative z-10 shrink-0">
+          <Masthead identityId={identityId} />
+        </div>
+        <nav className="relative z-10 flex min-w-0 gap-0.5 overflow-x-auto">
           {NAV.map((item) => {
             const active = item.key === section;
             return (
@@ -168,12 +176,14 @@ export default function IdentityShell() {
             );
           })}
         </nav>
-        <span className="flex-1" />
+        {/* 弹性空隙：pointer-events 放行给底下的拖动层——顶栏中段是
+            主要的「抓住移动」区域。 */}
+        <span className="pointer-events-none min-w-2 flex-1" />
         <button
           type="button"
           data-testid="palette-open"
           onClick={() => setPaletteOpen(true)}
-          className="whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+          className="relative z-10 whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
         >
           命令面板 <span className="font-mono text-[10px]">Ctrl K</span>
         </button>
@@ -182,26 +192,32 @@ export default function IdentityShell() {
             type="button"
             data-testid="drawer-open"
             onClick={() => setDrawerOpen(true)}
-            className="whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+            className="relative z-10 whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
           >
             引擎室
           </button>
         )}
-        <PresenceChip presence={presence} onToggle={() => setAway(!presence.away)} />
+        <span className="relative z-10">
+          <PresenceChip presence={presence} onToggle={() => setAway(!presence.away)} />
+        </span>
         <button
           type="button"
           data-testid="chat-tab"
           onClick={() => setChatOpen("1")}
-          className="whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+          className="relative z-10 whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
         >
           对话 <span aria-hidden>⤢</span>
         </button>
         <Link
           to="/"
-          className="whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+          className="relative z-10 whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
         >
           工作台
         </Link>
+        {/* 窗控三钮（壳内渲染）：最小化 / 最大化 / 关闭。 */}
+        <div className="relative z-10 shrink-0">
+          <WindowButtons />
+        </div>
       </header>
 
       <div className="relative min-h-0 flex-1">

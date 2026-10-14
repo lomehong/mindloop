@@ -204,12 +204,13 @@ function RailItem({
   );
 }
 
-/** 右上角控件簇：主题切换 +（壳内）最小化 / 最大化 / 关闭（关闭 = 缩入
- * 托盘，壳的 CloseRequested 处理会拦下销毁）。挂载点 = 窗口右上角
- * （root.tsx），不随导航栏；浏览器环境只渲染主题钮、窗控三钮自动隐去。 */
-export function ShellControls() {
+/** 窗控三钮：最小化 / 最大化 / 关闭（关闭 = 缩入托盘，壳的
+ * CloseRequested 处理会拦下销毁）。非壳环境不渲染。独立导出：
+ * 顶栏即标题栏的页面（心智页剧场）内联挂它，不用连主题钮一起搬。 */
+export function WindowButtons() {
   const tauri = typeof window !== "undefined" ? (window as { __TAURI__?: any }).__TAURI__ : null;
   const w = tauri?.window?.getCurrentWindow?.();
+  if (!w) return null;
   const btn =
     "grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground";
   return (
@@ -218,32 +219,42 @@ export function ShellControls() {
       onPointerDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
     >
+      <button
+        className={btn}
+        aria-label="最小化"
+        onClick={() => w.minimize().catch(() => {})}
+      >
+        <Minus className="size-3.5" />
+      </button>
+      <button
+        className={btn}
+        aria-label="最大化或还原"
+        onClick={() => w.toggleMaximize().catch(() => {})}
+      >
+        <Square className="size-3" />
+      </button>
+      <button
+        className={`${btn} hover:bg-clay hover:text-white`}
+        aria-label="关闭（缩入托盘）"
+        onClick={() => w.close().catch(() => {})}
+      >
+        <X className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
+/** 右上角控件簇：主题切换 +（壳内）窗控三钮。挂载点 = 工作台窗口
+ * 右上角（root.tsx），不随导航栏；浏览器环境只渲染主题钮。 */
+export function ShellControls() {
+  return (
+    <div
+      className="flex items-center gap-0.5"
+      onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
       <ThemeToggle />
-      {w && (
-        <>
-          <button
-            className={btn}
-            aria-label="最小化"
-            onClick={() => w.minimize().catch(() => {})}
-          >
-            <Minus className="size-3.5" />
-          </button>
-          <button
-            className={btn}
-            aria-label="最大化或还原"
-            onClick={() => w.toggleMaximize().catch(() => {})}
-          >
-            <Square className="size-3" />
-          </button>
-          <button
-            className={`${btn} hover:bg-clay hover:text-white`}
-            aria-label="关闭（缩入托盘）"
-            onClick={() => w.close().catch(() => {})}
-          >
-            <X className="size-3.5" />
-          </button>
-        </>
-      )}
+      <WindowButtons />
     </div>
   );
 }
