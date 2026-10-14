@@ -128,8 +128,9 @@ pub fn spawn_backend(
     Ok((child, job))
 }
 
-/// 停止壳拉起的子进程：TerminateProcess 即可——web 无状态，等价于
-/// 关掉最后一个浏览器标签页。
+/// 停止壳拉起的子进程：TerminateProcess 终止 web——web 的 UI/会话
+/// 状态无价值（等价于关掉最后一个浏览器标签页），而它 breakaway
+/// 派生的在途心智不在 Job 里（job.rs 的 BREAKAWAY_OK），不受牵连。
 pub fn kill_child(st: &crate::AppState) {
     let mut b = st.backend.lock().unwrap();
     if let Some(mut c) = b.child.take() {

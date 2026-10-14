@@ -1,8 +1,16 @@
 //! Windows Job Object：把 sidecar 子进程纳入壳的作业对象。
 //!
-//! KillOnJobClose 语义：壳进程无论正常退出还是崩溃，句柄关闭即整树
-//! 终止——壳永远不会遗留孤儿 web。与 Go 侧沙箱（internal/sandbox）
-//! 的作业对象同款机制。
+//! KillOnJobClose 语义：壳进程无论正常退出还是崩溃，句柄关闭即
+//! sidecar（web）终止——壳永远不会遗留孤儿 web。与 Go 侧沙箱
+//!（internal/sandbox）的作业对象同款机制。
+//!
+//! BREAKAWAY_OK：web 会按需 detached 派生 `mind run`（仪表盘的
+//! 启停心智按钮），而心智**有意**活过 web 的生命周期（README：
+//! mind/connector 不归壳管）。子进程默认随父入 job——不加
+//! BREAKAWAY_OK 时 Go 侧的 CREATE_BREAKAWAY_FROM_JOB 直接被拒，
+//! 壳退出会连坐在途心智（2026-10-14 审查 #1，语义炸弹）。放行
+//! breakaway 后：kill 范围 = web 自身及其未脱离的子进程，脱离的
+//! 心智不受牵连。
 
 use std::mem;
 
@@ -11,6 +19,7 @@ use windows::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOB_OBJECT_LIMIT_BREAKAWAY_OK,
 };
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
 
@@ -27,7 +36,8 @@ impl Job {
         unsafe {
             let h = CreateJobObjectW(None, None).ok()?;
             let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+                | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
             let ok = SetInformationJobObject(
                 h,
                 JobObjectExtendedLimitInformation,

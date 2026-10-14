@@ -306,9 +306,21 @@ func (s *Server) handleThinkersAll(w http.ResponseWriter, r *http.Request, id *i
 		cmd.Dir = ""
 		// 与当前 web 进程同环境（.env 已在 web 进程加载）。
 		cmd.Env = os.Environ()
+		// Windows：脱离所属 Job Object（桌面壳 KillOnJobClose 会杀
+		// 整树——心智有意活过 web，见 mindrun_windows.go）。壳未放行
+		// breakaway（旧版本/第三方 Job 包裹）时降级重试：启动可用，
+		// 代价是旧连坐语义回归，正常路径走不到。
+		cmd.SysProcAttr = mindRunSysProcAttr()
 		if err := cmd.Start(); err != nil {
-			writeError(w, 500, "启动 mind run 子进程失败: "+err.Error())
-			return
+			if !mindRunFallbackWithoutAttr(err) {
+				writeError(w, 500, "启动 mind run 子进程失败: "+err.Error())
+				return
+			}
+			cmd.SysProcAttr = nil
+			if err := cmd.Start(); err != nil {
+				writeError(w, 500, "启动 mind run 子进程失败: "+err.Error())
+				return
+			}
 		}
 		go func() { _ = cmd.Process.Release() }()
 		// 等运行锁出现（≤3s）判定启动成功。
