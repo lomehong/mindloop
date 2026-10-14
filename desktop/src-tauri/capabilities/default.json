@@ -1,10 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "mindloop 桌面壳能力（main + pet 合并为单一联合能力）。Trellis：标题栏已移除，窗体 chrome（拖动/最小化/最大化/关闭）由仪表盘顶排 + 顶部拖动带承载；仪表盘与 pet 页都是远程源（127.0.0.1），Tauri 2 对远程源 IPC 默认全拒，故显式开放 remote 上下文与所需窗口权限。合并原因：tauri/wry 在第二个 webview（pet）创建后，自定义协议 IPC 的 ACL 上下文错拿最后创建 webview 的标签判定（实测：pet 存在时 main 的 toggle_maximize 被按 pet 上下文拒绝）——单一联合能力使任一标签下命令均可放行；命令的实际目标窗口取自 JS 侧 label（getCurrentWindow 元数据），不受此错位影响。",
+  "description": "mindloop 桌面壳能力（main + pet 合并为单一联合能力）。Trellis：标题栏已移除，窗体 chrome（拖动/最小化/最大化/关闭）由仪表盘顶排 + 顶部拖动带承载；仪表盘与 pet 页都是远程源（127.0.0.1），Tauri 2 对远程源 IPC 默认全拒，故显式开放 remote 上下文与所需窗口权限。remote 端口锁定 8080-8089（health.rs 的 candidates 序列，2026-10-14 审查 #4 收敛——不再通配本机全部端口）。合并原因：tauri/wry 在第二个 webview（pet）创建后，自定义协议 IPC 的 ACL 上下文错拿最后创建 webview 的标签判定（实测：pet 存在时 main 的 toggle_maximize 被按 pet 上下文拒绝）——单一联合能力使任一标签下命令均可放行；命令的实际目标窗口取自 JS 侧 label（getCurrentWindow 元数据），不受此错位影响。",
   "windows": ["main", "pet"],
   "remote": {
-    "urls": ["http://127.0.0.1:*", "http://localhost:*"]
+    "urls": ["http://127.0.0.1:808*", "http://localhost:808*"]
   },
   "permissions": [
     "core:default",

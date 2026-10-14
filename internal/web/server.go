@@ -125,6 +125,10 @@ func (s *Server) Serve(ctx context.Context) error {
 // 调用没有 Origin 头、回环部署下 Host 校验也会误伤——它的鉴权是
 // 独立 per-sensor HMAC（评审钉死：不复用控制面 token）。
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// 桌面壳的实例指纹依赖（health.rs is_mindloop_api）：401 需配
+	// 本头才算 mindloop——本机任意 401 服务不再能骗壳挂 iframe
+	//（2026-10-14 审查 #4）。
+	w.Header().Set("X-Mindloop", "web")
 	if !strings.HasPrefix(r.URL.Path, "/hook/") && !s.sameOrigin(r) {
 		writeError(w, http.StatusForbidden, "跨源请求被拒绝（Origin/Host 校验失败）")
 		return

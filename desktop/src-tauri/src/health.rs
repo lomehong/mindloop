@@ -17,24 +17,30 @@ const TOTAL_TIMEOUT_MS: u64 = 1500;
 const MAX_BODY_BYTES: u64 = 8192;
 const PROBE_PATH: &str = "/api/identities";
 
-fn fetch_head(url: &str) -> Option<(u16, String)> {
+fn fetch_head(url: &str) -> Option<(u16, String, bool)> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_millis(CONNECT_TIMEOUT_MS))
         .timeout(Duration::from_millis(TOTAL_TIMEOUT_MS))
         .build();
     let resp = agent.get(url).call().ok()?;
     let status = resp.status();
+    // X-Mindloop 身份头（server.go ServeHTTP 全 /api 响应携带）：
+    // 401 只有配本头才算 mindloop——本机任意 401 服务不再能骗壳
+    // 挂 iframe 获窗口 IPC（2026-10-14 审查 #4 收敛）。
+    let identity = resp.header("X-Mindloop").is_some();
     let mut body = String::new();
     let take = resp.into_reader().take(MAX_BODY_BYTES);
     let mut limited = take;
     // 截断读取：超长正文（身份列表很大时）只取头部足够判定特征。
     let _ = limited.read_to_string(&mut body);
-    Some((status, body))
+    Some((status, body, identity))
 }
 
-/// 指纹判定：/api/identities 的 200+path_rel 或 401。
-pub fn is_mindloop_api(status: u16, body: &str) -> bool {
-    status == 401 || (status == 200 && body.contains("\"path_rel\""))
+/// 指纹判定：/api/identities 的 200+path_rel（老实例兼容，独有字段
+/// 难冒充）或 401+X-Mindloop 头（带 token 实例——裸 401 不算，
+/// 收敛「任意 401 即 mindloop」的冒充面）。
+pub fn is_mindloop_api(status: u16, body: &str, identity_header: bool) -> bool {
+    (status == 401 && identity_header) || (status == 200 && body.contains("\"path_rel\""))
 }
 
 /// 单端口判定：mindloop web 在跑且指纹命中。
@@ -46,7 +52,7 @@ pub fn probe(port: u16) -> bool {
 pub fn check_port(port: u16) -> Option<u16> {
     let url = format!("http://127.0.0.1:{port}{PROBE_PATH}");
     match fetch_head(&url) {
-        Some((status, body)) if is_mindloop_api(status, &body) => Some(port),
+        Some((status, body, identity)) if is_mindloop_api(status, &body, identity) => Some(port),
         _ => None,
     }
 }
@@ -85,18 +91,22 @@ mod tests {
     fn fingerprint_matches_mindloop_api() {
         assert!(is_mindloop_api(
             200,
-            r#"[{"id":"ada","name":"ada","path_rel":"ada","live":false}]"#
+            r#"[{"id":"ada","name":"ada","path_rel":"ada","live":false}]"#,
+            false
         ));
-        // 带 token 的实例：401 也是 mindloop。
-        assert!(is_mindloop_api(401, r#"{"detail":"unauthorized"}"#));
+        // 带 token 的实例：401 + X-Mindloop 头才是 mindloop（审查 #4：
+        // 裸 401 不再算——本机任意 401 服务不能冒充）。
+        assert!(is_mindloop_api(401, r#"{"detail":"unauthorized"}"#, true));
     }
 
     #[test]
     fn fingerprint_rejects_foreign_services() {
-        assert!(!is_mindloop_api(200, "<html>nginx</html>"));
-        assert!(!is_mindloop_api(200, r#"[{"id":1,"name":"x"}]"#));
-        assert!(!is_mindloop_api(404, "not found"));
-        assert!(!is_mindloop_api(500, ""));
+        assert!(!is_mindloop_api(200, "<html>nginx</html>", false));
+        assert!(!is_mindloop_api(200, r#"[{"id":1,"name":"x"}]"#, false));
+        assert!(!is_mindloop_api(404, "not found", false));
+        assert!(!is_mindloop_api(500, "", false));
+        // 裸 401（无身份头）：拒绝——本机任意服务可返 401。
+        assert!(!is_mindloop_api(401, r#"{"detail":"unauthorized"}"#, false));
     }
 
     #[test]
