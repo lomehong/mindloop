@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -222,8 +224,32 @@ func TestProjectionCacheConcurrentReadersAndWriter(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		submit(t, s, fmtKey(i))
 	}
+	// 失败诊断（windows CI -race 持续 ErrCorrupt 实证）：ErrCorrupt
+	// 时倾倒文件尺寸与头尾字节——区分空文件/撕裂尾/坏行三种形态。
+	dumpCorrupt := func(stage string, err error) {
+		data, readErr := os.ReadFile(s.tl.Path)
+		if readErr != nil {
+			t.Logf("[%s] 诊断读失败: %v（原始错误: %v）", stage, readErr, err)
+			return
+		}
+		head := string(data)
+		if len(head) > 400 {
+			head = head[:400]
+		}
+		tail := string(data)
+		if len(tail) > 400 {
+			tail = tail[len(tail)-400:]
+		}
+		t.Logf("[%s] 诊断: size=%d lines=%d 尾含换行=%v\n--头--\n%s\n--尾--\n%s\n（原始错误: %v）",
+			stage, len(data), strings.Count(string(data), "\n"),
+			len(data) > 0 && data[len(data)-1] == '\n', head, tail, err)
+	}
 	var wg sync.WaitGroup
 	stop := make(chan struct{})
+	var once sync.Once
+	reportCorrupt := func(stage string, err error) {
+		once.Do(func() { dumpCorrupt(stage, err) })
+	}
 	for r := 0; r < 4; r++ {
 		wg.Add(1)
 		go func() {
@@ -236,6 +262,9 @@ func TestProjectionCacheConcurrentReadersAndWriter(t *testing.T) {
 				}
 				all, err := s.List(ctx)
 				if err != nil {
+					if errors.Is(err, ErrCorrupt) {
+						reportCorrupt("并发 List", err)
+					}
 					t.Errorf("并发 List: %v", err)
 					return
 				}
@@ -250,6 +279,9 @@ func TestProjectionCacheConcurrentReadersAndWriter(t *testing.T) {
 	}
 	for i := 5; i < 25; i++ {
 		if _, err := s.Submit(ctx, Submission{From: "operator", ClientMessageID: fmtKey(i), Content: "要求"}); err != nil {
+			if errors.Is(err, ErrCorrupt) {
+				reportCorrupt("并发写期间 Submit", err)
+			}
 			t.Errorf("并发写期间 Submit: %v", err)
 		}
 	}
