@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -107,9 +108,19 @@ func Add(identityDir, title string) (Thread, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	// ID 用纳秒时间戳：物理唯一，且 ID 之间不构成前缀链（前缀寻址
 	// 的前提——毫秒戳 + "-1" 序号去重会让 a.ID 成为 b.ID 的前缀，
-	// a 从此无法被唯一命中，容器 -race 实证）。
+	// a 从此无法被唯一命中，容器 -race 实证）。windows 时钟粒度粗于
+	// 创建间隔——同纳秒碰撞实证（两条线索同 ID，前缀寻址永久多义），
+	// 已存在则顺延到下一个空闲纳秒（仍是纯数字，前缀链性质不变）。
+	id := fmt.Sprintf("th-%d", time.Now().UnixNano())
+	for idTaken(items, id) {
+		n, perr := strconv.ParseInt(strings.TrimPrefix(id, "th-"), 10, 64)
+		if perr != nil {
+			n = time.Now().UnixNano()
+		}
+		id = fmt.Sprintf("th-%d", n+1)
+	}
 	t := Thread{
-		ID:     fmt.Sprintf("th-%d", time.Now().UnixNano()),
+		ID:     id,
 		Title:  title,
 		Status: Open,
 		Opened: now,
@@ -117,6 +128,16 @@ func Add(identityDir, title string) (Thread, error) {
 	}
 	items = append(items, t)
 	return t, Save(identityDir, items)
+}
+
+// idTaken 报告 id 是否已被既有线索占用（Add 的碰撞顺延用）。
+func idTaken(items []Thread, id string) bool {
+	for _, it := range items {
+		if it.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // Update 更新线索的状态与备注（ID 支持唯一前缀，与 task 的 hash

@@ -237,11 +237,19 @@ func (s *Store) readOnce(ctx context.Context, syncExisting bool) (*projection, e
 				return nil, err
 			}
 			// 撕裂尾：与全量重放"文件末行无换行即拒绝"同一条纪律。
+			// 但增量失败必须作废缓存——Windows 实证（CI -race）：Stat
+			// 与数据页可见之间有窗口，consumed 会落在行中间，此后每次
+			// 增量切片的首行都是非法片段 → ErrCorrupt 永久复现（重试
+			// 也救不了，偏移已毒化）。作废后重试走全量重放，文件本体
+			// 是干净的，必然恢复。
 			if len(data) == 0 || data[len(data)-1] != '\n' {
-				return nil, fmt.Errorf("%w: 字节 %d 起的追加无完整行尾", ErrCorrupt, s.cache.consumed)
+				off := s.cache.consumed
+				s.cache = nil
+				return nil, fmt.Errorf("%w: 字节 %d 起的追加无完整行尾", ErrCorrupt, off)
 			}
 			if err := applyData(ctx, work, data, false, s.cache.lines, s.tl.ID, s.identity); err != nil {
-				return nil, err // work 是克隆，缓存未被触碰
+				s.cache = nil // 毒化偏移不作废 = 持久 ErrCorrupt（实证）
+				return nil, err
 			}
 			s.cache = &projectionCache{
 				fileID: fid, consumed: size, modTime: fi.ModTime(),
