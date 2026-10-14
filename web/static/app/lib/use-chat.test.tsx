@@ -19,6 +19,7 @@ import {
   nonTaskActivity,
   useChat,
   type StepActivity,
+  truncateToBytes,
 } from "~/lib/use-chat";
 
 interface RecordedCall {
@@ -228,5 +229,39 @@ describe("streamLiveRef 与轮询节奏", () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
     expect(chatGets()).toBeGreaterThan(1);
+  });
+});
+
+// truncateToBytes 字节游标拼接回归（2026-10-14 审查 #6）：SSE offset
+// 全协议是 UTF-8 字节游标——use-pet 曾误用 String.slice 按码元切，
+// 中文流式必错位。这里锁死「按字节截断 + 码点对齐」的语义。
+describe("truncateToBytes 字节游标截断", () => {
+  it("中文字符串：n 字节边界落在码点之间，不切碎多字节字符", () => {
+    // "你好" = 6 字节；每字符 3 字节
+    expect(truncateToBytes("你好", 6)).toBe("你好");
+    expect(truncateToBytes("你好", 4)).toBe("你"); // 第二个字符越界，整字符丢弃
+    expect(truncateToBytes("你好", 2)).toBe("");
+  });
+
+  it("delta 拼接语义：prev 截到 offset 字节 + 增量 = 完整流前缀", () => {
+    // 模拟服务端按字节推进的流：全量 "早上好，世界"，增量从字节 9 起
+    const full = "早上好，世界";
+    const encoder = new TextEncoder();
+    const offset = encoder.encode("早上好").length; // 9
+    const prev = full.slice(0, 3); // 客户端此前已按码元收到 "早上好"
+    const next = truncateToBytes(prev, offset) + "，世界";
+    expect(next).toBe(full);
+    // 错位用法（旧 bug）演示：prev 若按码元多收了字符（5 字符 = 15
+    // 字节 > 服务器确认的 9 字节），slice 按码元切照样全部保留——
+    // 超出字节边界的部分与增量拼接即产生重复腐化。
+    const drifted = "早上好，世"; // 15 字节
+    expect(drifted.slice(0, offset) + "，世界").toBe("早上好，世，世界");
+    expect(drifted.slice(0, offset) + "，世界").not.toBe(full);
+    expect(truncateToBytes(drifted, offset) + "，世界").toBe(full); // 正确重同步
+  });
+
+  it("n 覆盖全串 / n 为 0", () => {
+    expect(truncateToBytes("abc", 100)).toBe("abc");
+    expect(truncateToBytes("abc", 0)).toBe("");
   });
 });

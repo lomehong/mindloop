@@ -7,8 +7,9 @@
 
 import { useMemo, useState } from "react";
 
-import { isErrorStep, stepColor } from "~/lib/step-colors";
+import { isErrorStep } from "~/lib/step-colors";
 import type { NormalizedStep } from "~/lib/types";
+import { useNowTicker } from "~/lib/use-chat";
 import { cn } from "~/lib/utils";
 
 const BUCKETS = 288; // 24h × 5 分钟/桶；自适应轴时等分覆盖时长
@@ -51,6 +52,7 @@ export function VitalStrip({
     y: number;
   } | null>(null);
 
+  const nowTick = useNowTicker(live, 30_000);
   const model = useMemo(() => {
     const times: { step: NormalizedStep; ms: number }[] = [];
     for (const step of steps) {
@@ -61,7 +63,9 @@ export function VitalStrip({
     times.sort((a, b) => a.ms - b.ms);
     const firstMs = times[0].ms;
     const lastMs = times[times.length - 1].ms;
-    const now = Date.now();
+    // 「现在」来自 useNowTicker 的状态时钟（渲染期禁 Date.now——
+    // react-compiler 纯性门禁；30s 粒度对 24h 轴足够）。
+    const now = nowTick;
     const axisEnd = live ? Math.max(now, lastMs) : lastMs;
     const coversDay = axisEnd - firstMs >= DAY_MS;
     const axisStart = coversDay ? axisEnd - DAY_MS : firstMs;
@@ -113,7 +117,7 @@ export function VitalStrip({
   }, [steps, live]);
 
   if (!model) return null;
-  const { buckets, maxCount, coversDay, axisStart, span, ticks, axisEnd } = model;
+  const { buckets, maxCount, coversDay, axisStart, ticks, axisEnd } = model;
 
   const bucketAt = (clientX: number, el: HTMLElement): number => {
     // 柱行含 px-0.5 内边距与 gap-px：按容器等分会有累计漂移（右缘可达

@@ -7,7 +7,6 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchMemories, fetchTasks } from "~/lib/api";
 
 type LogStep = { ts: string; type: string; source?: string; preview?: string };
-type TaskLite = { task_id: string; status: string; content?: string };
 
 const TYPE_COLOR: Record<string, string> = {
   message: "text-lake",

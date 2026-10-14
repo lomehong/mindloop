@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>样张 · 数字分身（Avatar）v1 · 形态 · 进化 · 传记</title>
+<style>
+:root{
+  --bg:#121814; --surface:#171F1A; --surface2:#1F2922;
+  --fg:#E6EADF; --muted:#99A593; --faint:#6B7767;
+  --accent:#8FC166; --moss:#6FA24E; --lake:#79ADC2; --plum:#B79BD1;
+  --resin:#D9A84E; --clay:#D4735E;
+  --line:rgba(230,236,225,.09); --line2:rgba(230,236,225,.17); --grid:rgba(230,236,225,.045);
+  --sans:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+  --serif:"IBM Plex Serif",Georgia,"Songti SC","SimSun",serif;
+  --mono:"Google Sans Code","Cascadia Code",Consolas,monospace;
+}
+html[data-theme="light"]{
+  --bg:#EFF0E8; --surface:#FBFCF7; --surface2:#E8EBE1;
+  --fg:#20271F; --muted:#5B675A; --faint:#8C968B;
+  --accent:#46853A; --moss:#5F9147; --lake:#3E7C93; --plum:#7C5F9E;
+  --resin:#A9791E; --clay:#B34E3A;
+  --line:rgba(29,37,31,.13); --line2:rgba(29,37,31,.22); --grid:rgba(29,37,31,.055);
+}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--fg);font:14px/1.6 var(--sans)}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+.serif{font-family:var(--serif)}
+.mono{font-family:var(--mono)}
+.screen{display:none;min-height:100vh}
+.screen.active{display:block}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);border-radius:999px;padding:1px 10px;font-size:12px;color:var(--muted)}
+.chip .dot{width:6px;height:6px;border-radius:50%;background:var(--faint)}
+.dot.live{background:var(--accent);animation:pulse 2.4s infinite}
+.dot.warn{background:var(--resin)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.kicker{font-size:12px;color:var(--faint);letter-spacing:.08em}
+.h1{font-size:20px;font-weight:500}
+.h2{font-size:15px;font-weight:500;margin-bottom:10px}
+.muted{color:var(--muted)}.faint{color:var(--faint)}
+.row{display:flex;gap:12px;align-items:center}
+.grid{display:grid;gap:12px}
+.btn{border:1px solid var(--line2);border-radius:10px;padding:5px 14px;font-size:13px}
+.btn.pri{border-color:var(--accent);color:var(--accent)}
+.note{font-size:11px;color:var(--faint);border:1px dashed var(--line2);border-radius:8px;padding:2px 8px;display:inline-block}
+.work{max-width:1200px;margin:0 auto;padding:20px 28px 90px}
+.masthead{display:flex;justify-content:space-between;align-items:center;padding:14px 0 18px;border-bottom:1px solid var(--line);margin-bottom:18px}
+/* ———— 体征层（全局常驻） ———— */
+#vitals{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;z-index:60;
+  display:flex;gap:18px;align-items:center;background:var(--surface);border:1px solid var(--line2);
+  border-radius:999px;padding:7px 20px;font-size:12px;font-family:var(--mono);color:var(--muted);
+  box-shadow:0 4px 24px rgba(0,0,0,.25)}
+#vitals b{color:var(--fg);font-weight:400}
+.vdot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1.6s infinite}
+/* ———— 样张导航胶囊 ———— */
+#pill{position:fixed;right:16px;bottom:14px;z-index:70;background:var(--surface);border:1px dashed var(--line2);
+  border-radius:14px;padding:8px 10px;max-width:210px}
+#pill .kicker{display:block;margin:0 4px 6px}
+#pill button{display:block;width:100%;text-align:left;padding:3px 8px;border-radius:7px;font-size:12.5px;color:var(--muted)}
+#pill button.on{background:var(--surface2);color:var(--fg)}
+#pill button:hover{color:var(--fg)}
+/* ———— ⌘K ———— */
+#palette{position:fixed;inset:0;z-index:90;display:none;background:rgba(0,0,0,.45);backdrop-filter:blur(2px)}
+#palette.open{display:flex;align-items:flex-start;justify-content:center;padding-top:14vh}
+#palette .box{width:560px;max-width:92vw;background:var(--surface);border:1px solid var(--line2);border-radius:14px;overflow:hidden}
+#palette input{width:100%;background:none;border:0;outline:0;color:var(--fg);font:14px var(--sans);padding:14px 18px;border-bottom:1px solid var(--line)}
+#palette .sec{padding:10px 18px 4px;font-size:11px;color:var(--faint);letter-spacing:.08em}
+#palette .it{display:flex;justify-content:space-between;padding:7px 18px;font-size:13px;color:var(--muted);cursor:pointer}
+#palette .it:hover{background:var(--surface2);color:var(--fg)}
+#palette .it .mono{font-size:11px;color:var(--faint)}
+/* ———— 全屏沉浸面（舞台/透视/日记/星系） ———— */
+.immersive{position:relative;overflow:hidden}
+.topbar{position:relative;z-index:20;display:flex;align-items:center;gap:12px;padding:12px 18px}
+.topbar .sp{flex:1}
+.winbtns{display:flex;gap:8px}
+.winbtns i{width:11px;height:11px;border-radius:50%;border:1px solid var(--line2);display:block}
+/* 舞台宇宙 */
+.cosmos{position:absolute;inset:0;background:
+  radial-gradient(1px 1px at 12% 22%, rgba(230,236,225,.5) 50%, transparent 51%),
+  radial-gradient(1px 1px at 78% 14%, rgba(230,236,225,.4) 50%, transparent 51%),
+  radial-gradient(1.5px 1.5px at 62% 74%, rgba(230,236,225,.35) 50%, transparent 51%),
+  radial-gradient(1px 1px at 30% 68%, rgba(230,236,225,.4) 50%, transparent 51%),
+  radial-gradient(1px 1px at 88% 55%, rgba(230,236,225,.3) 50%, transparent 51%),
+  radial-gradient(1.5px 1.5px at 44% 32%, rgba(183,155,209,.4) 50%, transparent 51%),
+  radial-gradient(1px 1px at 8% 82%, rgba(230,236,225,.3) 50%, transparent 51%),
+  radial-gradient(1px 1px at 70% 40%, rgba(230,236,225,.35) 50%, transparent 51%),
+  var(--bg)}
+.core{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);width:130px;height:130px;border-radius:50%;
+  background:radial-gradient(circle at 38% 32%, #2E3B2C, #17241A 68%);
+  border:1px solid rgba(143,193,102,.35);animation:breath 4.8s ease-in-out infinite}
+.core::after{content:"";position:absolute;inset:-26px;border-radius:50%;border:1px solid var(--line)}
+@keyframes breath{0%,100%{transform:translate(-50%,-50%) scale(1)}50%{transform:translate(-50%,-50%) scale(1.035)}}
+@media (prefers-reduced-motion:reduce){.core,.vdot,.dot.live{animation:none}}
+.orbit{position:absolute;left:50%;top:46%;border:1px dashed var(--line);border-radius:50%;transform:translate(-50%,-50%)}
+.orbit .t{position:absolute;width:9px;height:9px;border-radius:50%;background:var(--moss);top:-4px;left:50%}
+/* 舞台三分区 */
+.stage-ui{position:absolute;inset:0;z-index:10;pointer-events:none}
+.stage-ui>*{pointer-events:auto}
+.rcol{position:absolute;right:18px;top:64px;width:280px;display:flex;flex-direction:column;gap:10px}
+.glass{background:color-mix(in srgb,var(--surface) 78%,transparent);border:1px solid var(--line2);
+  border-radius:12px;padding:12px 14px;backdrop-filter:blur(6px)}
+.glass .t{font-size:13px;font-weight:500}
+.glass .b{font-size:12px;color:var(--muted);margin-top:3px}
+.confront{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);width:430px;max-width:88vw;
+  background:color-mix(in srgb,var(--surface) 92%,transparent);border:1px solid var(--resin);border-radius:14px;
+  padding:18px 20px;box-shadow:0 12px 60px rgba(0,0,0,.45)}
+.bottomstrip{position:absolute;left:0;right:0;bottom:0;padding:10px 18px 16px;display:flex;flex-direction:column;gap:8px}
+.heartbeat{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.talkbar{display:flex;gap:10px;align-items:center;background:color-mix(in srgb,var(--surface) 88%,transparent);
+  border:1px solid var(--line2);border-radius:999px;padding:9px 16px;backdrop-filter:blur(6px)}
+.talkbar .ph{flex:1;color:var(--faint);font-size:13px}
+/* X 光 */
+.xray-grid{position:absolute;inset:0;z-index:5;pointer-events:none;
+  background:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:32px 32px}
+.xray-ui{position:absolute;inset:0;z-index:15}
+.readout{position:absolute;font-family:var(--mono);font-size:11px;color:var(--lake);
+  border:1px solid color-mix(in srgb,var(--lake) 45%,transparent);border-radius:8px;padding:6px 9px;
+  background:color-mix(in srgb,var(--bg) 82%,transparent)}
+.readout b{color:var(--fg);font-weight:400}
+.organ{position:absolute;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);
+  font-family:var(--mono)}
+.organ i{width:8px;height:8px;border-radius:50%;display:block}
+/* 日记望远镜 */
+.ruler{position:absolute;right:22px;top:50%;transform:translateY(-50%);z-index:20;display:flex;flex-direction:column;gap:4px}
+.ruler button{font-family:var(--mono);font-size:11px;color:var(--faint);padding:5px 10px;border-radius:8px;text-align:right;border:1px solid transparent}
+.ruler button.on{color:var(--fg);border-color:var(--line2);background:var(--surface)}
+.zoompane{display:none;position:absolute;inset:64px 90px 64px 40px}
+.zoompane.on{display:block}
+.lifeline{display:flex;align-items:flex-end;gap:2px;height:120px;border-bottom:1px solid var(--line2);
+  background:linear-gradient(var(--grid) 1px,transparent 1px);background-size:100% 24px}
+.lifeline i{flex:1;background:var(--moss);border-radius:2px 2px 0 0;opacity:.85}
+.lifeline i.err{background:var(--clay)}
+.lifeline i.msg{background:var(--lake)}
+.rings{display:flex;gap:6px;align-items:flex-end;height:90px}
+.rings i{flex:1;border-radius:4px 4px 0 0;background:var(--resin);opacity:.8}
+.chapters{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}
+.particles{display:flex;gap:5px;flex-wrap:wrap;align-content:flex-start}
+.particles i{width:10px;height:10px;border-radius:50%}
+/* 星系 */
+.star{position:absolute;width:26px;height:26px;border-radius:50%;cursor:pointer;transition:transform .2s}
+.star:hover{transform:scale(1.25)}
+.star .tip{position:absolute;left:32px;top:-6px;width:190px;display:none;background:var(--surface);
+  border:1px solid var(--line2);border-radius:10px;padding:8px 10px;font-size:12px;color:var(--muted);white-space:nowrap}
+.star:hover .tip{display:block}
+/* 师徒面 */
+.mindcard{display:flex;flex-direction:column;gap:10px}
+.axes{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.axis{border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.axis .k{font-size:11px;color:var(--faint)}
+.axis .v{font-size:13px;margin-top:2px}
+.meter{height:5px;border-radius:3px;background:var(--surface2);margin-top:8px;overflow:hidden}
+.meter i{display:block;height:100%;border-radius:3px}
+.phasechip{border-radius:999px;padding:2px 10px;font-size:12px;border:1px solid}
+.ph-appr{color:var(--moss);border-color:color-mix(in srgb,var(--moss) 50%,transparent)}
+.ph-part{color:var(--lake);border-color:color-mix(in srgb,var(--lake) 50%,transparent)}
+.ph-av{color:var(--resin);border-color:color-mix(in srgb,var(--resin) 50%,transparent)}
+.needyou{border:1px solid color-mix(in srgb,var(--resin) 55%,transparent);border-radius:12px;padding:12px 16px;
+  display:flex;gap:14px;align-items:center;background:color-mix(in srgb,var(--resin) 6%,var(--surface))}
+.feedline{display:flex;gap:10px;padding:7px 2px;border-bottom:1px solid var(--line);font-size:13px}
+.feedline .mono{color:var(--faint);font-size:11px;padding-top:2px}
+/* 分段控件 */
+.seg{display:inline-flex;border:1px solid var(--line2);border-radius:10px;overflow:hidden}
+.seg button{padding:5px 14px;font-size:12.5px;color:var(--muted);border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--surface2);color:var(--fg)}
+.klist{display:flex;flex-direction:column;gap:8px}
+.kitem{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding:7px 2px;font-size:13px}
+.kitem .ev{font-size:11px;color:var(--faint);font-family:var(--mono)}
+.theme-btn{position:fixed;left:16px;bottom:14px;z-index:70}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<!-- ═══════════ 1 · 师徒面（工作台） ═══════════ -->
+<section class="screen active" id="s-home">
+ <div class="work">
+  <div class="masthead">
+    <div class="row"><svg width="30" height="30" viewBox="0 0 30 30"><circle cx="15" cy="17" r="10" fill="#2E3B2C" stroke="#6FA24E"/><path d="M15 7c0-3 2-5 5-5-0 3-2 5-5 5z" fill="#6FA24E"/><circle cx="11.5" cy="16" r="1.6" fill="#E6EADF"/><circle cx="18.5" cy="16" r="1.6" fill="#E6EADF"/></svg>
+      <div><div class="h1">师徒面</div><div class="kicker">3 具心智 · 1 具在学 · 今日代决 6 件</div></div></div>
+    <div class="row">
+      <span class="chip"><span class="dot live"></span>ada 运行中 :8080</span>
+      <button class="btn" onclick="openPalette()">⌘K</button>
+      <button class="btn" onclick="go('stage')">进入 ada 的舞台 →</button>
+    </div>
+  </div>
+  <div class="needyou" style="margin-bottom:14px">
+    <span class="chip"><span class="dot warn"></span>需要你 · 2 项</span>
+    <div style="flex:1;font-size:13px">ada：外发审批等待中（已等 3 分钟）· kuku：预算水位 81%</div>
+    <button class="btn pri">去处理 →</button>
+  </div>
+  <div class="grid" style="grid-template-columns:repeat(3,1fr)">
+    <div class="card mindcard">
+      <div class="row"><span class="chip"><span class="dot live"></span>ada</span><span class="phasechip ph-appr">学徒期 · 67%</span><span class="sp" style="flex:1"></span><span class="mono faint">:8080</span></div>
+      <div class="axes">
+        <div class="axis"><div class="k">能力</div><div class="v">手艺 7 门 · 完成 91%</div><div class="meter"><i style="width:67%;background:var(--moss)"></i></div></div>
+        <div class="axis"><div class="k">信任</div><div class="v">auto 档 · 自发 2w/日</div><div class="meter"><i style="width:45%;background:var(--lake)"></i></div></div>
+        <div class="axis"><div class="k">传承</div><div class="v">偏好 6 条在案</div><div class="meter"><i style="width:30%;background:var(--resin)"></i></div></div>
+      </div>
+      <div class="muted" style="font-size:12.5px">今日它自己处理了 <b style="color:var(--fg)">6</b> 件同类事，你没有复查 · 学会：git 工作区巡检</div>
+      <div class="row"><button class="btn pri" onclick="go('stage')">进舞台 →</button><button class="btn" onclick="go('growth')">成长档案</button><button class="btn" onclick="go('diary')">翻日记</button></div>
+    </div>
+    <div class="card mindcard">
+      <div class="row"><span class="chip"><span class="dot"></span>kuku</span><span class="phasechip ph-part">伙伴期 · 41%</span></div>
+      <div class="axes">
+        <div class="axis"><div class="k">能力</div><div class="v">手艺 12 门 · 完成 88%</div><div class="meter"><i style="width:76%;background:var(--moss)"></i></div></div>
+        <div class="axis"><div class="k">信任</div><div class="v">自发 5w/日 · 水位 81%</div><div class="meter"><i style="width:81%;background:var(--resin)"></i></div></div>
+        <div class="axis"><div class="k">传承</div><div class="v">偏好 14 条在案</div><div class="meter"><i style="width:55%;background:var(--resin)"></i></div></div>
+      </div>
+      <div class="muted" style="font-size:12.5px">饿了：预算 81%，自发档今夜降半 · 等你：1 个外发提案</div>
+      <div class="row"><button class="btn" onclick="go('metabolism')">看食量</button><button class="btn" onclick="go('growth')">成长档案</button></div>
+    </div>
+    <div class="card mindcard">
+      <div class="row"><span class="chip"><span class="dot"></span>mini</span><span class="phasechip ph-appr">学徒期 · 9%</span></div>
+      <div class="axes">
+        <div class="axis"><div class="k">能力</div><div class="v">手艺 1 门 · 完成 —</div><div class="meter"><i style="width:9%;background:var(--moss)"></i></div></div>
+        <div class="axis"><div class="k">信任</div><div class="v">ask 档（全审）</div><div class="meter"><i style="width:12%;background:var(--lake)"></i></div></div>
+        <div class="axis"><div class="k">传承</div><div class="v">偏好 0 条</div><div class="meter"><i style="width:4%;background:var(--resin)"></i></div></div>
+      </div>
+      <div class="muted" style="font-size:12.5px">刚出生 2 天 · 2 只感官在学习期（第 1/3 天）</div>
+      <div class="row"><button class="btn" onclick="go('attention')">看注意力</button><button class="btn" onclick="go('growth')">成长档案</button></div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <div class="h2">今日成长事件 <span class="note">只以真实事件呈现，无积分无庆祝</span></div>
+    <div class="feedline"><span class="mono">14:02</span><span>ada 自己处理了 CI 红灯（查日志→重跑→验证），全程未打扰你 <span class="faint">— 3 件同类第 3 次</span></span></div>
+    <div class="feedline"><span class="mono">11:40</span><span>ada 学会新手艺：<b>git 工作区巡检</b>（来自你的 3 次示范）</span></div>
+    <div class="feedline"><span class="mono">09:15</span><span>ada 记住一条偏好：<b>commit 备注用中文</b> <span class="faint">证据：9 次批改</span></span></div>
+    <div class="feedline"><span class="mono">08:30</span><span>kuku 尝到一次纠错：提案被 undo，原因=提案多余 → 巡检阈值建议 -1 档</span></div>
+  </div>
+ </div>
+</section>
+
+<!-- ═══════════ 2 · 舞台（居所·客厅） ═══════════ -->
+<section class="screen immersive" id="s-stage">
+  <div class="cosmos"></div>
+  <div class="orbit" style="width:260px;height:260px"><span class="t"></span></div>
+  <div class="orbit" style="width:400px;height:400px"><span class="t" style="background:var(--lake)"></span></div>
+  <div class="core"></div>
+  <div class="topbar">
+    <button class="btn" onclick="go('home')">← 师徒面</button>
+    <span class="chip"><span class="dot live"></span>ada · 学徒期</span>
+    <span class="chip">在座</span>
+    <div class="sp"></div>
+    <button class="btn" onclick="go('xray')" title="按 X 透视">ⓧ 透视</button>
+    <button class="btn" onclick="openPalette()">⌘K</button>
+    <div class="winbtns"><i></i><i></i><i></i></div>
+  </div>
+  <div class="stage-ui">
+    <div class="rcol">
+      <div class="glass"><div class="t">📰 资讯周报已备好</div><div class="b"> inform · 2 分钟前 · 下钻 →</div></div>
+      <div class="glass"><div class="t">🌱 docs/ 有新提交</div><div class="b">ambient · TTL 48 分钟后蒸发</div></div>
+      <div class="glass" style="opacity:.6"><div class="t">还有 2 项 ⌄</div><div class="b">折叠的 ambient</div></div>
+    </div>
+    <div class="confront">
+      <div class="row" style="margin-bottom:8px"><span class="chip" style="color:var(--resin);border-color:var(--resin)">confront · 外发类</span><span class="chip">已等 3 分钟</span></div>
+      <div class="h2">请求批准：向企微「鸿雁」推送本周摘要</div>
+      <div class="muted" style="font-size:12.5px;margin-bottom:8px">依据：策略组=外发发布 · 来源任务「每周资讯整理」 · 风险=触达外部渠道，可撤回</div>
+      <div class="row" style="gap:8px;margin-bottom:12px">
+        <span class="chip" style="color:var(--accent);border-color:var(--accent)">按上次决定：批准（同类第 4 次）</span>
+        <span class="faint" style="font-size:11px">证据：3 次批准记录</span>
+      </div>
+      <div class="row"><button class="btn pri">批准</button><button class="btn">拒绝</button><button class="btn" style="margin-left:auto;color:var(--faint)">本次稍后</button></div>
+    </div>
+    <div class="bottomstrip">
+      <div class="heartbeat">工作中 · 23 min · 第 47 步 · 2 在途 <span class="faint">· hover 看最近 3 步</span></div>
+      <div class="talkbar"><span class="ph">说点什么…（它先转过头来）</span><button class="btn" onclick="go('diary')">⤢ 对话</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 3 · X 光透视 ═══════════ -->
+<section class="screen immersive" id="s-xray">
+  <div class="cosmos" style="opacity:.35"></div>
+  <div class="xray-grid"></div>
+  <div class="topbar">
+    <button class="btn" onclick="go('stage')">← 回舞台（或按 X）</button>
+    <span class="chip">X 光 · ada</span>
+    <div class="sp"></div><button class="btn" onclick="openPalette()">⌘K</button>
+  </div>
+  <div class="xray-ui">
+    <div class="readout" style="left:12%;top:30%"><b>思考者 monolith</b> · 唤醒 14 次/日 · 空转率 12%<br>当前：task 弧 · 第 47 步 · 配额 16/24</div>
+    <div class="readout" style="left:58%;top:22%"><b>思考者 responder</b> · 待命 · 上次回复 4.2s</div>
+    <div class="readout" style="left:20%;top:64%;width:280px"><b>预算（大气圈）</b><br>今日 12,400 / 20,000 · 自发档 3,100 / 5,000<br><span style="color:var(--resin)">水位 62% — 不饿</span></div>
+    <div class="readout" style="right:6%;top:40%;width:250px"><b>身体</b> · GLM 主档 200 OK · 熔断 0 次<br>近 7 天错误 2（已衰减）</div>
+    <div class="organ" style="left:12%;top:14%"><i style="background:var(--lake)"></i>眼 fs:docs/ · s2 规则「感知验收」</div>
+    <div class="organ" style="left:30%;top:14%"><i style="background:var(--lake)"></i>眼 git:mindloop · SHA 指纹</div>
+    <div class="organ" style="left:48%;top:14%"><i style="background:var(--lake)"></i>耳 hook/ada · HMAC</div>
+    <div class="organ" style="left:12%;top:88%"><i style="background:var(--moss)"></i>鼻 self · 内感受在线</div>
+    <div class="organ" style="left:30%;top:88%"><i style="background:var(--clay)"></i>身 robotd · 观察模式（只许看不许动）</div>
+    <div class="organ" style="left:52%;top:88%"><i style="background:var(--plum)"></i>舌 taste · 校准证据 23 条</div>
+  </div>
+  <div class="stage-ui"><div class="bottomstrip"><div class="heartbeat">再按 X 或点「回舞台」返回 · 所有读数来自 system-status / usage / sensors 视图，零新增抓取</div></div></div>
+</section>
+
+<!-- ═══════════ 4 · 注意力（感知） ═══════════ -->
+<section class="screen" id="s-attention">
+ <div class="work">
+  <div class="masthead">
+    <div><div class="h1">注意力 <span class="kicker">ada · 它正在看什么</span></div><div class="muted" style="font-size:12.5px">视觉分级复用神经系统：S2 一张卡 · S1 一行 · S0 几乎不可见</div></div>
+    <div class="row"><span class="chip">4 只感官 · 2 只在学习期</span><button class="btn" onclick="go('stage')">← 回舞台</button></div>
+  </div>
+  <div class="card" style="border-color:color-mix(in srgb,var(--accent) 45%,transparent);margin-bottom:12px">
+    <div class="row"><span class="chip" style="color:var(--accent);border-color:var(--accent)">S2 · 值得现在看</span><span class="mono faint">14:07 · git-ada-1</span></div>
+    <div style="margin-top:6px">docs/ 出现新提交 <span class="mono">a3f2c1e</span>「剧场 v2 落地」——与你手头「设计文档整理」相关，已沉淀并附摘要。</div>
+    <div class="row" style="margin-top:8px"><button class="btn pri">去处理</button><button class="btn">这类别再报我</button></div>
+  </div>
+  <div class="card" style="margin-bottom:12px">
+    <div class="h2">S1 · 值得知道（并入下次汇报）</div>
+    <div class="feedline"><span class="mono">13:2x</span><span>web:竞品动态 有更新（首次出现新栏目）</span></div>
+    <div class="feedline"><span class="mono">12:5x</span><span>hook/企微 群消息 2 条，按规则降档沉淀</span></div>
+    <div class="feedline"><span class="mono">11:0x</span><span>file:日志速率 +spike（3× 基线，已保底 s2 待复核）</span></div>
+  </div>
+  <div class="card" style="margin-bottom:12px;opacity:.55">
+    <div class="h2">S0 · 背景沉淀 <span class="note">不叫醒，喂记忆代谢</span></div>
+    <div class="faint" style="font-size:12.5px">另有 47 条背景变化已限速落盘：文件触碰 ×31 · 网页轮询无变化 ×12 · 去重吸收 ×4 …</div>
+  </div>
+  <div class="card" style="border-color:color-mix(in srgb,var(--resin) 55%,transparent)">
+    <div class="row"><span class="chip" style="color:var(--resin);border-color:var(--resin)">学习期 · 升档考试</span><span class="mono faint">mini · 第 1/3 天</span></div>
+    <div style="margin-top:6px">新感官 <b>file:mini-workdir</b> 学习期中。预演报告：若现在升档，你平均每天会被唤醒 <b>12 次</b>（样例：3 条 S2、9 条 S1）。</div>
+    <div class="row" style="margin-top:8px"><button class="btn pri">放行 S2/S3</button><button class="btn">继续观察</button><span class="note">信任是一次事故就破产的资产——先演后放</span></div>
+  </div>
+ </div>
+</section>
+
+<!-- ═══════════ 5 · 手账（记忆） ═══════════ -->
+<section class="screen" id="s-ledger">
+ <div class="work">
+  <div class="masthead">
+    <div><div class="h1">手账 <span class="kicker">ada · 它记得的事</span></div></div>
+    <div class="row"><span class="chip">214 条 · 今日想起 3 条</span><button class="btn" onclick="go('stage')">← 回舞台</button></div>
+  </div>
+  <div class="grid" style="grid-template-columns:2fr 1fr">
+    <div class="grid">
+      <div class="card serif" style="font-size:15px">
+        <div class="kicker" style="font-family:var(--sans)">偏好 · 2026-09-28 记</div>
+        <p style="margin-top:6px">老板的 commit 备注用中文，语气直给、先结论后细节。报告类交付先给一段话结论，再展开编号。</p>
+        <div class="faint" style="font-size:12px;font-family:var(--sans);margin-top:8px">证据：9 次批改 · 上次强化 10-12</div>
+      </div>
+      <div class="card serif" style="font-size:15px">
+        <div class="kicker" style="font-family:var(--sans)">工作方式 · 2026-10-06 记 · 改口于 10-13</div>
+        <p style="margin-top:6px">测试预算不是语义：Windows 上锁周期 ~150ms，等待上限按实测吞吐对齐，超时数字要与实际等待成比例。</p>
+        <div class="faint" style="font-size:12px;font-family:var(--sans);margin-top:8px">v2 修订：次数制改时间预算制</div>
+      </div>
+      <div class="card serif" style="font-size:15px;opacity:.5">
+        <div class="kicker" style="font-family:var(--sans)">已失效 · 保留在盘供审计</div>
+        <p style="margin-top:6px;text-decoration:line-through">发布渠道优先走自行打包脚本。</p>
+        <div class="faint" style="font-size:12px;font-family:var(--sans);margin-top:8px">10-02 失效：改为 GoReleaser + winget（被替代）</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="h2">它此刻想起什么</div>
+      <div class="faint" style="font-size:12px;margin-bottom:8px">召回台账 · mem-recall</div>
+      <div class="klist">
+        <div class="kitem"><span>唤醒上下文 · 注入 3 条</span><span class="ev">hit 2/skip 1</span></div>
+        <div class="kitem"><span>任务「设计文档整理」· 注入 1 条</span><span class="ev">hit 1</span></div>
+        <div class="kitem"><span>对话回复 · 注入 2 条</span><span class="ev">hit 2</span></div>
+        <div class="kitem"><span>巡检唤醒 · 跳过（预算内分区超限）</span><span class="ev">folded 5→1</span></div>
+      </div>
+      <div class="note" style="margin-top:10px">未核实标签的沉淀不参与显著性升级——回声室断环</div>
+    </div>
+  </div>
+ </div>
+</section>
+
+<!-- ═══════════ 6 · 食量（新陈代谢） ═══════════ -->
+<section class="screen" id="s-metabolism">
+ <div class="work">
+  <div class="masthead">
+    <div><div class="h1">食量 <span class="kicker">kuku · 新陈代谢</span></div></div>
+    <div class="row"><span class="chip"><span class="dot warn"></span>水位 81% · 微饿</span><button class="btn" onclick="go('home')">← 师徒面</button></div>
+  </div>
+  <div class="grid" style="grid-template-columns:1fr 1fr 1fr">
+    <div class="card">
+      <div class="h2">今日水位</div>
+      <div style="display:flex;align-items:baseline;gap:6px"><span class="mono" style="font-size:34px">32,400</span><span class="faint mono">/ 40,000</span></div>
+      <div class="meter" style="height:8px;margin-top:10px"><i style="width:81%;background:var(--resin)"></i></div>
+      <div class="muted" style="font-size:12.5px;margin-top:8px">自发档已用 9,800 / 12,000 —— 过 80% 今夜自发降半，<b style="color:var(--fg)">对话与任务保到最后</b></div>
+      <div class="row" style="margin-top:10px"><button class="btn pri">喂食：把日预算调到 50k</button></div>
+      <div class="faint" style="font-size:11.5px;margin-top:6px">调整是对它说的话，落轨迹，不是改配置文件</div>
+    </div>
+    <div class="card">
+      <div class="h2">分账（今日）</div>
+      <div class="klist">
+        <div class="kitem"><span>任务（显式委托）</span><span class="mono">14,200</span></div>
+        <div class="kitem"><span>对话（你 ↔ 它）</span><span class="mono">6,900</span></div>
+        <div class="kitem"><span>自发档（它自己想的）</span><span class="mono">9,800</span></div>
+        <div class="kitem"><span>感知消化（S0 沉淀）</span><span class="mono">1,500</span></div>
+      </div>
+      <div class="note" style="margin-top:8px">分账判据 = 调用 ctx 溯源章，守卫在请求发出前</div>
+    </div>
+    <div class="card">
+      <div class="h2">消化率 · 14 天</div>
+      <div class="rings"><i style="height:40%"></i><i style="height:55%"></i><i style="height:48%"></i><i style="height:70%"></i><i style="height:62%"></i><i style="height:80%"></i><i style="height:58%"></i><i style="height:66%"></i><i style="height:74%"></i><i style="height:52%"></i><i style="height:69%"></i><i style="height:83%"></i><i style="height:61%"></i><i style="height:72%"></i></div>
+      <div class="muted" style="font-size:12.5px;margin-top:8px">每 token 产出的有效步骤：稳定上行 → 它吃饭越来越顶用</div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <div class="h2">身体（体检摘要）</div>
+    <div class="grid" style="grid-template-columns:repeat(4,1fr)">
+      <div class="axis"><div class="k">模型主档</div><div class="v">200 OK · 4.1s 均响</div></div>
+      <div class="axis"><div class="k">熔断</div><div class="v">0 次 · 上次 09-30</div></div>
+      <div class="axis"><div class="k">近 7 天错误</div><div class="v">2（陶土已衰减）</div></div>
+      <div class="axis"><div class="k">进程</div><div class="v mono">system-run · 重启 0</div></div>
+    </div>
+  </div>
+ </div>
+</section>
+
+<!-- ═══════════ 7 · 日记（时间望远镜） ═══════════ -->
+<section class="screen immersive" id="s-diary">
+  <div class="cosmos" style="opacity:.5"></div>
+  <div class="topbar">
+    <button class="btn" onclick="go('stage')">← 回舞台</button>
+    <span class="chip">ada · 日记</span>
+    <span class="muted" style="font-size:12px">滚轮/捏合 = 缩放时间（原型用刻度尺点击）· ?step= 深链直达步级</span>
+    <div class="sp"></div><button class="btn" onclick="openPalette()">⌘K</button>
+  </div>
+  <div class="ruler">
+    <button data-z="0" onclick="setZoom(0)">此刻</button>
+    <button data-z="1" onclick="setZoom(1)">1 小时</button>
+    <button data-z="2" class="on" onclick="setZoom(2)">24 小时</button>
+    <button data-z="3" onclick="setZoom(3)">14 天</button>
+    <button data-z="4" onclick="go('home')">↑ 星系</button>
+  </div>
+  <div class="zoompane" id="z0">
+    <div class="card glass" style="max-width:420px;margin:40px auto"><div class="t">此刻舞台</div><div class="b">对话 · 卡片 · 线索 —— 拉远开始翻日记</div></div>
+  </div>
+  <div class="zoompane" id="z1">
+    <div class="card glass" style="height:100%">
+      <div class="h2">最近 1 小时 · 步骤粒子 <span class="note">苔=思考 湖=观察 梅=它的话 树脂=行动 陶土=错误</span></div>
+      <div class="particles">
+        <i style="background:var(--moss)"></i><i style="background:var(--moss)"></i><i style="background:var(--resin)"></i><i style="background:var(--moss)"></i><i style="background:var(--plum)"></i><i style="background:var(--moss)"></i><i style="background:var(--lake)"></i><i style="background:var(--resin)"></i><i style="background:var(--moss)"></i><i style="background:var(--moss)"></i><i style="background:var(--plum)"></i><i style="background:var(--moss)"></i><i style="background:var(--resin)"></i><i style="background:var(--lake)"></i><i style="background:var(--moss)"></i><i style="background:var(--clay)"></i><i style="background:var(--moss)"></i><i style="background:var(--plum)"></i><i style="background:var(--moss)"></i><i style="background:var(--resin)"></i><i style="background:var(--moss)"></i><i style="background:var(--moss)"></i><i style="background:var(--plum)"></i><i style="background:var(--lake)"></i><i style="background:var(--moss)"></i><i style="background:var(--resin)"></i><i style="background:var(--moss)"></i><i style="background:var(--plum)"></i><i style="background:var(--moss)"></i><i style="background:var(--moss)"></i>
+      </div>
+      <div class="faint" style="font-size:12px;margin-top:12px">点击任何粒子 = ?step= 深链直达步级审计（显微镜档复用 TimelineView 全量能力）</div>
+    </div>
+  </div>
+  <div class="zoompane on" id="z2">
+    <div class="card glass" style="height:100%">
+      <div class="h2">24 小时生命线 <span class="note">柱高=步骤密度 · 陶土刻度=错误 · 湖=消息进出 · 空段=安睡（不猜）</span></div>
+      <div class="lifeline">
+        <i style="height:10%"></i><i style="height:6%"></i><i style="height:0"></i><i style="height:0"></i><i style="height:4%"></i><i style="height:8%"></i><i style="height:30%"></i><i style="height:44%"></i><i style="height:38%"></i><i class="msg" style="height:52%"></i><i style="height:60%"></i><i style="height:47%"></i><i class="err" style="height:55%"></i><i style="height:62%"></i><i style="height:70%"></i><i class="msg" style="height:66%"></i><i style="height:58%"></i><i style="height:73%"></i><i style="height:64%"></i><i class="err" style="height:48%"></i><i style="height:56%"></i><i style="height:68%"></i><i style="height:75%"></i><i style="height:60%"></i><i style="height:44%"></i><i style="height:38%"></i><i style="height:50%"></i><i style="height:57%"></i><i style="height:62%"></i><i style="height:48%"></i><i style="height:36%"></i><i style="height:22%"></i>
+      </div>
+      <div class="row" style="justify-content:space-between;margin-top:6px"><span class="mono faint">昨日 22:00</span><span class="mono faint">06:00 安睡</span><span class="mono faint">09:00 晨巡</span><span class="mono faint">14:00 · 现在</span></div>
+      <div class="serif" style="margin-top:14px;font-size:15px;max-width:760px">昨夜它睡得安稳（02:00–06:00 无唤醒）；晨巡发现 docs/ 新提交；上午处理完三个委托中的一件，14:02 那件 CI 红灯它自己修的，没吵你。</div>
+    </div>
+  </div>
+  <div class="zoompane" id="z3">
+    <div class="card glass" style="height:100%">
+      <div class="h2">14 天年轮 · 章节视图 <span class="note">与周报同源数据——叙事与账本一致，防人格漂移感</span></div>
+      <div class="rings"><i style="height:30%"></i><i style="height:45%"></i><i style="height:38%"></i><i style="height:52%"></i><i style="height:60%"></i><i style="height:44%"></i><i style="height:58%"></i><i style="height:66%"></i><i style="height:50%"></i><i style="height:72%"></i><i style="height:64%"></i><i style="height:78%"></i><i style="height:70%"></i><i style="height:85%"></i></div>
+      <div class="chapters">
+        <div class="card"><div class="kicker">本周 · 3 章</div><div class="t" style="font-weight:500">剧场 v2 落地 + 审查修复 24 文件</div><div class="b muted" style="font-size:12px">时长 6.2h · 214 步 · 你批了 5 次放行 · 查看轨迹 →</div></div>
+        <div class="card"><div class="kicker">上周 · 2 章</div><div class="t" style="font-weight:500">投影 O(n²) 专项（9.1×）</div><div class="b muted" style="font-size:12px">时长 3.8h · 96 步 · 撤销 1 次（原因=执行失败）· 查看轨迹 →</div></div>
+        <div class="card"><div class="kicker">更早</div><div class="t" style="font-weight:500">感知系统六根落地</div><div class="b muted" style="font-size:12px">时长 11h · 你示范 3 次后它学会了 git 巡检 · 查看轨迹 →</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 8 · 成长档案（放权曲线） ═══════════ -->
+<section class="screen" id="s-growth">
+ <div class="work">
+  <div class="masthead">
+    <div><div class="h1">成长档案 <span class="kicker">ada · 学徒期 67%</span></div></div>
+    <div class="row">
+      <div class="seg"><button>学徒期</button><button>伙伴期</button><button>分身期</button></div>
+      <button class="btn" onclick="go('home')">← 师徒面</button>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:12px">
+    <div class="h2">师承曲线 <span class="note">阶段=自主权边界的当前快照 · 推进只靠你放权，绝不自动放宽</span></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr 1fr">
+      <div class="axis" style="border-color:color-mix(in srgb,var(--moss) 50%,transparent)"><div class="k">当前 · 学徒期</div><div class="v">你批改、纠错、示范；它的大部分动作仍过你的手</div></div>
+      <div class="axis"><div class="k">下一站 · 伙伴期</div><div class="v">可托付完整任务弧；商量分工而非请示步骤</div><div class="faint" style="font-size:11.5px;margin-top:4px">尚缺：连续 14 天零纠错 + 外发零事故</div></div>
+      <div class="axis"><div class="k">北极星 · 分身期</div><div class="v">替你出面、以你的口径服务</div><div class="faint" style="font-size:11.5px;margin-top:4px">由你宣布，不由它自封</div></div>
+    </div>
+  </div>
+  <div class="grid" style="grid-template-columns:1.2fr 1fr">
+    <div class="card">
+      <div class="h2">自主权边界 <span class="note">任何调整即时生效并落轨迹留痕 · 可随时收紧</span></div>
+      <div class="klist">
+        <div class="kitem"><span>执行授权档</span><span class="seg"><button class="on">auto（缺省）</button><button>ask 全审</button><button>trusted</button></span></div>
+        <div class="kitem"><span>自发档预算</span><span class="mono">20,000 / 日 <span class="faint">（喂食在「食量」面）</span></span></div>
+        <div class="kitem"><span>感官学习期转正</span><span>2 只待考 <button class="btn" style="padding:1px 10px" onclick="go('attention')">看预演</button></span></div>
+        <div class="kitem"><span>批次审批（身）</span><span class="seg"><button>关</button><button class="on">会话级+留痕</button></span></div>
+        <div class="kitem"><span>记住偏好</span><span class="seg"><button class="on">开</button><button>关</button></span></div>
+      </div>
+      <div class="faint" style="font-size:12px;margin-top:10px">今日代决 6 件全部在 auto 档白名单内 · 越界动作永远升级确认</div>
+    </div>
+    <div class="card">
+      <div class="h2">传承清单 <span class="note">只有记录在案的证据，没有相似度百分比</span></div>
+      <div class="klist">
+        <div class="kitem"><span>commit 备注用中文</span><span class="ev">9 次批改</span></div>
+        <div class="kitem"><span>报告先结论后编号</span><span class="ev">4 次批改</span></div>
+        <div class="kitem"><span>测试预算按实测对齐</span><span class="ev">记忆 · 10-13</span></div>
+        <div class="kitem"><span>外发先给摘要再给全文</span><span class="ev">3 次批准</span></div>
+        <div class="kitem"><span>危险操作必须等确认</span><span class="ev">从未违例</span></div>
+        <div class="kitem"><span>安静时段：夜里只沉淀不唤醒</span><span class="ev">作息 · quiet</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <div class="h2">今日教学账</div>
+    <div class="grid" style="grid-template-columns:repeat(5,1fr)">
+      <div class="axis"><div class="k">布置课程</div><div class="v">2 个委托在途</div></div>
+      <div class="axis"><div class="k">批改</div><div class="v">5 批 · 0 打回</div></div>
+      <div class="axis"><div class="k">纠错</div><div class="v">1 次（已归因）</div></div>
+      <div class="axis"><div class="k">示范</div><div class="v">0（观察模式待命）</div></div>
+      <div class="axis"><div class="k">考试</div><div class="v">2 场待放行</div></div>
+    </div>
+  </div>
+ </div>
+</section>
+
+<!-- ═══════════ 9 · 星系（多心智） ═══════════ -->
+<section class="screen immersive" id="s-galaxy">
+  <div class="cosmos"></div>
+  <div class="topbar">
+    <button class="btn" onclick="go('home')">← 师徒面</button>
+    <span class="chip">星系 · 3 具心智</span><div class="sp"></div><button class="btn" onclick="openPalette()">⌘K</button>
+    <div class="winbtns"><i></i><i></i><i></i></div>
+  </div>
+  <div class="star" style="left:30%;top:44%;background:radial-gradient(circle at 35% 30%,#8FC166,#3B5230);box-shadow:0 0 24px color-mix(in srgb,#8FC166 45%,transparent)" onclick="go('stage')"><div class="tip"><b>ada · 学徒期</b><br>工作中 · 第 47 步 · 食量 62%<br>1 项等你批改 →</div></div>
+  <div class="star" style="left:58%;top:60%;width:20px;height:20px;background:radial-gradient(circle at 35% 30%,#D9A84E,#5C4415);box-shadow:0 0 18px color-mix(in srgb,#D9A84E 40%,transparent)"><div class="tip"><b>kuku · 伙伴期</b><br>微饿（81%）· 1 提案待你</div></div>
+  <div class="star" style="left:70%;top:30%;width:14px;height:14px;background:radial-gradient(circle at 35% 30%,#79ADC2,#28414E)"><div class="tip"><b>mini · 学徒期 9%</b><br>安睡 · 感官学习期第 1 天</div></div>
+  <div class="stage-ui"><div class="bottomstrip"><div class="heartbeat">点一颗星，下钻进它的舞台 · 需要你 1 项：kuku 的外发提案 · 星系是远景——近景是舞台，中景是日记</div></div></div>
+</section>
+
+<!-- ═══════════ 全局层 ═══════════ -->
+<div id="vitals">
+  <span class="vdot"></span><span><b>ada</b> 心跳 23min · 第 47 步</span>
+  <span>食量 <b>62%</b></span><span>睡眠 <b>在座</b></span><span>痛觉 <b>0</b></span><span>:8080 · v0.12.0</span>
+</div>
+<div id="pill">
+  <span class="kicker">样张导航（非产品设计）</span>
+  <button data-n="home" class="on" onclick="go('home')">师徒面 · 工作台</button>
+  <button data-n="stage" onclick="go('stage')">舞台 · 居所客厅</button>
+  <button data-n="xray" onclick="go('xray')">X 光 · 透视读数</button>
+  <button data-n="attention" onclick="go('attention')">注意力 · 感知</button>
+  <button data-n="ledger" onclick="go('ledger')">手账 · 记忆</button>
+  <button data-n="metabolism" onclick="go('metabolism')">食量 · 新陈代谢</button>
+  <button data-n="diary" onclick="go('diary')">日记 · 时间望远镜</button>
+  <button data-n="growth" onclick="go('growth')">成长档案 · 放权曲线</button>
+  <button data-n="galaxy" onclick="go('galaxy')">星系 · 多心智</button>
+</div>
+<div id="palette">
+  <div class="box" onclick="event.stopPropagation()">
+    <input id="pk" placeholder="搜索或输入命令…（Esc 关闭）">
+    <div class="sec">前往</div>
+    <div class="it" onclick="go('stage');closePalette()"><span>舞台 · ada 的客厅</span><span class="mono">G S</span></div>
+    <div class="it" onclick="go('diary');closePalette()"><span>日记 · 翻它的一生</span><span class="mono">G D</span></div>
+    <div class="it" onclick="go('growth');closePalette()"><span>成长档案 · 放权曲线</span><span class="mono">G G</span></div>
+    <div class="sec">身份切换</div>
+    <div class="it"><span>ada</span><span class="mono">学徒期 67%</span></div>
+    <div class="it"><span>kuku</span><span class="mono">伙伴期 41%</span></div>
+    <div class="sec">教它 / 托付</div>
+    <div class="it"><span>新建委托（任务书=课程大纲）</span><span class="mono">N T</span></div>
+    <div class="it"><span>教一门手艺（示范模式）</span><span class="mono">T S</span></div>
+    <div class="it"><span>喂食（调每日预算）</span><span class="mono">F D</span></div>
+  </div>
+</div>
+<button class="btn theme-btn" onclick="toggleTheme()">亮 / 暗</button>
+
+<script>
+var ORDER=['home','stage','xray','attention','ledger','metabolism','diary','growth','galaxy'];
+function go(id){
+  var list=document.querySelectorAll('.screen');
+  for(var i=0;i<list.length;i++)list[i].classList.remove('active');
+  document.getElementById('s-'+id).classList.add('active');
+  var btns=document.querySelectorAll('#pill button');
+  for(var j=0;j<btns.length;j++)btns[j].classList.toggle('on',btns[j].getAttribute('data-n')===id);
+  window.scrollTo(0,0);
+}
+function openPalette(){document.getElementById('palette').classList.add('open');document.getElementById('pk').focus()}
+function closePalette(){document.getElementById('palette').classList.remove('open')}
+document.getElementById('palette').addEventListener('click',function(e){if(e.target.id==='palette')closePalette()});
+function toggleTheme(){var h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark'}
+function setZoom(n){
+  var panes=['z0','z1','z2','z3'];
+  for(var i=0;i<panes.length;i++)document.getElementById(panes[i]).classList.toggle('on',i===n);
+  var btns=document.querySelectorAll('.ruler button');
+  for(var j=0;j<btns.length;j++){var z=btns[j].getAttribute('data-z');if(z!==null)btns[j].classList.toggle('on',+z===n)}
+}
+document.addEventListener('keydown',function(e){
+  if((e.ctrlKey||e.metaKey)&&(e.key==='k'||e.key==='K')){e.preventDefault();openPalette()}
+  else if(e.key==='Escape')closePalette();
+  else if((e.key==='x'||e.key==='X')&&!/INPUT|TEXTAREA/.test(document.activeElement.tagName)){
+    var cur=document.querySelector('.screen.active').id;
+    if(cur==='s-stage')go('xray');else if(cur==='s-xray')go('stage');
+  }
+});
+</script>
+</body>
+</html>

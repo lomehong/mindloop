@@ -100,7 +100,6 @@ export function NewTaskDialog({
   const queryClient = useQueryClient();
   const [content, setContent] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
-  const [drafting, setDrafting] = useState(false);
   const submitRef = useRef<{ content: string; clientMessageId: string } | null>(
     null
   );

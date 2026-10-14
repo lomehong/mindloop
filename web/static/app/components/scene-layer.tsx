@@ -17,7 +17,6 @@ import { TalkStrip } from "~/components/talk-strip";
 import { SceneCosmos } from "~/components/scene-cosmos";
 import {
   OvernightDigest,
-  PresenceChip,
   WorkHeartbeat,
   usePresence,
   useStageTelemetry,

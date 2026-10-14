@@ -7,7 +7,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { parseAsString, useQueryState } from "nuqs";
 
 import { CreatureSvg } from "~/components/pet/creature";
@@ -16,10 +16,10 @@ import { CommandPalette } from "~/components/command-palette";
 import { EngineDrawer } from "~/components/engine-drawer";
 import { MindlogSearch } from "~/components/mindlog-search";
 import { NeedYouBar } from "~/components/need-you-bar";
-import IdentityStage from "~/routes/identity-stage";
 import { PresenceChip, usePresence } from "~/components/stage-hud";
 import { ShellDragArea, WindowButtons } from "~/components/nav-rail";
 import { fetchIdentities } from "~/lib/api";
+import { jumpTargetFor } from "~/lib/search-jump";
 import { phaseFor } from "~/lib/pet-state";
 import type { SearchHit } from "~/lib/types";
 import { cn } from "~/lib/utils";
@@ -56,7 +56,8 @@ function sectionOf(rest: string): SectionKey {
 
 const SEGS: Partial<Record<SectionKey, { label: string; path: string }[]>> = {
   traj: [
-    { label: "泳道", path: "" },
+    // 泳道本体在 /traj——path:"" 曾拼出裸 /i/:id 落到舞台（审查 #8）。
+    { label: "泳道", path: "/traj" },
     { label: "日志流", path: "/log" },
     { label: "分集", path: "/recap" },
   ],
@@ -137,12 +138,11 @@ export default function IdentityShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // 命中直达：轨迹区子视图 → 泳道（?step= 由 TimelineView 解析）；
-  // 其他区（对话/记忆）→ 日志流定位。窗口外旧步骤退化为取单步弹窗。
+  // 命中直达：轨迹区 → 泳道 /traj（?step= 由 TimelineView 解析）；
+  // 其他区（对话/记忆）→ 日志流定位。目标换算在 lib/search-jump（纯
+  // 函数配测试——曾被写死 `${base}?step=` 落在舞台页静默失效）。
   const defaultJump = (hit: SearchHit) =>
-    section === "traj"
-      ? navigate(`${base}?step=${encodeURIComponent(hit.step_id)}`)
-      : navigate(`${base}/log?step=${encodeURIComponent(hit.step_id)}`);
+    navigate(jumpTargetFor(section, base, hit.step_id));
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">

@@ -25,13 +25,17 @@ const RAIL_KEY = "ml-rail-collapsed";
 let railCollapsed = false;
 try {
   railCollapsed = localStorage.getItem(RAIL_KEY) === "1";
-} catch {}
+} catch {
+  // 存储不可用（隐私模式）：用默认展开态。
+}
 const railSubs = new Set<() => void>();
 export function toggleRail() {
   railCollapsed = !railCollapsed;
   try {
     localStorage.setItem(RAIL_KEY, railCollapsed ? "1" : "0");
-  } catch {}
+  } catch {
+    // 存储不可用：折叠态仅本会话生效。
+  }
   for (const f of railSubs) f();
 }
 export function useRailCollapsed(): boolean {
@@ -204,11 +208,26 @@ function RailItem({
   );
 }
 
+/** 壳 IPC 的最小类型面：只声明实际调用的窗口方法（no-explicit-any
+ * 门禁；方法按可选链调用，缺权限/缺壳都是无害 no-op）。 */
+type ShellWindowApi = {
+  minimize?: () => Promise<void>;
+  toggleMaximize?: () => Promise<void>;
+  close?: () => Promise<void>;
+  startDragging?: () => Promise<void>;
+};
+type ShellTauri = { window?: { getCurrentWindow?: () => ShellWindowApi } };
+function shellTauri(): ShellTauri | null {
+  return typeof window !== "undefined"
+    ? ((window as { __TAURI__?: ShellTauri }).__TAURI__ ?? null)
+    : null;
+}
+
 /** 窗控三钮：最小化 / 最大化 / 关闭（关闭 = 缩入托盘，壳的
  * CloseRequested 处理会拦下销毁）。非壳环境不渲染。独立导出：
  * 顶栏即标题栏的页面（心智页剧场）内联挂它，不用连主题钮一起搬。 */
 export function WindowButtons() {
-  const tauri = typeof window !== "undefined" ? (window as { __TAURI__?: any }).__TAURI__ : null;
+  const tauri = shellTauri();
   const w = tauri?.window?.getCurrentWindow?.();
   if (!w) return null;
   const btn =
@@ -222,21 +241,21 @@ export function WindowButtons() {
       <button
         className={btn}
         aria-label="最小化"
-        onClick={() => w.minimize().catch(() => {})}
+        onClick={() => w.minimize?.().catch(() => {})}
       >
         <Minus className="size-3.5" />
       </button>
       <button
         className={btn}
         aria-label="最大化或还原"
-        onClick={() => w.toggleMaximize().catch(() => {})}
+        onClick={() => w.toggleMaximize?.().catch(() => {})}
       >
         <Square className="size-3" />
       </button>
       <button
         className={`${btn} hover:bg-clay hover:text-white`}
         aria-label="关闭（缩入托盘）"
-        onClick={() => w.close().catch(() => {})}
+        onClick={() => w.close?.().catch(() => {})}
       >
         <X className="size-3.5" />
       </button>
@@ -263,7 +282,7 @@ export function ShellControls() {
  * 最大化（与导航栏顶排同一套逻辑）。无导航栏的形态（talk PWA 落地页）
  * 需要在顶部铺一条，否则窗口完全拖不动。非壳环境不渲染。 */
 export function ShellDragArea({ className }: { className?: string }) {
-  const tauri = typeof window !== "undefined" ? (window as { __TAURI__?: any }).__TAURI__ : null;
+  const tauri = shellTauri();
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const draggedRef = useRef(false);
   if (!tauri?.window) return null;
@@ -312,7 +331,9 @@ function useHistoryNav(enabled: boolean) {
           return { stack: p.stack as string[], pos: p.pos };
         }
       }
-    } catch {}
+    } catch {
+      // 坏存储/隐私模式：从全新栈起步。
+    }
     return { stack: [location.key], pos: 0 };
   });
   useEffect(() => {
@@ -333,7 +354,9 @@ function useHistoryNav(enabled: boolean) {
       }
       try {
         sessionStorage.setItem("ml-hist-v1", JSON.stringify({ stack, pos }));
-      } catch {}
+      } catch {
+        // 存储不可用：历史栈退化为会话内（后退/前进钮按能力显隐）。
+      }
       return { stack, pos };
     });
   }, [location.key, navType]);
@@ -365,7 +388,7 @@ export function NavRail() {
 
   // 顶排 = 窗体拖动区（壳内）：按住移动超阈值调原生 startDragging，
   // 双击切换最大化；拖过的松手不算点击（不误触面板钮/导航箭头）。
-  const tauri = typeof window !== "undefined" ? (window as { __TAURI__?: any }).__TAURI__ ?? null : null;
+  const tauri = shellTauri();
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const draggedRef = useRef(false);
   const hist = useHistoryNav(!!tauri?.window);
