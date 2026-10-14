@@ -88,7 +88,7 @@ func (sv *sceneSurfaces) applyScene(line []byte) (map[string]any, string) {
 
 // scenePatchPayload 序列化一帧 patch：batchId 统一携带（无批号时用
 // rev 派生，协议形状一致、客户端可断言）；staggerHint 仅多卡批携带
-//（0/缺省 = 无 stagger，逐卡立即落位）。
+// （0/缺省 = 无 stagger，逐卡立即落位）。
 func scenePatchPayload(rev int, batchID string, staggerHint int, ops []map[string]any) string {
 	m := map[string]any{
 		"type":    "scene.patch",

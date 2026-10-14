@@ -60,7 +60,7 @@ func ExpiredSceneIDs(steps []traj.Step, now time.Time, ttl time.Duration) []stri
 
 // SceneTTLSweeper 周期清扫：每分钟折叠一次场景，把超龄 ambient 卡
 // 以 remove（exit_reason=ttl）落轨迹，同一分钟的多张共享批号
-//（ttl-<unix 分>，投影端单帧落位）。ctx 取消即退出；随心智进程
+// （ttl-<unix 分>，投影端单帧落位）。ctx 取消即退出；随心智进程
 // 生命周期运行。
 func SceneTTLSweeper(ctx context.Context, tl *traj.Timeline, ttl time.Duration, logger func(string, ...any)) {
 	tick := time.NewTicker(time.Minute)
