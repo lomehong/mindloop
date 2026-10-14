@@ -12,6 +12,8 @@ import { parseAsString, useQueryState } from "nuqs";
 
 import { CreatureSvg } from "~/components/pet/creature";
 import { ChatOverlay } from "~/components/chat-overlay";
+import { CommandPalette } from "~/components/command-palette";
+import { EngineDrawer } from "~/components/engine-drawer";
 import { MindlogSearch } from "~/components/mindlog-search";
 import { NeedYouBar } from "~/components/need-you-bar";
 import IdentityStage from "~/routes/identity-stage";
@@ -26,6 +28,7 @@ const NAV = [
   { key: "traj", label: "轨迹", path: "/traj" },
   { key: "tasks", label: "任务", path: "/tasks" },
   { key: "memories", label: "记忆", path: "/memories" },
+  { key: "run", label: "运行", path: "/run/thinkers" },
   { key: "review", label: "回看", path: "/review" },
   { key: "sensors", label: "感知", path: "/sensors" },
   { key: "settings", label: "设置", path: "/settings/config" },
@@ -149,6 +152,19 @@ export default function IdentityShell() {
     parseAsString.withDefault("")
   );
   const { presence, setAway } = usePresence(identityId);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  // Ctrl+K 命令面板（theater.md §16.8）：全局键盘入口。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // 命中直达：轨迹区子视图 → 泳道（?step= 由 TimelineView 解析）；
   // 其他区（对话/记忆）→ 日志流定位。窗口外旧步骤退化为取单步弹窗。
@@ -183,6 +199,24 @@ export default function IdentityShell() {
           })}
         </nav>
         <span className="flex-1" />
+        <button
+          type="button"
+          data-testid="palette-open"
+          onClick={() => setPaletteOpen(true)}
+          className="whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          命令面板 <span className="font-mono text-[10px]">Ctrl K</span>
+        </button>
+        {section === "stage" && (
+          <button
+            type="button"
+            data-testid="drawer-open"
+            onClick={() => setDrawerOpen(true)}
+            className="whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            引擎室
+          </button>
+        )}
         <PresenceChip presence={presence} onToggle={() => setAway(!presence.away)} />
         <button
           type="button"
@@ -203,14 +237,22 @@ export default function IdentityShell() {
       <div className="relative min-h-0 flex-1">
         {section === "stage" ? (
           // 舞台 = index 路由（identity-stage）：absolute inset-0 铺满
-          // 顶栏以下整窗——剧场即心智页本身。
-          <Outlet />
+          // 顶栏以下整窗——剧场即心智页本身。引擎室抽屉仅舞台页有。
+          <>
+            <Outlet />
+            <EngineDrawer
+              identityId={identityId}
+              open={drawerOpen}
+              onClose={() => setDrawerOpen(false)}
+            />
+          </>
         ) : (
           <div className="h-full overflow-y-auto px-5 pb-8 sm:px-6">
             <NeedYouBar identityId={identityId} />
+            {/* 引擎视图：身份与分区导航在顶栏（不重复）——本行只留
+                搜索与子页段（theater.md §4 职责表） */}
             <div className="sticky top-0 z-40 -mx-5 mb-4 border-b border-border/70 bg-card px-5 pt-3 sm:-mx-6 sm:px-6">
               <div className="flex items-center gap-3 pt-3">
-                <Masthead identityId={identityId} />
                 {SEARCH_SECTIONS.includes(section) && (
                   <MindlogSearch
                     identityId={identityId}
@@ -218,26 +260,6 @@ export default function IdentityShell() {
                     onJump={defaultJump}
                   />
                 )}
-              </div>
-              <div className="mt-3 flex items-center gap-0.5 border-b border-border/70">
-                {NAV.filter((n) => n.key !== "stage").map((item) => {
-                  const active = item.key === section;
-                  return (
-                    <Link
-                      key={item.key}
-                      to={`${base}${item.path}`}
-                      aria-current={active ? "page" : undefined}
-                      className={cn(
-                        "relative shrink-0 whitespace-nowrap px-3 pb-2.5 pt-2 text-[13px] transition-colors",
-                        active
-                          ? "text-foreground after:absolute after:inset-x-3 after:-bottom-px after:h-[2px] after:rounded-t-[2px] after:bg-primary"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      {item.label}
-                    </Link>
-                  );
-                })}
                 <span className="flex-1" />
                 {seg && <SubSeg base={base} items={seg} rest={rest} />}
               </div>
@@ -247,6 +269,11 @@ export default function IdentityShell() {
         )}
       </div>
       <ChatOverlay open={chatOpen === "1"} onClose={() => setChatOpen("")} />
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        identityId={identityId}
+      />
     </div>
   );
 }

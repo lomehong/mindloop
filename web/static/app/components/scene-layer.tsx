@@ -471,9 +471,58 @@ export function SceneStage({
     return { animation: `${name} 260ms ease-in both` };
   };
 
+  // 今日读数（真实数据派生，theater.md §17.1 禁假状态）：今日调用/
+  // tokens、主力模型、今日收口任务数——来自用量与任务既有 API。
+  const nowDate = new Date();
+  const dayKeyToday = `${nowDate.getFullYear()}-${String(nowDate.getMonth() + 1).padStart(2, "0")}-${String(nowDate.getDate()).padStart(2, "0")}`;
+  const todayEntry = tele.usage?.daily?.find(([d]) => d === dayKeyToday)?.[1];
+  const todayCalls = todayEntry?.calls ?? 0;
+  const todayTokens =
+    (todayEntry?.in ?? 0) + (todayEntry?.out ?? 0) + (todayEntry?.think ?? 0);
+  const topModel = Object.entries(tele.usage?.by_model ?? {}).sort(
+    (a, b) => b[1].calls - a[1].calls
+  )[0]?.[0];
+  const todayDone = tele.tasks.filter(
+    (t) =>
+      t.status === "succeeded" &&
+      t.updated_at &&
+      t.updated_at.slice(0, 10) === dayKeyToday
+  ).length;
+
+  // 提示条（theater-stage.html .hint）：一次性引导，dismiss 持久。
+  const [hintOpen, setHintOpen] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.localStorage.getItem("theater-hint-dismissed") !== "1"
+  );
+  const dismissHint = () => {
+    setHintOpen(false);
+    window.localStorage.setItem("theater-hint-dismissed", "1");
+  };
+
   return (
     <div data-testid="scene-stage" className="absolute inset-0">
       <SceneCosmos identityId={identityId} fx={fx} />
+
+      {/* 提示条（theater-stage.html .hint）：顶部居中，可关闭（持久） */}
+      {hintOpen && (
+        <div className="absolute left-1/2 top-4 z-30 flex -translate-x-1/2 items-center gap-3 whitespace-nowrap rounded-full border border-line bg-card/90 px-[18px] py-[7px] text-[12px] text-muted-foreground backdrop-blur-[8px]">
+          <span>
+            🎭 <b className="font-medium text-primary">剧场</b>——隔夜账卡 ·
+            心跳行 · <span className="font-medium">8 秒后审批</span>（依据 +
+            记住偏好）· 对话条 ⤢ 展开 · 回看页 7 天章节 ·{" "}
+            <span className="font-mono text-[11px]">Ctrl+K</span> 命令面板
+          </span>
+          <button
+            type="button"
+            onClick={dismissHint}
+            aria-label="关闭提示"
+            className="text-faint hover:text-foreground"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* 隔夜账卡（§6）：左上钉顶，dismiss 当天不再合成 */}
       <div className="absolute left-6 top-5 z-20 w-[min(400px,42vw)]">
@@ -483,8 +532,24 @@ export function SceneStage({
       {/* 线索行（mockup .threads）：左下，只读投影 */}
       <ThreadsRow identityId={identityId} />
 
-      {/* 右列（分区制 §2）：整卡 ≤3 + 溢出 chip + 变奏/沉淀单行（玻璃浮层） */}
+      {/* 右列（分区制 §2）：今日读数 + 整卡 ≤3 + 溢出 chip + 变奏/沉淀单行（玻璃浮层） */}
       <div className="absolute right-6 top-5 z-20 flex max-h-[calc(100%-7rem)] w-[316px] flex-col gap-3 overflow-y-auto">
+        {/* 今日读数（真实用量/任务派生，禁假状态） */}
+        <div className="rounded-2xl border border-line bg-card/86 p-4 backdrop-blur-[10px]">
+          <div className="mb-1 text-[12px] font-semibold text-foreground">
+            今日用量
+          </div>
+          <div className="font-mono text-[26px] tracking-[-0.02em] text-foreground">
+            {todayCalls}
+            <small className="ml-1 text-[12px] text-muted-foreground">
+              次调用
+            </small>
+          </div>
+          <div className="mt-1 font-mono text-[10.5px] text-faint">
+            {todayTokens.toLocaleString()} tokens · 今日收口 {todayDone} 任务
+            {topModel && <> · 主力 {topModel}</>}
+          </div>
+        </div>
         {visibleCards.map((s) => (
           <div
             key={s.id}
