@@ -72,8 +72,6 @@ const SEGS: Partial<Record<SectionKey, { label: string; path: string }[]>> = {
   ],
 };
 
-const SEARCH_SECTIONS: SectionKey[] = ["traj", "chat", "memories"];
-
 function Masthead({ identityId }: { identityId: string }) {
   const { data: identities } = useQuery({
     queryKey: ["identities"],
@@ -105,40 +103,6 @@ function Masthead({ identityId }: { identityId: string }) {
   );
 }
 
-/** 子页段：一级区内的情境切换（轨迹三视图 / 运行四子页 / 设置三子页）。 */
-function SubSeg({
-  base,
-  items,
-  rest,
-}: {
-  base: string;
-  items: { label: string; path: string }[];
-  rest: string;
-}) {
-  return (
-    <div className="flex shrink-0 gap-0.5 rounded-lg bg-muted p-0.5">
-      {items.map((item) => {
-        const on = rest === item.path;
-        return (
-          <Link
-            key={item.path}
-            to={`${base}${item.path}`}
-            aria-current={on ? "page" : undefined}
-            className={cn(
-              "whitespace-nowrap rounded-md px-2.5 py-1 text-xs transition-colors",
-              on
-                ? "bg-card text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {item.label}
-          </Link>
-        );
-      })}
-    </div>
-  );
-}
-
 export default function IdentityShell() {
   const { identityId = "" } = useParams();
   const { pathname } = useLocation();
@@ -152,6 +116,12 @@ export default function IdentityShell() {
     parseAsString.withDefault("")
   );
   const { presence, setAway } = usePresence(identityId);
+  const { data: identities } = useQuery({
+    queryKey: ["identities"],
+    queryFn: fetchIdentities,
+  });
+  const identityName = identities?.find((it) => it.id === identityId)?.name ?? identityId;
+  const sectionLabel = NAV.find((n) => n.key === section)?.label ?? section;
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Ctrl+K 命令面板（theater.md §16.8）：全局键盘入口。
@@ -249,21 +219,44 @@ export default function IdentityShell() {
         ) : (
           <div className="h-full overflow-y-auto px-5 pb-8 sm:px-6">
             <NeedYouBar identityId={identityId} />
-            {/* 引擎视图：身份与分区导航在顶栏（不重复）——本行只留
-                搜索与子页段（theater.md §4 职责表） */}
-            <div className="sticky top-0 z-40 -mx-5 mb-4 border-b border-border/70 bg-card px-5 pt-3 sm:-mx-6 sm:px-6">
-              <div className="flex items-center gap-3 pt-3">
-                {SEARCH_SECTIONS.includes(section) && (
-                  <MindlogSearch
-                    identityId={identityId}
-                    windowStart={0}
-                    onJump={defaultJump}
-                  />
-                )}
-                <span className="flex-1" />
-                {seg && <SubSeg base={base} items={seg} rest={rest} />}
-              </div>
+            {/* engine-head（theater-stage.html .engine-head）：标题左、
+                搜索右（仅轨迹——记忆页有自己的搜索记忆框） */}
+            <div className="mb-[18px] flex items-baseline gap-[14px]">
+              <h1 className="text-[20px] font-semibold tracking-[0.01em]">
+                {sectionLabel} · {identityName}
+              </h1>
+              <span className="flex-1" />
+              {section === "traj" && (
+                <MindlogSearch
+                  identityId={identityId}
+                  windowStart={0}
+                  onJump={defaultJump}
+                />
+              )}
             </div>
+            {/* 子页 chips 独立成行（泳道/日志流/分集 等） */}
+            {seg && (
+              <div className="mb-3 flex gap-1.5">
+                {seg.map((item) => {
+                  const on = rest === item.path;
+                  return (
+                    <Link
+                      key={item.path}
+                      to={`${base}${item.path}`}
+                      aria-current={on ? "page" : undefined}
+                      className={cn(
+                        "rounded-full px-2.5 py-1 font-mono text-[10px] transition-colors",
+                        on
+                          ? "bg-primary/10 text-primary"
+                          : "border border-line text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
             <Outlet />
           </div>
         )}
