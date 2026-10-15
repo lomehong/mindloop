@@ -524,10 +524,10 @@ export default function UsagePage() {
       <div className="mx-auto w-full max-w-4xl pb-10">
         <div className="mb-1.5 flex flex-wrap items-baseline gap-3">
           <h1 className="font-note text-[22px] font-semibold tracking-[0.01em]">
-            用量
+            食量
           </h1>
           <span className="text-[13px] text-muted-foreground">
-            预算 · 台账 · 模型调用
+            新陈代谢 · 预算 · 台账
           </span>
           {controlsEnabled && (
             <div className="ml-auto self-center">

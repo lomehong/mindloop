@@ -139,7 +139,7 @@ export default function ConnectionsPage() {
       <div className="mx-auto w-full max-w-4xl space-y-4 pb-10">
         <div className="flex flex-wrap items-baseline gap-3">
           <h1 className="font-note text-[22px] font-semibold tracking-[0.01em]">
-            外部连接
+            社交
           </h1>
           <span className="text-[13px] text-muted-foreground">
             MCP 服务器 · 配置文件 · 外部渠道

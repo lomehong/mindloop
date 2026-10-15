@@ -22,15 +22,15 @@ const ROUTES = [
   { label: "回看", path: "/review" },
   { label: "任务", path: "/tasks" },
   { label: "对话", path: "/chat" },
-  { label: "记忆", path: "/memories" },
-  { label: "感知", path: "/sensors" },
+  { label: "手账 · 记忆", path: "/memories" },
+  { label: "注意力 · 感知", path: "/sensors" },
   { label: "运行 · 思考者", path: "/run/thinkers" },
-  { label: "运行 · 日程", path: "/run/schedule" },
-  { label: "运行 · 健康", path: "/run/health" },
-  { label: "运行 · 用量", path: "/run/usage" },
+  { label: "运行 · 作息", path: "/run/schedule" },
+  { label: "运行 · 体检", path: "/run/health" },
+  { label: "运行 · 食量", path: "/run/usage" },
   { label: "设置 · 配置", path: "/settings/config" },
-  { label: "设置 · 技能", path: "/settings/skills" },
-  { label: "设置 · 连接", path: "/settings/connections" },
+  { label: "设置 · 手艺", path: "/settings/skills" },
+  { label: "设置 · 社交", path: "/settings/connections" },
 ];
 
 const itemClass =

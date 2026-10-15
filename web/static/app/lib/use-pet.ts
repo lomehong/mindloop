@@ -458,6 +458,7 @@ export function usePet(options: UsePetOptions = {}): UsePetResult {
         lastStepAgeS: activityQ.data?.last_step_age_s ?? null,
         budgetRatio: admission && admission.daily_limit > 0 ? admission.used_today / admission.daily_limit : null,
         cooling: admission?.cooling_until ? new Date(admission.cooling_until).getTime() > now : false,
+        pendingApprovals: approvals?.length ?? 0,
         lastAlertAgeMs: null,
       };
       setAnnouncer((prev) =>
@@ -504,6 +505,7 @@ export function usePet(options: UsePetOptions = {}): UsePetResult {
     lastStepAgeS: activityQ.data?.last_step_age_s ?? null,
     budgetRatio,
     cooling,
+    pendingApprovals: approvals?.length ?? 0,
     lastAlertAgeMs: lastAlertAt !== null ? clock - lastAlertAt : null,
   };
   const mood = deriveMood(signals);

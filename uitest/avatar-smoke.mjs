@@ -53,12 +53,13 @@ try {
   ok(await page.isVisible("text=新建委托（共同的验收标准）"), "动作组：新建委托");
   ok(await page.isVisible("text=身份切换"), "身份切换组");
   // 覆盖全路由：设置·连接 应在列（砍 tab 后的到达路径）
-  ok(await page.isVisible("text=设置 · 连接"), "全路由：设置·连接");
+  ok(await page.isVisible("text=设置 · 社交"), "全路由：设置·社交");
   await page.keyboard.press("Escape");
 
-  // 3. 身份页：裸入口=舞台；顶栏无 tab 行
+  // 3. 身份页：裸入口=舞台；顶栏无 tab 行；体征带在（停机心智=未运行，不假装安睡）
   await page.goto(BASE + "/i/qa-avatar");
   await page.waitForSelector("text=qa-avatar");
+  ok(await page.isVisible("text=未运行"), "体征带在（停机=未运行态）");
   const tabCount = await page.locator("header nav a").count();
   ok(tabCount === 0, `顶栏 tab 行已砍（nav 链接数 ${tabCount} = 0）`);
 
@@ -67,6 +68,12 @@ try {
   await page.waitForSelector("[data-testid=back-to-stage]");
   ok(true, "引擎页有 ← 舞台");
   ok(await page.isVisible("text=泳道"), "子页 chips 仍在（泳道）");
+  await page.goto(BASE + "/i/qa-avatar/memories");
+  await page.waitForSelector("text=手账");
+  ok(true, "记忆面换轴：手账");
+  await page.goto(BASE + "/i/qa-avatar/run/usage");
+  await page.waitForSelector("text=食量");
+  ok(true, "用量页换轴：食量");
 
   // 5. ⌘K 在身份页有「本身份」组
   await page.keyboard.press("Control+k");

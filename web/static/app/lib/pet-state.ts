@@ -16,6 +16,7 @@
 export type PetMood =
   | "offline"
   | "sick"
+  | "awaiting"
   | "hungry"
   | "speaking"
   | "alert"
@@ -27,6 +28,7 @@ export type PetMood =
 export const MOOD_LABEL: Record<PetMood, string> = {
   offline: "未连接",
   sick: "模型不适",
+  awaiting: "等你拍板",
   hungry: "预算吃紧",
   speaking: "正在说话",
   alert: "刚有警情",
@@ -54,6 +56,9 @@ export interface PetSignals {
   budgetRatio: number | null;
   /** 预算熔断冷却中（admission.cooling_until 未到期）。 */
   cooling: boolean;
+  /** 有待批审批（theater 五态的 awaiting——屏息等你拍板）。缺省 0，
+   * 旧调用方不传时此态不出现（行为与补齐前一致）。 */
+  pendingApprovals?: number;
   /** 最近一条 alert/error 步骤距今毫秒数；null = 会话内没有见过。 */
   lastAlertAgeMs: number | null;
 }
@@ -61,6 +66,10 @@ export interface PetSignals {
 export function deriveMood(s: PetSignals): PetMood {
   if (!s.connected) return "offline";
   if (s.cooling) return "sick";
+  // 三化身同源（avatar.md §3.3）：等审批是 theater 五态之一（脸此前
+  // 看不到它），补齐——优先级低于疼（theater 是 awaiting>cooldown，
+  // 脸上疼挡住一切），高于饿（屏息等拍板比钱更要紧）。
+  if ((s.pendingApprovals ?? 0) > 0) return "awaiting";
   if (s.budgetRatio !== null && s.budgetRatio >= 0.8) return "hungry";
   if (s.replying) return "speaking";
   if (s.lastAlertAgeMs !== null && s.lastAlertAgeMs <= ALERT_TTL_MS) {

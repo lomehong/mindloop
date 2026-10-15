@@ -20,6 +20,7 @@ import { MindlogSearch } from "~/components/mindlog-search";
 import { NeedYouBar } from "~/components/need-you-bar";
 import { PresenceChip, usePresence } from "~/components/stage-hud";
 import { ShellDragArea, WindowButtons } from "~/components/nav-rail";
+import { VitalsBand } from "~/components/vitals-band";
 import { fetchIdentities } from "~/lib/api";
 import { jumpTargetFor } from "~/lib/search-jump";
 import { phaseFor } from "~/lib/pet-state";
@@ -27,15 +28,16 @@ import type { SearchHit } from "~/lib/types";
 import { cn } from "~/lib/utils";
 
 // NAV 不再渲染 tab 行（avatar.md §6.1），保留作 sectionOf/标题的
-// 词表来源——路由分节语义只有这一份。
+// 词表来源——路由分节语义只有这一份。标签已换生命系统轴（avatar.md
+// §3.1 形态篇）：记忆→手账、感知→注意力；机制词在页内机制语境保留。
 const NAV = [
   { key: "stage", label: "舞台", path: "" },
   { key: "traj", label: "轨迹", path: "/traj" },
   { key: "tasks", label: "任务", path: "/tasks" },
-  { key: "memories", label: "记忆", path: "/memories" },
+  { key: "memories", label: "手账", path: "/memories" },
   { key: "run", label: "运行", path: "/run/thinkers" },
   { key: "review", label: "回看", path: "/review" },
-  { key: "sensors", label: "感知", path: "/sensors" },
+  { key: "sensors", label: "注意力", path: "/sensors" },
   { key: "settings", label: "设置", path: "/settings/config" },
 ] as const;
 
@@ -67,14 +69,14 @@ const SEGS: Partial<Record<SectionKey, { label: string; path: string }[]>> = {
   ],
   run: [
     { label: "思考者", path: "/run/thinkers" },
-    { label: "日程", path: "/run/schedule" },
-    { label: "健康", path: "/run/health" },
-    { label: "用量", path: "/run/usage" },
+    { label: "作息", path: "/run/schedule" },
+    { label: "体检", path: "/run/health" },
+    { label: "食量", path: "/run/usage" },
   ],
   settings: [
     { label: "配置", path: "/settings/config" },
-    { label: "技能", path: "/settings/skills" },
-    { label: "连接", path: "/settings/connections" },
+    { label: "手艺", path: "/settings/skills" },
+    { label: "社交", path: "/settings/connections" },
   ],
 };
 
@@ -176,6 +178,13 @@ export default function IdentityShell() {
             </span>
           </>
         )}
+        {/* 体征层（avatar.md §3.4）：呼吸/心跳/食量/睡眠/痛觉——跨
+            分节常驻。窄窗隐藏；pointer-events 放行给底下的拖动层
+            （顶栏中段是主要「抓住移动」区域）。 */}
+        <VitalsBand
+          identityId={identityId}
+          className="pointer-events-none relative z-10 hidden min-[1180px]:flex"
+        />
         {/* 弹性空隙：pointer-events 放行给底下的拖动层——顶栏中段是
             主要的「抓住移动」区域。 */}
         <span className="pointer-events-none min-w-2 flex-1" />

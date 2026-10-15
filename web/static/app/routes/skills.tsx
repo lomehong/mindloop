@@ -207,7 +207,7 @@ export default function SkillsPage() {
       <div className="mx-auto w-full max-w-4xl space-y-4 pb-10">
         <div className="flex flex-wrap items-baseline gap-3">
           <h1 className="font-note text-[22px] font-semibold tracking-[0.01em]">
-            技能
+            手艺
           </h1>
           <span className="text-[13px] text-muted-foreground">
             Agent Skills 标准 · 索引进系统提示，正文按需读取

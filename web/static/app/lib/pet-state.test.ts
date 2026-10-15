@@ -98,6 +98,28 @@ describe("deriveMood 优先级", () => {
   });
 });
 
+describe("deriveMood 等审批桥（avatar.md §3.3 三化身同源）", () => {
+  const base = {
+    connected: true,
+    replying: false,
+    busyThinkers: 0,
+    activity: "idle" as const,
+    lastStepAgeS: 30,
+    budgetRatio: 0.9,
+    cooling: false,
+    lastAlertAgeMs: null,
+  };
+  it("有待批审批 → awaiting（优先于饿）", () => {
+    expect(deriveMood({ ...base, pendingApprovals: 2 })).toBe("awaiting");
+  });
+  it("疼挡住等审批（优先级 sick > awaiting）", () => {
+    expect(deriveMood({ ...base, cooling: true, pendingApprovals: 2 })).toBe("sick");
+  });
+  it("不传 pendingApprovals 时行为与补齐前一致", () => {
+    expect(deriveMood(base)).toBe("hungry");
+  });
+});
+
 describe("reactionForStep 映射", () => {
   it("五类映射与高频步骤不加戏", () => {
     expect(reactionForStep("message")).toBe("focus");

@@ -297,7 +297,7 @@ export default function SensorsPage() {
       <div className="mx-auto w-full max-w-4xl pb-10">
         <div className="mb-4 flex flex-wrap items-baseline gap-3">
           <h1 className="font-note text-[22px] font-semibold tracking-[0.01em]">
-            感知
+            注意力
           </h1>
           <span className="text-[13px] text-muted-foreground">
             五感 · sensors.json · 改这里即刻生效

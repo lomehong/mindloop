@@ -136,7 +136,7 @@ export default function SchedulePage() {
       <div className="mx-auto w-full max-w-4xl space-y-4 pb-10">
         <div className="flex flex-wrap items-baseline gap-3">
           <h1 className="font-note text-[22px] font-semibold tracking-[0.01em]">
-            日程
+            作息
           </h1>
           <span className="text-[13px] text-muted-foreground">
             schedule.json · 到点由心智心跳触发：task 提交任务、exec 沙箱执行

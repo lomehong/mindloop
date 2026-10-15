@@ -503,6 +503,7 @@ html.pet-mode {
   --pet-ink: oklch(0.3 0.03 264);
 }
 .pet-mood-working  { --pet-color: oklch(0.68 0.12 195); --pet-breath: 1.8s; --pet-orbit-speed: 2.6s; }
+.pet-mood-awaiting { --pet-color: oklch(0.72 0.14 60);  --pet-breath: 4.2s; } /* 等你拍板：树脂琥珀 · 屏息慢呼吸（theater 五态 awaiting） */
 .pet-mood-speaking { --pet-color: oklch(0.62 0.13 200); --pet-breath: 2.2s; }
 .pet-mood-alert    { --pet-color: oklch(0.58 0.21 27);  --pet-breath: 0.9s; }
 .pet-mood-hungry   { --pet-color: oklch(0.72 0.15 75);  --pet-breath: 2.8s; }
@@ -511,6 +512,7 @@ html.pet-mode {
 .pet-mood-dozing   { --pet-color: oklch(0.55 0.03 240); --pet-breath: 7.5s; }
 .pet-mood-offline  { --pet-color: oklch(0.55 0.01 240); --pet-breath: 0s; }
 html.dark .pet-mood-working  { --pet-color: oklch(0.82 0.12 195); }
+html.dark .pet-mood-awaiting { --pet-color: oklch(0.8 0.13 65); }
 html.dark .pet-mood-speaking { --pet-color: oklch(0.86 0.11 200); }
 html.dark .pet-mood-alert    { --pet-color: oklch(0.68 0.2 27); }
 html.dark .pet-mood-hungry   { --pet-color: oklch(0.8 0.14 80); }
