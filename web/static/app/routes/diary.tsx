@@ -195,7 +195,7 @@ export default function Diary() {
         )}
 
         {zoom === "1h" && (
-          <div className="rounded-xl border border-border bg-card p-4">
+          <div className="rounded-xl border border-line-strong bg-card/85 p-4 backdrop-blur-[6px]">
             <div className="mb-3 flex flex-wrap items-baseline gap-2">
               <h2 className="text-[14px] font-medium">最近 1 小时 · 步骤粒子</h2>
               <span className="font-mono text-[10.5px] text-faint">
@@ -224,7 +224,7 @@ export default function Diary() {
         )}
 
         {zoom === "24h" && (
-          <div className="rounded-xl border border-border bg-card p-4">
+          <div className="rounded-xl border border-line-strong bg-card/85 p-4 backdrop-blur-[6px]">
             <div className="mb-3 flex flex-wrap items-baseline gap-2">
               <h2 className="text-[14px] font-medium">24 小时生命线</h2>
               <span className="font-mono text-[10.5px] text-faint">
@@ -244,7 +244,7 @@ export default function Diary() {
 
         {zoom === "14d" && (
           <div className="space-y-3">
-            <div className="rounded-xl border border-border bg-card p-4">
+            <div className="rounded-xl border border-line-strong bg-card/85 p-4 backdrop-blur-[6px]">
               <div className="mb-2 flex flex-wrap items-baseline gap-2">
                 <h2 className="text-[14px] font-medium">14 天年轮</h2>
                 <span className="font-mono text-[10.5px] text-faint">
@@ -265,7 +265,7 @@ export default function Diary() {
                 ))}
               </div>
             </div>
-            <div className="rounded-xl border border-border bg-card p-4">
+            <div className="rounded-xl border border-line-strong bg-card/85 p-4 backdrop-blur-[6px]">
               <div className="mb-3 flex flex-wrap items-baseline gap-2">
                 <h2 className="text-[14px] font-medium">章节（14 天内）</h2>
                 <span className="font-mono text-[10.5px] text-faint">

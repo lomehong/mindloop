@@ -225,27 +225,6 @@ export default function MemoriesPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
-      {recallStats && (
-        <div className="mb-4 rounded-xl border border-line bg-card/60 px-4 py-3">
-          <div className="mb-1 text-[12px] font-medium text-foreground">
-            召回统计（最近 {recallStats.total} 次检索）
-          </div>
-          <div className="flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-muted-foreground">
-            <span>
-              命中合计 <span className="tabular-nums text-foreground">{recallStats.totalHits}</span>
-            </span>
-            <span>
-              注入 {recallStats.injected} 次 · 无命中跳过 {recallStats.skipped} 次
-            </span>
-            <span>
-              平均耗时{" "}
-              <span className="tabular-nums text-foreground">
-                {recallStats.avgMs >= 1 ? `${Math.round(recallStats.avgMs)}ms` : "<1ms"}
-              </span>
-            </span>
-          </div>
-        </div>
-      )}
       {!memories || memories.length === 0 ? (
         <Empty>
           <EmptyHeader>
@@ -256,7 +235,7 @@ export default function MemoriesPage() {
           </EmptyHeader>
         </Empty>
       ) : (
-        <div className="flex flex-col gap-4 lg:flex-row lg:gap-0">
+        <div className="flex flex-col gap-4 lg:flex-row lg:gap-0 xl:gap-6">
           <aside className="min-w-0 shrink-0 lg:w-80 lg:border-r lg:border-line lg:pr-4">
             <div className="mb-2 flex gap-2">
               <div className="relative min-w-0 flex-1">
@@ -436,6 +415,48 @@ export default function MemoriesPage() {
               </div>
             )}
           </div>
+          {/* 样张 §5 右栏：它此刻想起什么（mem-recall 台账）——召回是
+              观测面不是事实源，展示不改变行为 */}
+          <aside className="min-w-0 shrink-0 space-y-3 xl:w-72">
+            <div className="rounded-xl border border-border bg-card px-4 py-3">
+              <div className="text-[13px] font-medium">它此刻想起什么</div>
+              <div className="mb-2 font-mono text-[10px] text-faint">召回台账 · mem-recall</div>
+              {(recall ?? []).length === 0 ? (
+                <div className="py-1 text-[12px] text-faint">还没有召回记录。</div>
+              ) : (
+                <div className="flex flex-col">
+                  {(recall ?? []).slice(0, 8).map((r, i) => (
+                    <div
+                      key={`${r.ts}-${i}`}
+                      className="flex items-baseline justify-between gap-2 border-b border-line py-1.5 text-[12px] last:border-b-0"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                        {r.source === "monolith" ? "唤醒上下文" : "对话回复"}
+                        {r.injected > 0 ? ` · 注入 ${r.injected} 条` : r.skipped ? " · 跳过" : ""}
+                      </span>
+                      <span className="shrink-0 font-mono text-[10px] text-faint">
+                        hit {r.hit_count}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {recallStats && (
+                <div className="mt-2 border-t border-line pt-2 font-mono text-[10px] leading-relaxed text-faint">
+                  最近 {recallStats.total} 次检索 · 命中合计 {recallStats.totalHits} ·
+                  注入 {recallStats.injected} · 跳过 {recallStats.skipped} ·
+                  均耗 {recallStats.avgMs >= 1 ? `${Math.round(recallStats.avgMs)}ms` : "<1ms"}
+                </div>
+              )}
+            </div>
+            <div className="rounded-xl border border-border bg-surface-2 px-4 py-3">
+              <div className="font-mono text-[10px] tracking-[0.08em] text-faint">消化链</div>
+              <div className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">
+                注意力 S0 沉淀 → 睡眠整理（合并/裁决/降权，未核实标签）→
+                手账条目。未核实的沉淀不参与显著性升级——回声室断环。
+              </div>
+            </div>
+          </aside>
         </div>
       )}
       <ConfirmDialog

@@ -163,10 +163,10 @@ export default function HealthPage() {
     <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
       <div className="mx-auto w-full max-w-4xl pb-10">
         <div className="mb-4 flex flex-wrap items-baseline gap-3">
-          <h1 className="font-note text-[22px] font-semibold tracking-[0.01em]">
+          <h1 className="text-[20px] font-medium tracking-[0.01em]">
             体检
-          </h1>
-          <span className="text-[13px] text-muted-foreground">
+            </h1>
+          <span className="font-mono text-[11.5px] text-faint">
             状态 · 回复质量 · 模型调用
           </span>
         </div>

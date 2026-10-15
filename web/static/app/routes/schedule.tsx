@@ -135,10 +135,10 @@ export default function SchedulePage() {
     <div className="mx-auto w-full max-w-7xl 2xl:max-w-[1600px]">
       <div className="mx-auto w-full max-w-4xl space-y-4 pb-10">
         <div className="flex flex-wrap items-baseline gap-3">
-          <h1 className="font-note text-[22px] font-semibold tracking-[0.01em]">
+          <h1 className="text-[20px] font-medium tracking-[0.01em]">
             作息
-          </h1>
-          <span className="text-[13px] text-muted-foreground">
+            </h1>
+          <span className="font-mono text-[11.5px] text-faint">
             schedule.json · 到点由心智心跳触发：task 提交任务、exec 沙箱执行
           </span>
           {controlsEnabled && (
