@@ -495,7 +495,18 @@ export type StepType =
   | "tp-thought"
   | "human-msg"
   | "agent-msg"
-  | "merge";
+  | "merge"
+  // mindloop 自有步骤词表（internal/traj/step.go 常量）——headlong
+  // viewer 词汇之外的部分；缺了它们 taste/event 等步骤过不了类型。
+  | "run"
+  | "error"
+  | "alert"
+  | "event"
+  | "taste"
+  | "screen"
+  | "scene"
+  | "intent"
+  | "presence";
 
 export type StepSource =
   | "seed"

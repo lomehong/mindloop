@@ -1,17 +1,22 @@
-// 工作台（/，docs/designs/ui-language.md §5.1）：左栏负责「你是谁」，
-// 本页负责「发生了什么、要我做什么」。结构 = masthead（工作台 · N 具 ·
-// 运行中 M + 批量操作）→ 需要你（全站唯一告警面：待审批/预算≥80%/熔断
-// 冷却/stalled 四类信号聚合）→ 心智卡网格（≤6 具 3 列，更多降级列表行：
-// 小像 · 状态 · 最近活动 · 14 天年轮条 · 今日读数 · 动作）。数据全部来自
-// 既有 fetch；查询静默失败退化为「无读数/无信号」，不打断页面。
+// 同行面（avatar.md §6.2：工作台重生——第一屏回答"今天我们互相成就
+// 了什么"）。结构 = masthead（同行面 · N 具 · 运行中 M + 批量操作 +
+// ⌘K）→ 需要你（theater §5 全站唯一告警面，原样保留）→ 同行卡阵
+// （每具一张：三轴读数 能力/信任/传承 + 今日账目一句话）→ 共同成长账
+// 三栏（它为你 / 你为它 / 一起长出——双向记账，只记真实事件）。
+//
+// 机制账（avatar.md §3.2）：卡上不出现阶段/百分比这类无机制支撑的
+// 拟人指标——三轴全部是既有机制读数（skills/tasks/usage/policy env/
+// memories/taste，聚合逻辑在 lib/growth-ledger 配测试）。>6 具降级
+// 列表行；数据静默失败退化为「读数缺席」，不打断页面。
 
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, MoreHorizontal, Play, Plus, Square, Upload } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { AuthenticatedDownload } from "~/components/authenticated-download";
+import { CommandPalette } from "~/components/command-palette";
 import { ConfirmDialog } from "~/components/confirm-dialog";
 import { CreatureSvg } from "~/components/pet/creature";
 import { QueryErrorBanner } from "~/components/query-error-banner";
@@ -36,29 +41,54 @@ import {
   fetchActivity,
   fetchApprovals,
   fetchIdentities,
+  fetchIdentityEnv,
+  fetchMemories,
+  fetchMindlog,
+  fetchSkills,
+  fetchTaste,
+  fetchTasks,
   fetchUsage,
   importIdentities,
   killAll,
 } from "~/lib/api";
-import { formatCount, formatRelativeTime } from "~/lib/format";
+import {
+  axisLines,
+  ledgerFor,
+  mergeLedgers,
+  parsePolicyMode,
+  type AxisFacts,
+  type IdentityLedger,
+  type LedgerEvent,
+} from "~/lib/growth-ledger";
+import { formatClock, formatRelativeTime } from "~/lib/format";
 import { phaseFor } from "~/lib/pet-state";
 import { STATUS_BACKGROUND_POLL_MS, USAGE_IDLE_POLL_MS } from "~/lib/polling";
 import type {
   Identity,
   IdentityActivity,
+  MemoryInfo,
+  Mindlog,
   PendingApproval,
+  SkillsView,
+  TasteSummary,
   Usage,
-  UsageDay,
+  AgentTask,
+  IdentityEnv,
 } from "~/lib/types";
 import { cn } from "~/lib/utils";
 
 export function meta() {
-  return [{ title: "mindloop · 工作台" }];
+  return [{ title: "mindloop · 同行面" }];
 }
 
 function identityPath(id: string, rest = ""): string {
   return `/i/${encodeURIComponent(id)}${rest}`;
 }
+
+// 成长账的轨迹窗口：行数窗口（后端只有行数语义的窗口参数），与
+// 泳道首屏同量级。窗口起点落在今日之内时 UI 必须标注（窗口诚实）。
+const LEDGER_TAIL = 1000;
+const LEDGER_POLL_MS = 60_000;
 
 // --- 批量操作（masthead 右侧）------------------------------------------------
 
@@ -315,76 +345,6 @@ function StatusChip({ live }: { live: boolean }) {
   );
 }
 
-/** 近 14 天年轮：每天一柱，有柱 = 那天有调用（心智动过），空段 = 休息。
- * 现台账只记调用与 token（runs 计数缺席），故以 calls 为活动信号。 */
-function ringCalls(daily: [string, UsageDay][] | undefined): { day: string; calls: number }[] {
-  const byDay = new Map(daily ?? []);
-  const out: { day: string; calls: number }[] = [];
-  for (let i = 13; i >= 0; i--) {
-    const key = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
-    out.push({ day: key, calls: byDay.get(key)?.calls ?? 0 });
-  }
-  return out;
-}
-
-function RingSpark({ days, big }: { days: { day: string; calls: number }[]; big?: boolean }) {
-  // 平方根刻度：同一张条形里 600 次与 50 次都要看得见（差值全靠高度会压扁近几天）。
-  const max = Math.max(1, ...days.map((d) => d.calls));
-  const h = big ? 34 : 22;
-  const height = (v: number) =>
-    v > 0 ? Math.max(3, Math.round((Math.sqrt(v) / Math.sqrt(max)) * h)) : 1;
-  return (
-    <div className={cn("flex items-end", big ? "h-[34px] gap-[3px]" : "h-[22px] gap-[2px]")}>
-      {days.map((d) => (
-        <i
-          key={d.day}
-          title={`${d.day} · ${d.calls} 次调用`}
-          className={cn("flex-1 rounded-t-[2px]", d.calls > 0 && "bg-moss opacity-90")}
-          style={{ height: height(d.calls) }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function todayUsage(usage: Usage | undefined): UsageDay | undefined {
-  const key = new Date().toISOString().slice(0, 10);
-  return usage?.daily?.find(([day]) => day === key)?.[1];
-}
-
-function Readouts({
-  usage,
-  dispatcherRunning,
-}: {
-  usage: Usage | undefined;
-  dispatcherRunning: boolean;
-}) {
-  const today = todayUsage(usage);
-  const tok = today ? formatCount(today.in + today.out + today.think) : null;
-  const calls = today ? today.calls : null;
-  const k = "font-mono text-[10.5px] tracking-[0.05em] text-faint";
-  const v = "text-right font-mono text-[11.5px] tabular-nums";
-  return (
-    <div className="grid grid-cols-[1fr_auto] gap-x-2 gap-y-[5px] border-t border-dashed border-border pt-2.5">
-      <span className={k}>今日 token</span>
-      <span className={cn(v, tok === null && "text-faint")}>{tok ?? "—"}</span>
-      <span className={k}>今日调用</span>
-      <span className={cn(v, calls === null && "text-faint")}>
-        {calls === null ? "—" : `${calls} 次`}
-      </span>
-      <span className={k}>调度器</span>
-      <span
-        className={cn(
-          v,
-          dispatcherRunning ? "text-primary" : "text-faint"
-        )}
-      >
-        {dispatcherRunning ? "运行中" : "已停止"}
-      </span>
-    </div>
-  );
-}
-
 function activityLine(identity: Identity, activity?: IdentityActivity): string {
   const rel = identity.last_activity_ts
     ? formatRelativeTime(identity.last_activity_ts)
@@ -487,7 +447,7 @@ function DispatcherControl({
   );
 }
 
-/** ⋯ = 日志 / 导出 / 删除身份（docs/designs/ui-language.md §5.1）。 */
+/** ⋯ = 日志 / 导出 / 删除身份。 */
 function CardMenu({ identityId, name }: { identityId: string; name: string }) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -565,26 +525,118 @@ function CardMenu({ identityId, name }: { identityId: string; name: string }) {
   );
 }
 
-// --- 卡 / 行 ------------------------------------------------------------------
+// --- 三轴读数（机制账：全部来自既有机制，缺读数就说缺）-----------------------
 
 interface SlotData {
   identity: Identity;
   usage: Usage | undefined;
   approvals: PendingApproval[] | undefined;
   activity: IdentityActivity | undefined;
+  tasks: AgentTask[] | undefined;
+  skills: SkillsView | undefined;
+  memories: MemoryInfo[] | undefined;
+  taste: TasteSummary | undefined;
+  env: IdentityEnv | undefined;
+  mindlog: Mindlog | undefined;
 }
 
-function IdentityCard({
+export function axisFacts(slot: SlotData): AxisFacts {
+  const envVars = slot.env?.env ?? [];
+  const findVar = (key: string) =>
+    envVars.find((e) => e.key === key)?.value;
+  const policy = parsePolicyMode(findVar("MINDLOOP_EXEC_POLICY"));
+  const spontRaw = findVar("MINDLOOP_SPONTANEOUS_TOKENS");
+  const spontaneous = spontRaw ? Number(spontRaw) : null;
+
+  const admission = slot.usage?.admission;
+  // 近 7 天显式委托：完成 / 收尾（succeeded+failed）。在途不算完成率
+  // 的分母——分母里塞未决项会把"还没做完"算成"没做成"。
+  const weekAgo = Date.now() - 7 * 86_400_000;
+  const recent = slot.tasks?.filter((t) => Date.parse(t.created_at) >= weekAgo);
+
+  return {
+    skills: slot.skills
+      ? slot.skills.skills.filter((s) => s.source === "identity").length
+      : null,
+    tasksDone: recent ? recent.filter((t) => t.status === "succeeded").length : null,
+    tasksTotal: recent
+      ? recent.filter((t) => t.status === "succeeded" || t.status === "failed").length
+      : null,
+    policyMode: policy.mode,
+    policyDefaulted: policy.defaulted,
+    admission: admission
+      ? { used: admission.used_today, limit: admission.daily_limit }
+      : null,
+    spontaneous:
+      spontaneous !== null && Number.isFinite(spontaneous) && spontaneous > 0
+        ? spontaneous
+        : null,
+    memories: slot.memories
+      ? slot.memories.filter((m) => !m.status || m.status === "active").length
+      : null,
+    taste7d: slot.taste
+      ? {
+          approves: slot.taste.Approves ?? 0,
+          denies: slot.taste.Denies ?? 0,
+          undoes: slot.taste.Undoes ?? 0,
+        }
+      : null,
+  };
+}
+
+/** 卡上的今日一句话：自发 N 件 · 你过手 M 次 · 新记忆 K 条。 */
+function todayLine(ledger: IdentityLedger | undefined): string {
+  if (!ledger) return "今日账目读数缺席";
+  const a = ledger.itForYou.length;
+  const b = ledger.youForIt.length;
+  const c = ledger.together.length;
+  if (a + b + c === 0) return "今日还没有新账";
+  const parts: string[] = [];
+  if (a > 0) parts.push(`它自己收了 ${a} 件事`);
+  if (b > 0) parts.push(`你过手 ${b} 次`);
+  if (c > 0) parts.push(`长出 ${c} 条新记忆`);
+  return `今日${parts.join(" · ")}`;
+}
+
+// --- 同行卡 / 行 -----------------------------------------------------------------
+
+function AxisCell({ label, text }: { label: string; text: string }) {
+  return (
+    <div className="rounded-lg border border-border px-2.5 py-2">
+      <div className="font-mono text-[10px] tracking-[0.08em] text-faint">
+        {label}
+      </div>
+      <div className="mt-0.5 truncate text-[12px] text-muted-foreground" title={text}>
+        {text}
+      </div>
+    </div>
+  );
+}
+
+function CompanionCard({
   slot,
   controlsEnabled,
 }: {
   slot: SlotData;
   controlsEnabled: boolean;
 }) {
-  const { identity, usage } = slot;
-  const ring = useMemo(() => ringCalls(usage?.daily), [usage]);
+  const { identity } = slot;
+  const facts = useMemo(() => axisFacts(slot), [slot]);
+  const axes = useMemo(() => axisLines(facts), [facts]);
+  const ledger = useMemo(
+    () =>
+      slot.mindlog
+        ? ledgerFor({
+            identityId: identity.id,
+            identityName: identity.name,
+            steps: slot.mindlog.steps,
+            memories: slot.memories,
+          })
+        : undefined,
+    [slot.mindlog, slot.memories, identity.id, identity.name]
+  );
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3.5 pb-3">
+    <div className="flex flex-col gap-2.5 rounded-xl border border-border bg-card p-3.5 pb-3">
       <div className="flex items-center gap-2.5">
         <CreatureSvg size={30} phase={phaseFor(identity.id)} />
         <Link
@@ -596,22 +648,25 @@ function IdentityCard({
         >
           {identity.name}
         </Link>
-        <span className="ml-auto">
+        <span className="ml-auto flex items-center gap-2">
           <StatusChip live={identity.live} />
         </span>
       </div>
       <div className="-mt-1 text-[12px] text-muted-foreground">
         {activityLine(identity, slot.activity)}
       </div>
-      <RingSpark days={ring} big />
-      <div className="-mt-1 font-mono text-[10px] tracking-[0.08em] text-faint">
-        近 14 天 · 年轮
+      <div className="grid grid-cols-3 gap-2">
+        <AxisCell label="能力" text={axes.ability} />
+        <AxisCell label="信任" text={axes.trust} />
+        <AxisCell label="传承" text={axes.legacy} />
       </div>
-      <Readouts usage={usage} dispatcherRunning={identity.dispatcher?.running ?? false} />
-      {/* 操作行恒为单行：调度钮用图标态（compact）压缩宽度，列数由容器宽度约束。 */}
+      <div className="text-[12.5px] text-muted-foreground">
+        {todayLine(ledger)}
+      </div>
+      {/* 操作行恒为单行：调度钮用图标态（compact）压缩宽度。 */}
       <div className="mt-0.5 flex items-center gap-1.5">
         <Button size="sm" asChild>
-          <Link to={identityPath(identity.id)}>进入轨迹 →</Link>
+          <Link to={identityPath(identity.id)}>进舞台 →</Link>
         </Button>
         <Button size="sm" variant="outline" asChild>
           <Link to={identityPath(identity.id, "/chat")}>对话</Link>
@@ -631,17 +686,22 @@ function IdentityCard({
   );
 }
 
-function IdentityRow({
-  slot,
-  controlsEnabled,
-}: {
-  slot: SlotData;
-  controlsEnabled: boolean;
-}) {
-  const { identity, usage } = slot;
-  const ring = useMemo(() => ringCalls(usage?.daily), [usage]);
-  const today = todayUsage(usage);
-  const tok = today ? formatCount(today.in + today.out + today.think) : "—";
+function CompanionRow({ slot }: { slot: SlotData }) {
+  const { identity } = slot;
+  const facts = useMemo(() => axisFacts(slot), [slot]);
+  const axes = useMemo(() => axisLines(facts), [facts]);
+  const ledger = useMemo(
+    () =>
+      slot.mindlog
+        ? ledgerFor({
+            identityId: identity.id,
+            identityName: identity.name,
+            steps: slot.mindlog.steps,
+            memories: slot.memories,
+          })
+        : undefined,
+    [slot.mindlog, slot.memories, identity.id, identity.name]
+  );
   return (
     <div className="flex items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0 hover:bg-muted">
       <Link
@@ -662,23 +722,114 @@ function IdentityRow({
       <span className="hidden min-w-0 flex-1 truncate text-[12px] text-muted-foreground lg:block">
         {activityLine(identity, slot.activity)}
       </span>
-      <div className="hidden w-24 shrink-0 md:block">
-        <RingSpark days={ring} />
-      </div>
-      <span className="hidden whitespace-nowrap font-mono text-[11px] tabular-nums text-muted-foreground sm:block">
-        {tok} tok · {today?.calls ?? 0} 次
+      <span className="hidden max-w-44 shrink-0 truncate text-[11.5px] text-muted-foreground xl:block">
+        {todayLine(ledger)}
       </span>
-      {controlsEnabled && identity.thinkers_total > 0 && (
-        <DispatcherControl
-          identityId={identity.id}
-          running={identity.dispatcher?.running ?? false}
-          compact
-        />
-      )}
+      <span className="hidden w-40 shrink-0 truncate text-right text-[11px] text-faint md:block">
+        {axes.trust}
+      </span>
       <CardMenu identityId={identity.id} name={identity.name} />
     </div>
   );
 }
+
+// --- 共同成长账（三栏双向记账）--------------------------------------------------
+
+const LEDGER_ROW_LIMIT = 6;
+
+function LedgerColumn({
+  kicker,
+  tone,
+  events,
+}: {
+  kicker: string;
+  tone: string;
+  events: LedgerEvent[];
+}) {
+  const shown = events.slice(0, LEDGER_ROW_LIMIT);
+  const rest = events.length - shown.length;
+  return (
+    <div className="min-w-0">
+      <div className={cn("mb-1.5 font-mono text-[10.5px] tracking-[0.1em]", tone)}>
+        {kicker}
+        {events.length > 0 && (
+          <span className="ml-1.5 text-faint">{events.length}</span>
+        )}
+      </div>
+      {shown.length === 0 ? (
+        <div className="py-1 text-[12.5px] text-faint">今日还没有</div>
+      ) : (
+        shown.map((ev) => (
+          <div
+            key={ev.stepId}
+            className="flex gap-2 border-b border-border py-1.5 text-[12.5px] last:border-b-0"
+          >
+            <span className="shrink-0 pt-px font-mono text-[10.5px] text-faint">
+              {formatClock(ev.ts).slice(0, 5)}
+            </span>
+            <span className="shrink-0 pt-px font-mono text-[10.5px] text-muted-foreground">
+              {ev.identityName}
+            </span>
+            <span
+              className="min-w-0 flex-1 truncate text-muted-foreground"
+              title={ev.summary}
+            >
+              {ev.summary}
+            </span>
+          </div>
+        ))
+      )}
+      {rest > 0 && (
+        <div className="pt-1 text-[11.5px] text-faint">另有 {rest} 条</div>
+      )}
+    </div>
+  );
+}
+
+function GrowthLedgerCard({ ledgers }: { ledgers: IdentityLedger[] }) {
+  const merged = useMemo(() => mergeLedgers(ledgers), [ledgers]);
+  // 窗口诚实：有任何身份的窗口起点落在今日之内，计数就是"近 N 步内"
+  // 的下界——脚注必须说出来，不得写成"今日共 N 件"。
+  const partial = ledgers.some((l) => !l.windowCoversToday);
+  return (
+    <section className="rounded-xl border border-border bg-card">
+      <div className="flex flex-wrap items-baseline gap-2 border-b border-border px-4 py-2.5">
+        <span className="font-mono text-[10.5px] tracking-[0.1em] text-faint">
+          共同成长账
+        </span>
+        <span className="text-[12px] text-faint">
+          互相成就 · 双向记账 · 只记真实事件，无积分无庆祝
+        </span>
+        <span className="ml-auto text-[11px] text-faint">
+          {partial
+            ? `窗口 = 各身份 mindlog 最近 ${LEDGER_TAIL} 步（有身份的窗口起点在今日之内，更早的今日事件未含）`
+            : "窗口 = 各身份 mindlog 最近 1000 步，覆盖今日"}
+        </span>
+      </div>
+      <div className="grid gap-4 px-4 py-3 min-[880px]:grid-cols-3">
+        <LedgerColumn
+          kicker="它为你"
+          tone="text-moss"
+          events={merged.itForYou}
+        />
+        <LedgerColumn
+          kicker="你为它"
+          tone="text-lake"
+          events={merged.youForIt}
+        />
+        <LedgerColumn
+          kicker="一起长出"
+          tone="text-resin"
+          events={merged.together}
+        />
+      </div>
+    </section>
+  );
+}
+
+// 组件导出仅供回归测试（companion-card.test.tsx）——渲染契约钉死：
+// 三轴词表、今日账目一句话、三栏顺序与窗口诚实脚注。
+export { CompanionCard, GrowthLedgerCard };
 
 // --- 骨架 ---------------------------------------------------------------------
 
@@ -707,9 +858,12 @@ function HomeSkeleton() {
               <Skeleton className="h-5 w-14 rounded-full" />
             </div>
             <Skeleton className="h-3.5 w-40" />
-            <Skeleton className="h-[34px] w-full" />
-            <Skeleton className="h-3 w-24" />
-            <Skeleton className="h-[68px] w-full" />
+            <div className="grid grid-cols-3 gap-2">
+              <Skeleton className="h-11 w-full rounded-lg" />
+              <Skeleton className="h-11 w-full rounded-lg" />
+              <Skeleton className="h-11 w-full rounded-lg" />
+            </div>
+            <Skeleton className="h-3.5 w-52" />
             <div className="flex gap-1.5">
               <Skeleton className="h-8 w-24" />
               <Skeleton className="h-8 w-16" />
@@ -717,6 +871,7 @@ function HomeSkeleton() {
           </div>
         ))}
       </div>
+      <Skeleton className="h-40 w-full rounded-xl" />
     </div>
   );
 }
@@ -725,6 +880,7 @@ function HomeSkeleton() {
 
 export default function Home() {
   const controlsEnabled = useControlsEnabled();
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const {
     data: identities,
     isLoading,
@@ -737,28 +893,72 @@ export default function Home() {
     refetchInterval: STATUS_BACKGROUND_POLL_MS,
   });
 
-  // 每具身份的读数（年轮/预算/今日）、待办（审批）与活动——共享各页
-  // 既有 query key，命中缓存不重复请求；静默失败退化为无读数/无信号。
+  // 每具身份的读数与账目——共享各页既有 query key（tasks/skills/
+  // memories/taste/env），命中缓存不重复请求；静默失败退化为无读数/
+  // 无事件，不打断页面。查询键与既有页面一致是缓存共享的前提。
   const list = identities ?? [];
+  const per = <T,>(fn: (it: Identity) => T): T[] => list.map(fn);
   const usageQueries = useQueries({
-    queries: list.map((it) => ({
+    queries: per((it) => ({
       queryKey: ["usage", it.id],
       queryFn: () => fetchUsage(it.id),
       refetchInterval: USAGE_IDLE_POLL_MS,
     })),
   });
   const approvalQueries = useQueries({
-    queries: list.map((it) => ({
+    queries: per((it) => ({
       queryKey: ["approvals", it.id],
       queryFn: () => fetchApprovals(it.id),
       refetchInterval: STATUS_BACKGROUND_POLL_MS,
     })),
   });
   const activityQueries = useQueries({
-    queries: list.map((it) => ({
+    queries: per((it) => ({
       queryKey: ["activity", it.id],
       queryFn: () => fetchActivity(it.id),
       refetchInterval: STATUS_BACKGROUND_POLL_MS,
+    })),
+  });
+  const taskQueries = useQueries({
+    queries: per((it) => ({
+      queryKey: ["tasks", it.id],
+      queryFn: () => fetchTasks(it.id),
+      refetchInterval: 30_000,
+    })),
+  });
+  const skillQueries = useQueries({
+    queries: per((it) => ({
+      queryKey: ["skills", it.id],
+      queryFn: () => fetchSkills(it.id),
+      refetchInterval: 120_000,
+    })),
+  });
+  const memoryQueries = useQueries({
+    queries: per((it) => ({
+      queryKey: ["memories", it.id],
+      queryFn: () => fetchMemories(it.id),
+      refetchInterval: LEDGER_POLL_MS,
+    })),
+  });
+  const tasteQueries = useQueries({
+    queries: per((it) => ({
+      queryKey: ["taste", it.id],
+      queryFn: () => fetchTaste(it.id),
+      refetchInterval: LEDGER_POLL_MS,
+    })),
+  });
+  const envQueries = useQueries({
+    queries: per((it) => ({
+      queryKey: ["env", it.id],
+      queryFn: () => fetchIdentityEnv(it.id),
+      refetchInterval: 300_000,
+    })),
+  });
+  const mindlogQueries = useQueries({
+    queries: per((it) => ({
+      queryKey: ["ledger-steps", it.id],
+      queryFn: () => fetchMindlog(it.id, { tail: LEDGER_TAIL }),
+      refetchInterval: LEDGER_POLL_MS,
     })),
   });
 
@@ -767,6 +967,12 @@ export default function Home() {
     usage: usageQueries[i]?.data,
     approvals: approvalQueries[i]?.data,
     activity: activityQueries[i]?.data,
+    tasks: taskQueries[i]?.data,
+    skills: skillQueries[i]?.data,
+    memories: memoryQueries[i]?.data,
+    taste: tasteQueries[i]?.data,
+    env: envQueries[i]?.data,
+    mindlog: mindlogQueries[i]?.data,
   }));
   const signals = slots.flatMap((slot) =>
     signalsFor(slot.identity, slot.usage, slot.approvals, slot.activity)
@@ -776,6 +982,34 @@ export default function Home() {
     (usageQueries.some((q) => q.isPending) ||
       approvalQueries.some((q) => q.isPending) ||
       activityQueries.some((q) => q.isPending));
+  const ledgers = useMemo(
+    () =>
+      slots.flatMap((slot) =>
+        slot.mindlog
+          ? [
+              ledgerFor({
+                identityId: slot.identity.id,
+                identityName: slot.identity.name,
+                steps: slot.mindlog.steps,
+                memories: slot.memories,
+              }),
+            ]
+          : []
+      ),
+    [slots]
+  );
+
+  // ⌘K 一级入口（avatar.md §6.1）：工作台同样有命令面板。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   if (isLoading) return <HomeSkeleton />;
 
@@ -786,7 +1020,7 @@ export default function Home() {
   const masthead = (
     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
       <span className="font-note text-[19px] font-semibold tracking-[0.01em]">
-        工作台
+        同行面
       </span>
       {!isError && (
         <span className="text-[13px] text-muted-foreground">
@@ -795,6 +1029,15 @@ export default function Home() {
       )}
       <span className="flex-1" />
       <div className="flex flex-wrap items-center gap-1.5">
+        <Button
+          size="sm"
+          variant="outline"
+          data-testid="palette-open"
+          title="命令面板（Ctrl K）"
+          onClick={() => setPaletteOpen(true)}
+        >
+          ⌘K
+        </Button>
         {controlsEnabled && <KillAllButton />}
         {list.length > 0 && (
           <AuthenticatedDownload
@@ -829,9 +1072,10 @@ export default function Home() {
         {masthead}
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>还没有身份</EmptyTitle>
+            <EmptyTitle>还没有同行者</EmptyTitle>
             <EmptyDescription>
-              新建一个身份，它就可以开始思考与对话。
+              新建一个身份，它就可以开始思考与对话；喂它、教它、委托它，
+              看着它长成你的数字分身。
             </EmptyDescription>
           </EmptyHeader>
           {controlsEnabled && <NewIdentityForm />}
@@ -847,7 +1091,7 @@ export default function Home() {
       {slots.length <= 6 ? (
         <div className="grid gap-3 min-[880px]:grid-cols-2 min-[1440px]:grid-cols-3">
           {slots.map((slot) => (
-            <IdentityCard
+            <CompanionCard
               key={slot.identity.id}
               slot={slot}
               controlsEnabled={controlsEnabled}
@@ -857,17 +1101,16 @@ export default function Home() {
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-card">
           {slots.map((slot) => (
-            <IdentityRow
-              key={slot.identity.id}
-              slot={slot}
-              controlsEnabled={controlsEnabled}
-            />
+            <CompanionRow key={slot.identity.id} slot={slot} />
           ))}
         </div>
       )}
+      <GrowthLedgerCard ledgers={ledgers} />
       <p className="text-[12px] leading-relaxed text-faint">
-        年轮条 = 近 14 天：有柱 = 那天有调用，空段 = 休息。左栏负责切换身份，这里负责读数与待办。
+        三轴读数全部来自既有机制：能力 = 技能与近 7 天委托；信任 = 执行授权档与预算水位；
+        传承 = 在案记忆与你近 7 天的批改。⌘K 是全部面板的一级入口。
       </p>
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </div>
   );
 }

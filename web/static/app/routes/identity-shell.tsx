@@ -1,9 +1,11 @@
 // 身份页 = 剧场（docs/designs/mockups/theater-stage.html 完整还原，
 // 用户 2026-10-14 拍板）：裸入口落地「舞台」——宇宙氛围层 + 活动星
 // 图铺满、卡片右上玻璃列、隔夜账卡左上、线索行左下、底部心跳行 +
-// 对话条；顶栏导航切引擎室全屏视图（轨迹/任务/记忆/运行/感知/设置/
-// 回看）。工作台（home 路由）保留年轮原样——它的布局不在剧场射程。
-// 对话单真相源（theater.md §3）：对话经顶栏 ⤢ 全屏浮层 + 舞台对话条。
+// 对话条。avatar.md §6.1 砍 tab 行：顶栏 8 个平铺 tab 收敛为 ⌘K
+// 命令面板（一级入口，覆盖全部路由）+ 舞台引擎室抽屉；低频引擎页
+// 从 ⌘K / 需要你条 / 抽屉进入，「← 舞台」随时回客厅。工作台（home
+// 路由）已重生为同行面（avatar.md §6.2）。对话单真相源（theater.md
+// §3）：对话经顶栏 ⤢ 全屏浮层 + 舞台对话条。
 
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router";
@@ -24,6 +26,8 @@ import { phaseFor } from "~/lib/pet-state";
 import type { SearchHit } from "~/lib/types";
 import { cn } from "~/lib/utils";
 
+// NAV 不再渲染 tab 行（avatar.md §6.1），保留作 sectionOf/标题的
+// 词表来源——路由分节语义只有这一份。
 const NAV = [
   { key: "stage", label: "舞台", path: "" },
   { key: "traj", label: "轨迹", path: "/traj" },
@@ -156,26 +160,22 @@ export default function IdentityShell() {
         <div className="relative z-10 shrink-0">
           <Masthead identityId={identityId} />
         </div>
-        <nav className="relative z-10 flex min-w-0 gap-0.5 overflow-x-auto">
-          {NAV.map((item) => {
-            const active = item.key === section;
-            return (
-              <Link
-                key={item.key}
-                to={`${base}${item.path}`}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "whitespace-nowrap rounded-lg px-3 py-1.5 text-[13px] transition-colors",
-                  active
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                )}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
+        {/* 砍 tab 行后（avatar.md §6.1）：非舞台视图给「← 舞台」回客厅
+            + 当前分节徽标；分节内子页 chips 留在页面自己的 head 行。 */}
+        {section !== "stage" && (
+          <>
+            <Link
+              to={base}
+              data-testid="back-to-stage"
+              className="relative z-10 whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              ← 舞台
+            </Link>
+            <span className="relative z-10 whitespace-nowrap rounded-full bg-muted px-2.5 py-1 font-mono text-[10.5px] text-muted-foreground">
+              {sectionLabel}
+            </span>
+          </>
+        )}
         {/* 弹性空隙：pointer-events 放行给底下的拖动层——顶栏中段是
             主要的「抓住移动」区域。 */}
         <span className="pointer-events-none min-w-2 flex-1" />
