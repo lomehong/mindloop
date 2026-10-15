@@ -18,6 +18,7 @@ export default [
     route("tasks", "routes/identity-tasks.tsx"),
     route("memories", "routes/memories.tsx"),
     route("sensors", "routes/sensors.tsx"),
+    route("growth", "routes/growth.tsx"),
     route("run/thinkers", "routes/thinkers.tsx"),
     route("run/schedule", "routes/schedule.tsx"),
     route("run/health", "routes/health.tsx"),

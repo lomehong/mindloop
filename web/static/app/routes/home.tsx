@@ -19,6 +19,7 @@ import { AuthenticatedDownload } from "~/components/authenticated-download";
 import { CommandPalette } from "~/components/command-palette";
 import { ConfirmDialog } from "~/components/confirm-dialog";
 import { CreatureSvg } from "~/components/pet/creature";
+import { LedgerColumn } from "~/components/ledger-column";
 import { QueryErrorBanner } from "~/components/query-error-banner";
 import {
   useControlsEnabled,
@@ -58,9 +59,8 @@ import {
   parsePolicyMode,
   type AxisFacts,
   type IdentityLedger,
-  type LedgerEvent,
 } from "~/lib/growth-ledger";
-import { formatClock, formatRelativeTime } from "~/lib/format";
+import { formatRelativeTime } from "~/lib/format";
 import { phaseFor } from "~/lib/pet-state";
 import { STATUS_BACKGROUND_POLL_MS, USAGE_IDLE_POLL_MS } from "~/lib/polling";
 import type {
@@ -734,57 +734,7 @@ function CompanionRow({ slot }: { slot: SlotData }) {
 }
 
 // --- 共同成长账（三栏双向记账）--------------------------------------------------
-
-const LEDGER_ROW_LIMIT = 6;
-
-function LedgerColumn({
-  kicker,
-  tone,
-  events,
-}: {
-  kicker: string;
-  tone: string;
-  events: LedgerEvent[];
-}) {
-  const shown = events.slice(0, LEDGER_ROW_LIMIT);
-  const rest = events.length - shown.length;
-  return (
-    <div className="min-w-0">
-      <div className={cn("mb-1.5 font-mono text-[10.5px] tracking-[0.1em]", tone)}>
-        {kicker}
-        {events.length > 0 && (
-          <span className="ml-1.5 text-faint">{events.length}</span>
-        )}
-      </div>
-      {shown.length === 0 ? (
-        <div className="py-1 text-[12.5px] text-faint">今日还没有</div>
-      ) : (
-        shown.map((ev) => (
-          <div
-            key={ev.stepId}
-            className="flex gap-2 border-b border-border py-1.5 text-[12.5px] last:border-b-0"
-          >
-            <span className="shrink-0 pt-px font-mono text-[10.5px] text-faint">
-              {formatClock(ev.ts).slice(0, 5)}
-            </span>
-            <span className="shrink-0 pt-px font-mono text-[10.5px] text-muted-foreground">
-              {ev.identityName}
-            </span>
-            <span
-              className="min-w-0 flex-1 truncate text-muted-foreground"
-              title={ev.summary}
-            >
-              {ev.summary}
-            </span>
-          </div>
-        ))
-      )}
-      {rest > 0 && (
-        <div className="pt-1 text-[11.5px] text-faint">另有 {rest} 条</div>
-      )}
-    </div>
-  );
-}
+// 单列组件在 components/ledger-column（成长档案页共用）。
 
 function GrowthLedgerCard({ ledgers }: { ledgers: IdentityLedger[] }) {
   const merged = useMemo(() => mergeLedgers(ledgers), [ledgers]);

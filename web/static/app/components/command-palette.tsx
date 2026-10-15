@@ -23,6 +23,7 @@ const ROUTES = [
   { label: "任务", path: "/tasks" },
   { label: "对话", path: "/chat" },
   { label: "手账 · 记忆", path: "/memories" },
+  { label: "成长档案", path: "/growth" },
   { label: "注意力 · 感知", path: "/sensors" },
   { label: "运行 · 思考者", path: "/run/thinkers" },
   { label: "运行 · 作息", path: "/run/schedule" },
