@@ -1,17 +1,16 @@
 /** 舞台对话条（theater.md §3 对话单真相源 · §13.3 在听）：舞台底部
- * 的常驻对话入口——最近气泡摘要 + 输入行 + ⤢ 展开全屏对话。与
- * 对话页/展开态共享同一条 useChat 查询（react-query 同 key 同
+ * 的常驻对话入口——**可滚动的气泡日志**（全部消息，自动跟底；向上
+ * 翻历史时滚轮滚日志、不触发星系缩放）+ 输入行 + ⤢ 展开全屏对话。
+ * 与对话页/展开态共享同一条 useChat 查询（react-query 同 key 同
  * 缓存），这里不做流式渐进——完整流式体验在展开态，条上是已落
  * 地的对话，诚实呈现不冒充。 */
 import { SendHorizontal, Maximize2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ChatBubble, PendingChatBubble } from "~/components/chat-bubble";
 import { Input } from "~/components/ui/input";
 import { storedName } from "~/lib/chat-name";
 import { useChat } from "~/lib/use-chat";
-
-const STRIP_BUBBLES = 2;
 
 export function TalkStrip({
   identityId,
@@ -25,8 +24,18 @@ export function TalkStrip({
   const [myName] = useState(() => storedName());
   const [draft, setDraft] = useState("");
   const { messages, pending, send, retry, isSending } = useChat({ identityId, myName });
+  const logRef = useRef<HTMLDivElement | null>(null);
 
-  const recent = messages.slice(-STRIP_BUBBLES);
+  // 新消息自动跟底，仅当用户本就贴近底部时跟随——向上翻历史时不
+  // 被拽回（滚轮在日志区内滚历史；空白宇宙处才缩放星系）。
+  useEffect(() => {
+    const log = logRef.current;
+    if (!log) return;
+    if (log.scrollHeight - log.scrollTop - log.clientHeight < 80) {
+      log.scrollTop = log.scrollHeight;
+    }
+  }, [messages, pending]);
+
   const recentPending = pending.slice(-1);
 
   return (
@@ -34,8 +43,12 @@ export function TalkStrip({
       data-testid="talk-strip"
       className="pointer-events-auto w-full rounded-xl border border-border bg-card/90 shadow-lg backdrop-blur-sm"
     >
-      <div className="flex flex-col gap-1 px-3 pt-2">
-        {recent.map((message, idx) => (
+      <div
+        ref={logRef}
+        data-testid="talk-strip-log"
+        className="flex max-h-[42vh] flex-col gap-1 overflow-y-auto px-3 pt-2"
+      >
+        {messages.map((message, idx) => (
           <ChatBubble
             key={message.step_id ?? idx}
             message={message}
