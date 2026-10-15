@@ -1,29 +1,29 @@
-// 身份页 = 剧场（docs/designs/mockups/theater-stage.html 完整还原，
-// 用户 2026-10-14 拍板）：裸入口落地「舞台」——宇宙氛围层 + 活动星
-// 图铺满、卡片右上玻璃列、隔夜账卡左上、线索行左下、底部心跳行 +
-// 对话条。avatar.md §6.1 砍 tab 行：顶栏 8 个平铺 tab 收敛为 ⌘K
-// 命令面板（一级入口，覆盖全部路由）+ 舞台引擎室抽屉；低频引擎页
-// 从 ⌘K / 需要你条 / 抽屉进入，「← 舞台」随时回客厅。工作台（home
-// 路由）已重生为同行面（avatar.md §6.2）。对话单真相源（theater.md
-// §3）：对话经顶栏 ⤢ 全屏浮层 + 舞台对话条。
+// 身份页 = 剧场（docs/designs/mockups/theater-stage.html 完整还原 +
+// avatar 样张对齐，用户 2026-10-15 拍板视觉以样张为准）：裸入口落地
+// 「舞台」——宇宙氛围层 + 舞台分区 + 底部对话条；顶栏 = 样张形态
+// （← 同行面 / ← 舞台 + 身份·阶段 chip + 透视 + ⌘K + 窗控），8 tab
+// 已砍（avatar.md §6.1），低频管理走 ⌘K / 引擎室抽屉 / 需要你条；
+// 舞台按 X 切 X 光透视（线框叠加读数）。体征带 = 底部常驻 pill
+// （vitals-band）。对话单真相源（theater.md §3）：顶栏对话按钮 +
+// 舞台对话条。
 
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router";
 import { useEffect, useState } from "react";
 import { parseAsString, useQueryState } from "nuqs";
 
-import { CreatureSvg } from "~/components/pet/creature";
 import { ChatOverlay } from "~/components/chat-overlay";
 import { CommandPalette } from "~/components/command-palette";
 import { EngineDrawer } from "~/components/engine-drawer";
 import { MindlogSearch } from "~/components/mindlog-search";
 import { NeedYouBar } from "~/components/need-you-bar";
-import { PresenceChip, usePresence } from "~/components/stage-hud";
 import { ShellDragArea, WindowButtons } from "~/components/nav-rail";
 import { VitalsBand } from "~/components/vitals-band";
-import { fetchIdentities } from "~/lib/api";
+import { XrayOverlay } from "~/components/xray-overlay";
+import { fetchIdentities, fetchIdentityEnv } from "~/lib/api";
 import { jumpTargetFor } from "~/lib/search-jump";
-import { phaseFor } from "~/lib/pet-state";
+import { parsePolicyMode } from "~/lib/growth-ledger";
+import { phaseChipOf } from "~/lib/growth-dossier";
 import type { SearchHit } from "~/lib/types";
 import { cn } from "~/lib/utils";
 
@@ -84,37 +84,6 @@ const SEGS: Partial<Record<SectionKey, { label: string; path: string }[]>> = {
   ],
 };
 
-function Masthead({ identityId }: { identityId: string }) {
-  const { data: identities } = useQuery({
-    queryKey: ["identities"],
-    queryFn: fetchIdentities,
-    refetchInterval: 30000,
-  });
-  const me = identities?.find((it) => it.id === identityId);
-  const live = me?.live ?? false;
-  const port = typeof window !== "undefined" ? window.location.port : "";
-
-  return (
-    <div className="flex min-h-8 items-center gap-2.5">
-      <CreatureSvg size={30} phase={phaseFor(identityId)} />
-      <span className="font-note text-[19px] font-semibold tracking-[0.01em]">
-        {me?.name ?? identityId}
-      </span>
-      {live ? (
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/12 px-2.5 py-0.5 font-mono text-[11px] text-foreground">
-          <span className="size-[5px] animate-pulse rounded-full bg-primary" />
-          运行中{port ? ` · :${port}` : ""}
-        </span>
-      ) : (
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-0.5 font-mono text-[11px] text-muted-foreground">
-          <span className="size-[5px] rounded-full bg-faint" />
-          已停止
-        </span>
-      )}
-    </div>
-  );
-}
-
 export default function IdentityShell() {
   const { identityId = "" } = useParams();
   const { pathname } = useLocation();
@@ -127,15 +96,45 @@ export default function IdentityShell() {
     "chat",
     parseAsString.withDefault("")
   );
-  const { presence, setAway } = usePresence(identityId);
   const { data: identities } = useQuery({
     queryKey: ["identities"],
     queryFn: fetchIdentities,
   });
-  const identityName = identities?.find((it) => it.id === identityId)?.name ?? identityId;
+  const me = identities?.find((it) => it.id === identityId);
+  const identityName = me?.name ?? identityId;
+  const live = me?.live ?? false;
+  const { data: env } = useQuery({
+    queryKey: ["env", identityId],
+    queryFn: () => fetchIdentityEnv(identityId),
+    staleTime: 60_000,
+  });
+  // 阶段 chip = 授权档投影段名（规则公开、无百分比，avatar.md §10.1）。
+  const envMode = parsePolicyMode(
+    env?.env?.find((e) => e.key === "MINDLOOP_EXEC_POLICY")?.value
+  ).mode;
+  const phaseChip = envMode ? phaseChipOf(envMode) : null;
   const sectionLabel = NAV.find((n) => n.key === section)?.label ?? section;
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [xrayOpen, setXrayOpen] = useState(false);
+  // 舞台按 X 切透视（avatar.md §6.1）；输入焦点时不算。
+  useEffect(() => {
+    if (section !== "stage") return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName ?? "";
+      if (/INPUT|TEXTAREA/.test(tag)) return;
+      if (e.key.toLowerCase() === "x" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        setXrayOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [section]);
+  useEffect(() => {
+    // 离开舞台时关透视。
+    if (section !== "stage") setXrayOpen(false);
+  }, [section]);
+
   // Ctrl+K 命令面板（theater.md §16.8）：全局键盘入口。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -156,77 +155,81 @@ export default function IdentityShell() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
-      {/* 全局顶栏（theater-stage.html #topbar）＝无边框窗的标题栏：
-          拖动层铺满整条（空隙可拖 + 双击最大化），交互元素 relative
-          z-10 盖在其上正常点击，右端窗控三钮（壳外不渲染）。心智页
-          自持整窗（root.tsx 不给这条分支挂壳控件），窗口管理必须
-          自配——否则整窗拖不动也关不掉（2026-10-14 实测）。 */}
-      <header className="relative z-40 flex h-14 shrink-0 items-center gap-3 border-b border-border/70 bg-background/90 px-5 backdrop-blur">
+      {/* 全局顶栏（样张舞台形态）＝无边框窗的标题栏：拖动层铺满整条
+          （空隙可拖 + 双击最大化），交互元素 relative z-10 盖在其上
+          正常点击，右端窗控三钮（壳外不渲染）。 */}
+      <header className="relative z-40 flex h-12 shrink-0 items-center gap-2.5 border-b border-border/70 bg-background/90 px-4 backdrop-blur">
         <ShellDragArea className="absolute inset-0" />
-        <div className="relative z-10 shrink-0">
-          <Masthead identityId={identityId} />
-        </div>
-        {/* 砍 tab 行后（avatar.md §6.1）：非舞台视图给「← 舞台」回客厅
-            + 当前分节徽标；分节内子页 chips 留在页面自己的 head 行。 */}
-        {section !== "stage" && (
-          <>
+        <div className="relative z-10 flex shrink-0 items-center gap-2">
+          {section === "stage" ? (
+            <Link
+              to="/"
+              className="rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              ← 同行面
+            </Link>
+          ) : (
             <Link
               to={base}
               data-testid="back-to-stage"
-              className="relative z-10 whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+              className="rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
             >
               ← 舞台
             </Link>
-            <span className="relative z-10 whitespace-nowrap rounded-full bg-muted px-2.5 py-1 font-mono text-[10.5px] text-muted-foreground">
+          )}
+          <span className="flex items-center gap-1.5 rounded-full border border-line-strong px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
+            <span
+              className={cn(
+                "size-[5px] rounded-full",
+                live ? "animate-pulse bg-primary" : "bg-faint"
+              )}
+            />
+            {identityName}
+            {phaseChip && (
+              <span className="text-faint">· {phaseChip.split(" · ")[0]}</span>
+            )}
+          </span>
+          {section !== "stage" && (
+            <span className="rounded-full bg-muted px-2.5 py-1 font-mono text-[10.5px] text-muted-foreground">
               {sectionLabel}
             </span>
-          </>
-        )}
-        {/* 体征层（avatar.md §3.4）：呼吸/心跳/食量/睡眠/痛觉——跨
-            分节常驻。窄窗隐藏；pointer-events 放行给底下的拖动层
-            （顶栏中段是主要「抓住移动」区域）。 */}
-        <VitalsBand
-          identityId={identityId}
-          className="pointer-events-none relative z-10 hidden min-[1180px]:flex"
-        />
+          )}
+        </div>
+        <span className="pointer-events-none hidden whitespace-nowrap font-mono text-[10.5px] text-faint min-[1280px]:block">
+          {section === "stage" ? "theater v2 继承 + avatar §6 零 tab" : `${sectionLabel} · ${identityName}`}
+        </span>
         {/* 弹性空隙：pointer-events 放行给底下的拖动层——顶栏中段是
             主要的「抓住移动」区域。 */}
         <span className="pointer-events-none min-w-2 flex-1" />
+        {section === "stage" && (
+          <>
+            <button
+              type="button"
+              data-testid="drawer-open"
+              onClick={() => setDrawerOpen(true)}
+              className="relative z-10 whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              引擎室
+            </button>
+            <button
+              type="button"
+              data-testid="xray-open"
+              title="按 X 透视：透过仪器看同一具身体"
+              onClick={() => setXrayOpen(true)}
+              className="relative z-10 whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              ⓧ 透视
+            </button>
+          </>
+        )}
         <button
           type="button"
           data-testid="palette-open"
           onClick={() => setPaletteOpen(true)}
           className="relative z-10 whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
         >
-          命令面板 <span className="font-mono text-[10px]">Ctrl K</span>
+          ⌘K
         </button>
-        {section === "stage" && (
-          <button
-            type="button"
-            data-testid="drawer-open"
-            onClick={() => setDrawerOpen(true)}
-            className="relative z-10 whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            引擎室
-          </button>
-        )}
-        <span className="relative z-10">
-          <PresenceChip presence={presence} onToggle={() => setAway(!presence.away)} />
-        </span>
-        <button
-          type="button"
-          data-testid="chat-tab"
-          onClick={() => setChatOpen("1")}
-          className="relative z-10 whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
-        >
-          对话 <span aria-hidden>⤢</span>
-        </button>
-        <Link
-          to="/"
-          className="relative z-10 whitespace-nowrap rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
-        >
-          工作台
-        </Link>
         {/* 窗控三钮（壳内渲染）：最小化 / 最大化 / 关闭。 */}
         <div className="relative z-10 shrink-0">
           <WindowButtons />
@@ -236,13 +239,18 @@ export default function IdentityShell() {
       <div className="relative min-h-0 flex-1">
         {section === "stage" ? (
           // 舞台 = index 路由（identity-stage）：absolute inset-0 铺满
-          // 顶栏以下整窗——剧场即心智页本身。引擎室抽屉仅舞台页有。
+          // 顶栏以下整窗——剧场即心智页本身。引擎室抽屉与 X 光仅舞台有。
           <>
             <Outlet />
             <EngineDrawer
               identityId={identityId}
               open={drawerOpen}
               onClose={() => setDrawerOpen(false)}
+            />
+            <XrayOverlay
+              identityId={identityId}
+              open={xrayOpen}
+              onClose={() => setXrayOpen(false)}
             />
           </>
         ) : (
@@ -251,13 +259,13 @@ export default function IdentityShell() {
               // 对话页（书签兜底路由）同样履行 ChatPage 的高度契约：
               // 宿主定界为 flex 列、自身不滚——消息区自滚、输入坞贴底。
               section === "chat"
-                ? "flex h-full flex-col overflow-hidden px-5 pb-4 sm:px-6"
-                : "h-full overflow-y-auto px-5 pb-8 sm:px-6"
+                ? "flex h-full flex-col overflow-hidden px-5 pb-16 sm:px-6"
+                : "h-full overflow-y-auto px-5 pb-16 sm:px-6"
             }
           >
             <NeedYouBar identityId={identityId} />
-            {/* engine-head（theater-stage.html .engine-head）：标题左、
-                搜索右（仅轨迹——记忆页有自己的搜索记忆框） */}
+            {/* engine-head（样张 .engine-head）：标题左、搜索右（仅轨迹
+                ——手账页有自己的搜索记忆框） */}
             <div className="mb-[18px] flex items-baseline gap-[14px]">
               <h1 className="text-[20px] font-semibold tracking-[0.01em]">
                 {sectionLabel} · {identityName}
@@ -304,6 +312,14 @@ export default function IdentityShell() {
           </div>
         )}
       </div>
+      {/* 体征带：底部常驻 pill（样张 #vitals），所有分节可见；舞台的
+          居中位是对话条，pill 让到右下角；引擎页预留底部空间（pb-16）
+          避免遮挡页脚内容。 */}
+      <VitalsBand
+        identityId={identityId}
+        live={live}
+        align={section === "stage" ? "right" : "center"}
+      />
       <ChatOverlay open={chatOpen === "1"} onClose={() => setChatOpen("")} />
       <CommandPalette
         open={paletteOpen}

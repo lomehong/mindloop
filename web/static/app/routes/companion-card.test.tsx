@@ -81,9 +81,9 @@ describe("CompanionCard", () => {
     for (const label of ["能力", "信任", "传承"]) {
       expect(screen.getByText(label)).toBeTruthy();
     }
-    // 红线（avatar.md §8.1 反游戏化）：卡上不出现阶段/进度百分比。
-    expect(screen.queryByText(/起步期|同行期|分身期/)).toBeNull();
-    expect(screen.queryByText(/%\s*完成/)).toBeNull();
+    // 样张阶段 chip（2026-10-15 拍板）：有投影段名，但绝不带百分比
+    //（avatar.md §8.1 反游戏化——红线禁的是假进度数字，不是段名）。
+    expect(screen.queryByText(/\d+\s*%/)).toBeNull();
   });
 
   it("今日账目一句话：有账报账，无账说无", () => {

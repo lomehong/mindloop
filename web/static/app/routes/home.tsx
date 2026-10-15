@@ -1,16 +1,16 @@
-// 同行面（avatar.md §6.2：工作台重生——第一屏回答"今天我们互相成就
-// 了什么"）。结构 = masthead（同行面 · N 具 · 运行中 M + 批量操作 +
-// ⌘K）→ 需要你（theater §5 全站唯一告警面，原样保留）→ 同行卡阵
-// （每具一张：三轴读数 能力/信任/传承 + 今日账目一句话）→ 共同成长账
-// 三栏（它为你 / 你为它 / 一起长出——双向记账，只记真实事件）。
+// 同行面（avatar.md §6.2 + 样张 avatar-workbench.html 对齐，2026-10-15
+// 用户拍板视觉以样张为准）：自持整窗、max-w-1200 居中、无侧栏。
+// 结构 = masthead（creature + 同行面 + kicker + 状态 chip/⌘K/星系远景/
+// 进入舞台）→ 需要你（琥珀条）→ 同行卡阵（阶段 chip + 三轴量条 +
+// 今日一句 + 进舞台/成长档案/翻日记）→ 共同成长账三栏。批量操作收进
+// masthead 管理菜单。底部体征 pill 常驻（vitals-band）。
 //
-// 机制账（avatar.md §3.2）：卡上不出现阶段/百分比这类无机制支撑的
-// 拟人指标——三轴全部是既有机制读数（skills/tasks/usage/policy env/
-// memories/taste，聚合逻辑在 lib/growth-ledger 配测试）。>6 具降级
-// 列表行；数据静默失败退化为「读数缺席」，不打断页面。
+// 机制账（avatar.md §3.2/§10.1）：阶段 chip 只给投影段名不给百分比；
+// 三轴量条用真实读数填充（7 天完成率/授权档投影/在案记忆厚度）；
+// 成长账行数窗口起点在今日之内时脚注必须标注。
 
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, MoreHorizontal, Play, Plus, Square, Upload } from "lucide-react";
+import { MoreHorizontal, Play, Plus, Square, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -21,6 +21,7 @@ import { ConfirmDialog } from "~/components/confirm-dialog";
 import { CreatureSvg } from "~/components/pet/creature";
 import { LedgerColumn } from "~/components/ledger-column";
 import { QueryErrorBanner } from "~/components/query-error-banner";
+import { VitalsBand } from "~/components/vitals-band";
 import {
   useControlsEnabled,
   useThinkerMutation,
@@ -53,27 +54,29 @@ import {
   killAll,
 } from "~/lib/api";
 import {
-  axisLines,
   ledgerFor,
   mergeLedgers,
   parsePolicyMode,
-  type AxisFacts,
   type IdentityLedger,
 } from "~/lib/growth-ledger";
-import { formatRelativeTime } from "~/lib/format";
+import {
+  axisMeters,
+  phaseChipOf,
+  type PolicyMode,
+} from "~/lib/growth-dossier";
 import { phaseFor } from "~/lib/pet-state";
 import { STATUS_BACKGROUND_POLL_MS, USAGE_IDLE_POLL_MS } from "~/lib/polling";
 import type {
+  AgentTask,
   Identity,
   IdentityActivity,
+  IdentityEnv,
   MemoryInfo,
   Mindlog,
   PendingApproval,
   SkillsView,
   TasteSummary,
   Usage,
-  AgentTask,
-  IdentityEnv,
 } from "~/lib/types";
 import { cn } from "~/lib/utils";
 
@@ -85,14 +88,14 @@ function identityPath(id: string, rest = ""): string {
   return `/i/${encodeURIComponent(id)}${rest}`;
 }
 
-// 成长账的轨迹窗口：行数窗口（后端只有行数语义的窗口参数），与
-// 泳道首屏同量级。窗口起点落在今日之内时 UI 必须标注（窗口诚实）。
+// 成长账的轨迹窗口：行数窗口（与泳道首屏同量级）；窗口起点落在今日
+// 之内时 UI 必须标注（窗口诚实）。
 const LEDGER_TAIL = 1000;
 const LEDGER_POLL_MS = 60_000;
 
-// --- 批量操作（masthead 右侧）------------------------------------------------
+// --- 批量操作（masthead 管理菜单） ---------------------------------------------
 
-function NewIdentityForm() {
+function NewIdentityForm({ inline }: { inline?: boolean }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const navigate = useNavigate();
@@ -110,6 +113,17 @@ function NewIdentityForm() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  if (inline && !open) {
+    return (
+      <button
+        type="button"
+        className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-accent"
+        onClick={() => setOpen(true)}
+      >
+        新建身份
+      </button>
+    );
+  }
   if (!open) {
     return (
       <Button size="sm" onClick={() => setOpen(true)}>
@@ -150,7 +164,7 @@ function NewIdentityForm() {
   );
 }
 
-function ImportIdentityForm() {
+function ImportIdentityForm({ inline }: { inline?: boolean }) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState("");
@@ -178,6 +192,17 @@ function ImportIdentityForm() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  if (inline && !open) {
+    return (
+      <button
+        type="button"
+        className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-accent"
+        onClick={() => setOpen(true)}
+      >
+        导入身份
+      </button>
+    );
+  }
   if (!open) {
     return (
       <Button
@@ -229,7 +254,7 @@ function ImportIdentityForm() {
   );
 }
 
-function KillAllButton() {
+function KillAllButton({ inline }: { inline?: boolean }) {
   const queryClient = useQueryClient();
   // 干跑（dry_run）的输出展示在确认对话框里；确认后才真正执行 killall。
   const [confirmSummary, setConfirmSummary] = useState<string | null>(null);
@@ -247,6 +272,31 @@ function KillAllButton() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  if (inline) {
+    return (
+      <>
+        <button
+          type="button"
+          className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-clay hover:bg-clay/10"
+          onClick={() => mutation.mutate(true)}
+        >
+          全部停止…
+        </button>
+        <ConfirmDialog
+          open={confirmSummary !== null}
+          onOpenChange={(open) => {
+            if (!open) setConfirmSummary(null);
+          }}
+          tone="danger"
+          title="停止本机全部 mindloop 进程？"
+          description={confirmSummary ?? ""}
+          confirmText="全部停止"
+          onCancel={() => toast.info("已取消全部停止")}
+          onConfirm={() => mutation.mutate(false)}
+        />
+      </>
+    );
+  }
   return (
     <>
       <Button
@@ -276,7 +326,51 @@ function KillAllButton() {
   );
 }
 
-// --- 信号（需要你）-----------------------------------------------------------
+/** masthead 管理菜单：新建 / 导入 / 导出全部 / 全部停止。 */
+function ManageMenu({ controlsEnabled }: { controlsEnabled: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <Button
+        variant="outline"
+        size="icon-sm"
+        title="管理：新建 / 导入 / 导出 / 全部停止"
+        aria-label="管理操作"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <MoreHorizontal className="size-4" />
+      </Button>
+      {open && (
+        <>
+          <button
+            type="button"
+            aria-label="关闭菜单"
+            className="fixed inset-0 z-30 cursor-default"
+            onClick={() => setOpen(false)}
+          />
+          <div className="absolute right-0 top-full z-40 mt-1 min-w-32 rounded-lg border border-border bg-popover p-1 shadow-md">
+            {controlsEnabled && <NewIdentityForm inline />}
+            {controlsEnabled && <ImportIdentityForm inline />}
+            <div className="[&>span]:block">
+              <AuthenticatedDownload
+                url={exportAllUrl()}
+                filename="mindloop-identities.tgz"
+                variant="ghost"
+                size="sm"
+                className="h-auto w-full justify-start rounded-md px-2.5 py-1.5 text-xs font-normal"
+              >
+                导出全部
+              </AuthenticatedDownload>
+            </div>
+            {controlsEnabled && <KillAllButton inline />}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// --- 信号（需要你，琥珀条形态）-------------------------------------------------
 // signalsFor 已升格为全局数据层（theater.md §5 需要你行动条）：实现
 // 在 lib/need-you.ts，此处重导出保住回归单测的既有导入路径。
 
@@ -287,90 +381,60 @@ export { signalsFor, type SignalRow };
 function NeedYou({ rows, pending }: { rows: SignalRow[]; pending: boolean }) {
   if (pending) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5">
-        <span className="size-1.5 rounded-full bg-faint" />
-        <span className="text-[12.5px] text-muted-foreground">正在汇总待办…</span>
+      <div className="flex items-center gap-3 rounded-xl border border-line-strong bg-card px-4 py-3">
+        <span className="size-2 rounded-full bg-faint" />
+        <span className="text-[13px] text-muted-foreground">正在汇总待办…</span>
       </div>
     );
   }
   if (rows.length === 0) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5">
-        <span className="size-1.5 rounded-full bg-moss" />
-        <span className="text-[12.5px] text-muted-foreground">没有需要你的事</span>
-      </div>
-    );
+    return null; // 样张形态：没有待办就不占一行（安静）
   }
   return (
-    <section className="overflow-hidden rounded-xl border border-border bg-card">
-      <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
-        <span className="size-1.5 rounded-full bg-resin" />
-        <span className="font-mono text-[10.5px] tracking-[0.1em] text-faint">
-          需要你
+    <section className="overflow-hidden rounded-xl border border-resin/45 bg-resin/5">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-resin/50 px-2.5 py-0.5 font-mono text-[11px] text-resin">
+          <span className="size-[5px] animate-pulse rounded-full bg-resin" />
+          需要你 · {rows.length} 项
         </span>
-        <span className="font-mono text-[11.5px] font-semibold text-resin">
-          {rows.length}
+        <span className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
+          {rows.map((r) => `${r.name}：${r.text}`).join(" · ")}
         </span>
-      </div>
-      {rows.map((row) => (
         <Link
-          key={row.key}
-          to={row.to}
-          className="grid grid-cols-[96px_1fr_auto] items-center gap-2.5 border-b border-border px-4 py-2.5 last:border-b-0 hover:bg-muted"
+          to={rows[0].to}
+          className="shrink-0 rounded-lg border border-primary/50 px-3.5 py-1.5 text-[13px] text-primary transition-colors hover:bg-primary/10"
         >
-          <span className="truncate text-[13px] font-medium">{row.name}</span>
-          <span className="truncate text-[12.5px] text-muted-foreground">
-            {row.text}
-          </span>
-          <span className="font-mono text-[10.5px] text-resin">去处理 →</span>
+          去处理 →
         </Link>
-      ))}
+      </div>
+      {rows.length > 1 && (
+        <div className="border-t border-resin/25">
+          {rows.slice(1).map((row) => (
+            <Link
+              key={row.key}
+              to={row.to}
+              className="grid grid-cols-[96px_1fr_auto] items-center gap-2.5 px-4 py-2 hover:bg-muted"
+            >
+              <span className="truncate text-[12.5px] font-medium">{row.name}</span>
+              <span className="truncate text-[12px] text-muted-foreground">{row.text}</span>
+              <span className="font-mono text-[10.5px] text-resin">去处理 →</span>
+            </Link>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
 
 // --- 卡内零件 -----------------------------------------------------------------
 
-function StatusChip({ live }: { live: boolean }) {
-  return live ? (
-    <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-primary/30 bg-primary/12 px-2.5 py-0.5 font-mono text-[11px] text-foreground">
-      <span className="size-[5px] animate-pulse rounded-full bg-primary" />
-      运行中
-    </span>
-  ) : (
-    <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-muted px-2.5 py-0.5 font-mono text-[11px] text-muted-foreground">
-      <span className="size-[5px] rounded-full bg-faint" />
-      已停止
-    </span>
-  );
-}
-
-function activityLine(identity: Identity, activity?: IdentityActivity): string {
-  const rel = identity.last_activity_ts
-    ? formatRelativeTime(identity.last_activity_ts)
-    : null;
-  // 忙碌数优先取 activity 的实数（identities 的 thinkers_active 是
-  // 「live 即全部活跃」的近似）；activity 静默失败时退回近似值。
-  const busyCount = activity
-    ? activity.busy_thinkers.length
-    : identity.thinkers_active;
-  const busy =
-    identity.thinkers_total > 0
-      ? `思考者 ${busyCount}/${identity.thinkers_total} 忙碌`
-      : null;
-  if (rel && rel !== "—") return `${rel}有活动${busy ? ` · ${busy}` : ""}`;
-  return busy ?? "尚无活动记录";
-}
-
 /** 停止/启动该身份的调度器（names=[] 同旧名册语义）；Shift+点击 = 强制停止。 */
 function DispatcherControl({
   identityId,
   running,
-  compact,
 }: {
   identityId: string;
   running: boolean;
-  compact?: boolean;
 }) {
   const mutation = useThinkerMutation(identityId);
   const [confirmStop, setConfirmStop] = useState<{ force: boolean } | null>(null);
@@ -378,30 +442,16 @@ function DispatcherControl({
   if (running) {
     return (
       <>
-        {compact ? (
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            className="text-clay hover:bg-clay/10 hover:text-clay"
-            disabled={mutation.isPending}
-            title="停止（Shift+点击：立即终止）"
-            onClick={(event) => setConfirmStop({ force: event.shiftKey })}
-          >
-            <Square className="size-4" />
-          </Button>
-        ) : (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={mutation.isPending}
-            title="优雅停止：不再接收新触发，进行中步骤跑完（Shift+点击：立即终止）"
-            className="border-clay/40 text-clay hover:bg-clay/10 hover:text-clay"
-            onClick={(event) => setConfirmStop({ force: event.shiftKey })}
-          >
-            <Square className="size-3" />
-            停止
-          </Button>
-        )}
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className="text-clay hover:bg-clay/10 hover:text-clay"
+          disabled={mutation.isPending}
+          title="停止（Shift+点击：立即终止）"
+          onClick={(event) => setConfirmStop({ force: event.shiftKey })}
+        >
+          <Square className="size-4" />
+        </Button>
         <ConfirmDialog
           open={confirmStop !== null}
           onOpenChange={(open) => {
@@ -423,7 +473,7 @@ function DispatcherControl({
       </>
     );
   }
-  return compact ? (
+  return (
     <Button
       size="icon-sm"
       variant="ghost"
@@ -432,17 +482,6 @@ function DispatcherControl({
       onClick={() => mutation.mutate({ action: "start", names: [] })}
     >
       <Play className="size-4" />
-    </Button>
-  ) : (
-    <Button
-      size="sm"
-      variant="outline"
-      disabled={mutation.isPending}
-      title="启动全部思考者"
-      onClick={() => mutation.mutate({ action: "start", names: [] })}
-    >
-      <Play className="size-3" />
-      启动
     </Button>
   );
 }
@@ -525,7 +564,7 @@ function CardMenu({ identityId, name }: { identityId: string; name: string }) {
   );
 }
 
-// --- 三轴读数（机制账：全部来自既有机制，缺读数就说缺）-----------------------
+// --- 三轴与今日一句 -----------------------------------------------------------
 
 interface SlotData {
   identity: Identity;
@@ -540,52 +579,33 @@ interface SlotData {
   mindlog: Mindlog | undefined;
 }
 
-export function axisFacts(slot: SlotData): AxisFacts {
-  const envVars = slot.env?.env ?? [];
-  const findVar = (key: string) =>
-    envVars.find((e) => e.key === key)?.value;
-  const policy = parsePolicyMode(findVar("MINDLOOP_EXEC_POLICY"));
-  const spontRaw = findVar("MINDLOOP_SPONTANEOUS_TOKENS");
-  const spontaneous = spontRaw ? Number(spontRaw) : null;
-
-  const admission = slot.usage?.admission;
+export function axisFacts(slot: SlotData): {
+  tasksDone: number | null;
+  tasksTotal: number | null;
+  policyMode: PolicyMode | null;
+  memories: number | null;
+} {
+  const envVars: Record<string, string> = {};
+  for (const e of slot.env?.env ?? []) envVars[e.key] = e.value;
+  const policy = parsePolicyMode(envVars["MINDLOOP_EXEC_POLICY"]);
   // 近 7 天显式委托：完成 / 收尾（succeeded+failed）。在途不算完成率
   // 的分母——分母里塞未决项会把"还没做完"算成"没做成"。
   const weekAgo = Date.now() - 7 * 86_400_000;
   const recent = slot.tasks?.filter((t) => Date.parse(t.created_at) >= weekAgo);
-
   return {
-    skills: slot.skills
-      ? slot.skills.skills.filter((s) => s.source === "identity").length
-      : null,
     tasksDone: recent ? recent.filter((t) => t.status === "succeeded").length : null,
     tasksTotal: recent
       ? recent.filter((t) => t.status === "succeeded" || t.status === "failed").length
       : null,
     policyMode: policy.mode,
-    policyDefaulted: policy.defaulted,
-    admission: admission
-      ? { used: admission.used_today, limit: admission.daily_limit }
-      : null,
-    spontaneous:
-      spontaneous !== null && Number.isFinite(spontaneous) && spontaneous > 0
-        ? spontaneous
-        : null,
     memories: slot.memories
       ? slot.memories.filter((m) => !m.status || m.status === "active").length
-      : null,
-    taste7d: slot.taste
-      ? {
-          approves: slot.taste.Approves ?? 0,
-          denies: slot.taste.Denies ?? 0,
-          undoes: slot.taste.Undoes ?? 0,
-        }
       : null,
   };
 }
 
-/** 卡上的今日一句话：自发 N 件 · 你过手 M 次 · 新记忆 K 条。 */
-function todayLine(ledger: IdentityLedger | undefined): string {
+/** 卡上的今日一句（样张的叙述行）：自发 N 件 · 你过手 M 次 · 新记忆 K 条。 */
+export function todayLine(ledger: IdentityLedger | undefined): string {
   if (!ledger) return "今日账目读数缺席";
   const a = ledger.itForYou.length;
   const b = ledger.youForIt.length;
@@ -598,20 +618,13 @@ function todayLine(ledger: IdentityLedger | undefined): string {
   return `今日${parts.join(" · ")}`;
 }
 
-// --- 同行卡 / 行 -----------------------------------------------------------------
+const METER_TONE: Record<"moss" | "lake" | "resin", string> = {
+  moss: "bg-moss",
+  lake: "bg-lake",
+  resin: "bg-resin",
+};
 
-function AxisCell({ label, text }: { label: string; text: string }) {
-  return (
-    <div className="rounded-lg border border-border px-2.5 py-2">
-      <div className="font-mono text-[10px] tracking-[0.08em] text-faint">
-        {label}
-      </div>
-      <div className="mt-0.5 truncate text-[12px] text-muted-foreground" title={text}>
-        {text}
-      </div>
-    </div>
-  );
-}
+// --- 同行卡 -----------------------------------------------------------------
 
 function CompanionCard({
   slot,
@@ -622,7 +635,8 @@ function CompanionCard({
 }) {
   const { identity } = slot;
   const facts = useMemo(() => axisFacts(slot), [slot]);
-  const axes = useMemo(() => axisLines(facts), [facts]);
+  const meters = useMemo(() => axisMeters(facts), [facts]);
+  const phase = facts.policyMode ? phaseChipOf(facts.policyMode) : null;
   const ledger = useMemo(
     () =>
       slot.mindlog
@@ -636,99 +650,72 @@ function CompanionCard({
     [slot.mindlog, slot.memories, identity.id, identity.name]
   );
   return (
-    <div className="flex flex-col gap-2.5 rounded-xl border border-border bg-card p-3.5 pb-3">
-      <div className="flex items-center gap-2.5">
-        <CreatureSvg size={30} phase={phaseFor(identity.id)} />
-        <Link
-          to={identityPath(identity.id)}
-          className={cn(
-            "truncate text-[14.5px] font-medium hover:underline",
-            !identity.live && "text-muted-foreground"
-          )}
-        >
+    <div className="flex flex-col gap-2.5 rounded-xl border border-line-strong bg-card p-4">
+      <div className="flex items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-2.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+          <span
+            className={cn(
+              "size-[5px] rounded-full",
+              identity.live ? "animate-pulse bg-primary" : "bg-faint"
+            )}
+          />
           {identity.name}
-        </Link>
-        <span className="ml-auto flex items-center gap-2">
-          <StatusChip live={identity.live} />
+        </span>
+        {phase && (
+          <span className="rounded-full border border-lake/45 px-2.5 py-0.5 font-mono text-[11px] text-lake">
+            {phase}
+          </span>
+        )}
+        <span className="ml-auto flex items-center gap-1">
+          {controlsEnabled && identity.thinkers_total > 0 && (
+            <DispatcherControl
+              identityId={identity.id}
+              running={identity.dispatcher?.running ?? false}
+            />
+          )}
+          <CardMenu identityId={identity.id} name={identity.name} />
         </span>
       </div>
-      <div className="-mt-1 text-[12px] text-muted-foreground">
-        {activityLine(identity, slot.activity)}
-      </div>
       <div className="grid grid-cols-3 gap-2">
-        <AxisCell label="能力" text={axes.ability} />
-        <AxisCell label="信任" text={axes.trust} />
-        <AxisCell label="传承" text={axes.legacy} />
+        {meters.map((m) => (
+          <div key={m.label} className="rounded-lg border border-line px-2.5 py-2">
+            <div className="font-mono text-[10px] tracking-[0.08em] text-faint">
+              {m.label}
+            </div>
+            <div className="mt-0.5 truncate text-[12.5px]" title={m.text}>
+              {m.text}
+            </div>
+            <div className="mt-2 h-[4px] overflow-hidden rounded-full bg-surface-2">
+              <i
+                className={cn("block h-full rounded-full", METER_TONE[m.tone], m.ratio === null && "opacity-20")}
+                style={{ width: `${m.ratio === null ? 0 : Math.round(m.ratio * 100)}%` }}
+              />
+            </div>
+          </div>
+        ))}
       </div>
       <div className="text-[12.5px] text-muted-foreground">
         {todayLine(ledger)}
+        {ledger && !ledger.windowCoversToday && (
+          <span
+            className="ml-1.5 cursor-default font-mono text-[10px] text-faint"
+            title="统计窗口是 mindlog 最近 1000 步，起点落在今日之内——今日更早的事件可能未含"
+          >
+            近千步内
+          </span>
+        )}
       </div>
-      {/* 操作行恒为单行：调度钮用图标态（compact）压缩宽度。 */}
       <div className="mt-0.5 flex items-center gap-1.5">
         <Button size="sm" asChild>
           <Link to={identityPath(identity.id)}>进舞台 →</Link>
         </Button>
         <Button size="sm" variant="outline" asChild>
-          <Link to={identityPath(identity.id, "/chat")}>对话</Link>
+          <Link to={identityPath(identity.id, "/growth")}>成长档案</Link>
         </Button>
-        <div className="ml-auto flex items-center gap-1">
-          {controlsEnabled && identity.thinkers_total > 0 && (
-            <DispatcherControl
-              identityId={identity.id}
-              running={identity.dispatcher?.running ?? false}
-              compact
-            />
-          )}
-          <CardMenu identityId={identity.id} name={identity.name} />
-        </div>
+        <Button size="sm" variant="outline" asChild>
+          <Link to={identityPath(identity.id, "/diary")}>翻日记</Link>
+        </Button>
       </div>
-    </div>
-  );
-}
-
-function CompanionRow({ slot }: { slot: SlotData }) {
-  const { identity } = slot;
-  const facts = useMemo(() => axisFacts(slot), [slot]);
-  const axes = useMemo(() => axisLines(facts), [facts]);
-  const ledger = useMemo(
-    () =>
-      slot.mindlog
-        ? ledgerFor({
-            identityId: identity.id,
-            identityName: identity.name,
-            steps: slot.mindlog.steps,
-            memories: slot.memories,
-          })
-        : undefined,
-    [slot.mindlog, slot.memories, identity.id, identity.name]
-  );
-  return (
-    <div className="flex items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0 hover:bg-muted">
-      <Link
-        to={identityPath(identity.id)}
-        className="flex min-w-0 items-center gap-2.5"
-      >
-        <CreatureSvg size={22} phase={phaseFor(identity.id)} />
-        <span
-          className={cn(
-            "truncate text-[13px] font-medium",
-            !identity.live && "text-muted-foreground"
-          )}
-        >
-          {identity.name}
-        </span>
-      </Link>
-      <StatusChip live={identity.live} />
-      <span className="hidden min-w-0 flex-1 truncate text-[12px] text-muted-foreground lg:block">
-        {activityLine(identity, slot.activity)}
-      </span>
-      <span className="hidden max-w-44 shrink-0 truncate text-[11.5px] text-muted-foreground xl:block">
-        {todayLine(ledger)}
-      </span>
-      <span className="hidden w-40 shrink-0 truncate text-right text-[11px] text-faint md:block">
-        {axes.trust}
-      </span>
-      <CardMenu identityId={identity.id} name={identity.name} />
     </div>
   );
 }
@@ -742,12 +729,10 @@ function GrowthLedgerCard({ ledgers }: { ledgers: IdentityLedger[] }) {
   // 的下界——脚注必须说出来，不得写成"今日共 N 件"。
   const partial = ledgers.some((l) => !l.windowCoversToday);
   return (
-    <section className="rounded-xl border border-border bg-card">
-      <div className="flex flex-wrap items-baseline gap-2 border-b border-border px-4 py-2.5">
-        <span className="font-mono text-[10.5px] tracking-[0.1em] text-faint">
-          共同成长账
-        </span>
-        <span className="text-[12px] text-faint">
+    <section className="rounded-xl border border-line-strong bg-card">
+      <div className="flex flex-wrap items-baseline gap-2 border-b border-border px-4 py-3">
+        <span className="text-[14.5px] font-medium">共同成长账</span>
+        <span className="rounded border border-line-strong px-1.5 font-mono text-[10px] text-faint">
           互相成就 · 双向记账 · 只记真实事件，无积分无庆祝
         </span>
         <span className="ml-auto text-[11px] text-faint">
@@ -757,21 +742,9 @@ function GrowthLedgerCard({ ledgers }: { ledgers: IdentityLedger[] }) {
         </span>
       </div>
       <div className="grid gap-4 px-4 py-3 min-[880px]:grid-cols-3">
-        <LedgerColumn
-          kicker="它为你"
-          tone="text-moss"
-          events={merged.itForYou}
-        />
-        <LedgerColumn
-          kicker="你为它"
-          tone="text-lake"
-          events={merged.youForIt}
-        />
-        <LedgerColumn
-          kicker="一起长出"
-          tone="text-resin"
-          events={merged.together}
-        />
+        <LedgerColumn kicker="它为你" tone="text-primary" events={merged.itForYou} />
+        <LedgerColumn kicker="你为它" tone="text-lake" events={merged.youForIt} />
+        <LedgerColumn kicker="一起长出" tone="text-resin" events={merged.together} />
       </div>
     </section>
   );
@@ -785,43 +758,39 @@ export { CompanionCard, GrowthLedgerCard };
 
 function HomeSkeleton() {
   return (
-    <div className="space-y-3.5">
-      <div className="flex items-center gap-2.5">
-        <Skeleton className="h-7 w-24" />
-        <Skeleton className="h-4 w-44" />
+    <div className="mx-auto w-full max-w-[1200px] px-7 py-6">
+      <div className="flex items-center gap-3">
+        <Skeleton className="size-[34px] rounded-full" />
+        <Skeleton className="h-6 w-24" />
+        <Skeleton className="h-4 w-52" />
         <span className="flex-1" />
         <Skeleton className="h-8 w-20" />
-        <Skeleton className="h-8 w-20" />
-        <Skeleton className="h-8 w-20" />
+        <Skeleton className="h-8 w-24" />
+        <Skeleton className="h-8 w-32" />
       </div>
-      <Skeleton className="h-11 w-full rounded-xl" />
-      <div className="grid gap-3 min-[880px]:grid-cols-2 min-[1440px]:grid-cols-3">
+      <Skeleton className="mt-4 h-12 w-full rounded-xl" />
+      <div className="mt-4 grid gap-3 min-[880px]:grid-cols-2 min-[1280px]:grid-cols-3">
         {[0, 1, 2].map((i) => (
-          <div
-            key={i}
-            className="flex flex-col gap-2.5 rounded-xl border border-border bg-card p-3.5"
-          >
-            <div className="flex items-center gap-2.5">
-              <Skeleton className="size-[30px] rounded-full" />
-              <Skeleton className="h-4 w-20" />
-              <span className="flex-1" />
-              <Skeleton className="h-5 w-14 rounded-full" />
+          <div key={i} className="flex flex-col gap-2.5 rounded-xl border border-border bg-card p-4">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-5 w-20 rounded-full" />
+              <Skeleton className="h-5 w-24 rounded-full" />
             </div>
-            <Skeleton className="h-3.5 w-40" />
             <div className="grid grid-cols-3 gap-2">
-              <Skeleton className="h-11 w-full rounded-lg" />
-              <Skeleton className="h-11 w-full rounded-lg" />
-              <Skeleton className="h-11 w-full rounded-lg" />
+              <Skeleton className="h-[72px] rounded-lg" />
+              <Skeleton className="h-[72px] rounded-lg" />
+              <Skeleton className="h-[72px] rounded-lg" />
             </div>
             <Skeleton className="h-3.5 w-52" />
             <div className="flex gap-1.5">
               <Skeleton className="h-8 w-24" />
-              <Skeleton className="h-8 w-16" />
+              <Skeleton className="h-8 w-20" />
+              <Skeleton className="h-8 w-20" />
             </div>
           </div>
         ))}
       </div>
-      <Skeleton className="h-40 w-full rounded-xl" />
+      <Skeleton className="mt-4 h-44 w-full rounded-xl" />
     </div>
   );
 }
@@ -845,7 +814,7 @@ export default function Home() {
 
   // 每具身份的读数与账目——共享各页既有 query key（tasks/skills/
   // memories/taste/env），命中缓存不重复请求；静默失败退化为无读数/
-  // 无事件，不打断页面。查询键与既有页面一致是缓存共享的前提。
+  // 无事件，不打断页面。
   const list = identities ?? [];
   const per = <T,>(fn: (it: Identity) => T): T[] => list.map(fn);
   const usageQueries = useQueries({
@@ -949,7 +918,7 @@ export default function Home() {
     [slots]
   );
 
-  // ⌘K 一级入口（avatar.md §6.1）：工作台同样有命令面板。
+  // ⌘K 一级入口（avatar.md §6.1）。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
@@ -961,24 +930,41 @@ export default function Home() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  if (isLoading) return <HomeSkeleton />;
+  if (isLoading) {
+    return (
+      <div className="h-screen overflow-y-auto bg-background">
+        <HomeSkeleton />
+      </div>
+    );
+  }
 
   const liveCount = list.filter((it) => it.live).length;
+  const featured = list.find((it) => it.live) ?? list[0];
   const now = new Date();
   const mmdd = `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
   const masthead = (
-    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-      <span className="font-note text-[19px] font-semibold tracking-[0.01em]">
-        同行面
-      </span>
-      {!isError && (
-        <span className="text-[13px] text-muted-foreground">
-          {list.length} 具心智 · 运行中 {liveCount} · {mmdd}
-        </span>
-      )}
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <CreatureSvg size={34} phase={phaseFor(featured?.id ?? "mindloop")} />
+      <div>
+        <div className="text-[20px] font-medium leading-tight">同行面</div>
+        <div className="font-mono text-[11.5px] text-faint">
+          {!isError && `${list.length} 具心智 · 运行中 ${liveCount} · ${mmdd} · 共同成长，互相成就`}
+        </div>
+      </div>
       <span className="flex-1" />
       <div className="flex flex-wrap items-center gap-1.5">
+        {featured && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
+            <span
+              className={cn(
+                "size-[5px] rounded-full",
+                featured.live ? "animate-pulse bg-primary" : "bg-faint"
+              )}
+            />
+            {featured.name} {featured.live ? "运行中" : "已停"}
+          </span>
+        )}
         <Button
           size="sm"
           variant="outline"
@@ -988,58 +974,58 @@ export default function Home() {
         >
           ⌘K
         </Button>
-        {controlsEnabled && <KillAllButton />}
-        {list.length > 0 && (
-          <AuthenticatedDownload
-            variant="ghost"
-            size="sm"
-            title="导出全部身份"
-            url={exportAllUrl()}
-            filename="mindloop-identities.tgz"
-          >
-            <Download className="size-3" />
-            导出全部
-          </AuthenticatedDownload>
+        <Button size="sm" variant="outline" asChild>
+          <Link to="/galaxy">星系远景</Link>
+        </Button>
+        {featured && (
+          <Button size="sm" asChild>
+            <Link to={identityPath(featured.id)}>进入 {featured.name} 的舞台 →</Link>
+          </Button>
         )}
-        {controlsEnabled && <ImportIdentityForm />}
-        {controlsEnabled && <NewIdentityForm />}
+        <ManageMenu controlsEnabled={controlsEnabled} />
       </div>
     </div>
   );
 
   if (isError) {
     return (
-      <div className="space-y-3.5">
-        {masthead}
-        <QueryErrorBanner error={error} onRetry={() => void refetch()} />
+      <div className="h-screen overflow-y-auto bg-background">
+        <div className="mx-auto w-full max-w-[1200px] space-y-3.5 px-7 py-6">
+          {masthead}
+          <QueryErrorBanner error={error} onRetry={() => void refetch()} />
+        </div>
       </div>
     );
   }
 
   if (list.length === 0) {
     return (
-      <div className="space-y-3.5">
-        {masthead}
-        <Empty>
-          <EmptyHeader>
-            <EmptyTitle>还没有同行者</EmptyTitle>
-            <EmptyDescription>
-              新建一个身份，它就可以开始思考与对话；喂它、教它、委托它，
-              看着它长成你的数字分身。
-            </EmptyDescription>
-          </EmptyHeader>
-          {controlsEnabled && <NewIdentityForm />}
-        </Empty>
+      <div className="h-screen overflow-y-auto bg-background">
+        <div className="mx-auto w-full max-w-[1200px] space-y-3.5 px-7 py-6">
+          {masthead}
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>还没有同行者</EmptyTitle>
+              <EmptyDescription>
+                新建一个身份，它就可以开始思考与对话；喂它、教它、委托它，
+                看着它长成你的数字分身。
+              </EmptyDescription>
+            </EmptyHeader>
+            {controlsEnabled && <NewIdentityForm />}
+          </Empty>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-3.5 pt-4">
-      {masthead}
-      <NeedYou rows={signals} pending={signalsPending} />
-      {slots.length <= 6 ? (
-        <div className="grid gap-3 min-[880px]:grid-cols-2 min-[1440px]:grid-cols-3">
+    <div className="h-screen overflow-y-auto bg-background">
+      <div className="mx-auto w-full max-w-[1200px] px-7 pb-24 pt-5">
+        {masthead}
+        <div className="mt-4">
+          <NeedYou rows={signals} pending={signalsPending} />
+        </div>
+        <div className="mt-4 grid gap-3 min-[880px]:grid-cols-2 min-[1280px]:grid-cols-3">
           {slots.map((slot) => (
             <CompanionCard
               key={slot.identity.id}
@@ -1048,18 +1034,15 @@ export default function Home() {
             />
           ))}
         </div>
-      ) : (
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          {slots.map((slot) => (
-            <CompanionRow key={slot.identity.id} slot={slot} />
-          ))}
+        <div className="mt-4">
+          <GrowthLedgerCard ledgers={ledgers} />
         </div>
-      )}
-      <GrowthLedgerCard ledgers={ledgers} />
-      <p className="text-[12px] leading-relaxed text-faint">
-        三轴读数全部来自既有机制：能力 = 技能与近 7 天委托；信任 = 执行授权档与预算水位；
-        传承 = 在案记忆与你近 7 天的批改。⌘K 是全部面板的一级入口。
-      </p>
+        <p className="mt-3 text-[11.5px] leading-relaxed text-faint">
+          三轴量条用真实读数填充：能力 = 近 7 天委托完成率；信任 = 执行授权档投影（规则公开）；
+          传承 = 在案记忆相对厚度。⌘K 是全部面板的一级入口。
+        </p>
+      </div>
+      {featured && <VitalsBand identityId={featured.id} live={featured.live} />}
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </div>
   );

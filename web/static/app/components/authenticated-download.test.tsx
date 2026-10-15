@@ -75,8 +75,16 @@ function mountBlob() {
   </TrajContext.Provider>);
 }
 
+// 首页改版后「导出全部」收进 masthead 管理菜单（⋯）——先开菜单。
+async function openManageMenu() {
+  fireEvent.click(
+    await screen.findByRole("button", { name: "管理操作" })
+  );
+}
+
 it("首页导出全部通过认证获取文件，只下载对象 URL", async () => {
   mount(<Home />);
+  await openManageMenu();
   fireEvent.click(await screen.findByText("导出全部"));
   await waitFor(() => expect(downloaded).toHaveLength(1));
   expect(downloaded[0]).toEqual({ href: "blob:authenticated-file", filename: "mindloop-identities.tgz" });
@@ -96,6 +104,7 @@ it("下载进行中禁用重复点击，401 后显示凭据提示并允许再次
   holdDownload = true;
   failDownloads = true;
   mount(<Home />);
+  await openManageMenu();
   fireEvent.click(await screen.findByText("导出全部"));
   await waitFor(() => expect(releaseDownload).toBeDefined());
   const button = screen.getByRole("button", { name: /下载中/ }) as HTMLButtonElement;

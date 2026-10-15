@@ -46,6 +46,89 @@ export function curvePositionOf(mode: PolicyMode): number {
   }
 }
 
+/** 投影位置 → 段名（起步/同行/分身）。样张的阶段 chip 用这个——
+ * chip 只给段名不给百分比（avatar.md §8.1 反游戏化；§10.1 投影
+ * 非测量）。 */
+export function segmentNameOf(pos: number): string {
+  let acc = 0;
+  for (const seg of CURVE_SEGMENTS) {
+    acc += seg.width;
+    if (pos < acc || seg === CURVE_SEGMENTS[CURVE_SEGMENTS.length - 1]) {
+      return seg.key;
+    }
+  }
+  return CURVE_SEGMENTS[0].key;
+}
+
+/** 授权档 → 阶段 chip 文案（段名 + 档位说明，无百分比）。 */
+export function phaseChipOf(mode: PolicyMode): string {
+  return `${segmentNameOf(curvePositionOf(mode))} · ${mode}`;
+}
+
+// ---- 三轴量条（样张视觉，真实读数填充）-------------------------------------
+// 用户 2026-10-15 拍板：视觉对齐样张（彩色量条），填充比例全部来自
+// 真实读数或公开映射，不引入虚构数值；量条是读数的图形化，不是经验条
+//（avatar.md §8.1 修订记录见 docs/designs/avatar.md §10.1）。
+
+export interface AxisMeter {
+  label: string;
+  /** 一句话读数（真实值）。 */
+  text: string;
+  /** 填充比例 0..1；null = 读数缺席（画空条）。 */
+  ratio: number | null;
+  /** 量条配色分类（step-colors 同族）：moss/lake/resin。 */
+  tone: "moss" | "lake" | "resin";
+}
+
+export function axisMeters(f: {
+  tasksDone: number | null;
+  tasksTotal: number | null;
+  policyMode: PolicyMode | null;
+  memories: number | null;
+}): AxisMeter[] {
+  const abilityRatio =
+    f.tasksTotal !== null && f.tasksTotal > 0
+      ? (f.tasksDone ?? 0) / f.tasksTotal
+      : null;
+  const trustRatio = f.policyMode ? curvePositionOf(f.policyMode) : null;
+  // 传承：在案记忆的相对厚度（20 条封顶作满）——读数是真实条数，
+  // 比例只是展示刻度。
+  const legacyRatio = f.memories === null ? null : Math.min(1, f.memories / 20);
+  return [
+    { label: "能力", text: axisAbilityText(f), ratio: abilityRatio, tone: "moss" },
+    { label: "信任", text: axisTrustText(f), ratio: trustRatio, tone: "lake" },
+    { label: "传承", text: axisLegacyText(f), ratio: legacyRatio, tone: "resin" },
+  ];
+}
+
+function axisAbilityText(f: {
+  tasksDone: number | null;
+  tasksTotal: number | null;
+}): string {
+  if (f.tasksTotal === null) return "—";
+  if (f.tasksTotal === 0) return "近 7 天无委托";
+  return `近 7 天 ${f.tasksDone ?? 0}/${f.tasksTotal} 完成`;
+}
+
+function axisTrustText(f: { policyMode: PolicyMode | null }): string {
+  switch (f.policyMode) {
+    case "auto":
+      return "auto · 分级放行";
+    case "ask":
+      return "ask · 全审";
+    case "trusted":
+      return "trusted · 直执行";
+    case "deny":
+      return "deny · 只思考";
+    default:
+      return "—";
+  }
+}
+
+function axisLegacyText(f: { memories: number | null }): string {
+  return f.memories === null ? "—" : `${f.memories} 条在案`;
+}
+
 // ---- 自主权边界（只读读数）------------------------------------------------
 
 export interface BoundaryRow {

@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  axisMeters,
   boundaryReadings,
   curvePositionOf,
   CURVE_SEGMENTS,
   legacyEvidence,
+  phaseChipOf,
+  segmentNameOf,
 } from "./growth-dossier";
 import type { MemoryInfo } from "./types";
 
@@ -97,5 +100,44 @@ describe("legacyEvidence", () => {
     const ev = legacyEvidence(undefined, undefined);
     expect(ev.preferences).toEqual([]);
     expect(ev.touches).toBeNull();
+  });
+});
+
+describe("segmentNameOf / phaseChipOf（样张阶段 chip，无百分比）", () => {
+  it("投影位置落段：ask→起步期、auto→同行期（边界）、trusted→分身期", () => {
+    expect(segmentNameOf(curvePositionOf("ask"))).toBe("起步期");
+    expect(segmentNameOf(curvePositionOf("auto"))).toBe("同行期");
+    expect(segmentNameOf(curvePositionOf("trusted"))).toBe("分身期");
+    expect(segmentNameOf(curvePositionOf("deny"))).toBe("起步期");
+  });
+  it("chip 只给段名+档位，绝不给百分比", () => {
+    const chip = phaseChipOf("auto");
+    expect(chip).toBe("同行期 · auto");
+    expect(chip).not.toMatch(/\d+\s*%/);
+  });
+});
+
+describe("axisMeters（样张量条，真实读数填充）", () => {
+  it("能力=7 天完成率、信任=档位投影、传承=记忆相对厚度", () => {
+    const meters = axisMeters({ tasksDone: 3, tasksTotal: 4, policyMode: "auto", memories: 12 });
+    expect(meters.map((m) => m.label)).toEqual(["能力", "信任", "传承"]);
+    expect(meters[0].ratio).toBeCloseTo(0.75);
+    expect(meters[0].text).toBe("近 7 天 3/4 完成");
+    expect(meters[1].ratio).toBeCloseTo(0.4);
+    expect(meters[1].text).toBe("auto · 分级放行");
+    expect(meters[2].ratio).toBeCloseTo(0.6);
+    expect(meters[2].text).toBe("12 条在案");
+  });
+  it("缺读数画空条但文案诚实", () => {
+    const meters = axisMeters({ tasksDone: null, tasksTotal: null, policyMode: null, memories: null });
+    expect(meters.every((m) => m.ratio === null)).toBe(true);
+    expect(meters.every((m) => m.text === "—")).toBe(true);
+  });
+  it("零委托与零记忆不是缺读数", () => {
+    const meters = axisMeters({ tasksDone: 0, tasksTotal: 0, policyMode: "deny", memories: 0 });
+    expect(meters[0].ratio).toBeNull();
+    expect(meters[0].text).toBe("近 7 天无委托");
+    expect(meters[2].ratio).toBe(0);
+    expect(meters[2].text).toBe("0 条在案");
   });
 });

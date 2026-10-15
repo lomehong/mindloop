@@ -131,6 +131,10 @@ export default function App() {
   const petMode = location.pathname.startsWith("/pet");
   // /i/:id 是工作台形态：左导航栏 + 画布 + 右身份档案（圆角卡）。
   const identityMode = /^\/i\/[^/]+/.test(location.pathname);
+  // 同行面（/）与星系（/galaxy）是样张形态的自持整页面（avatar 样张，
+  // 2026-10-15 拍板）：无 NavRail/系统栏，页面自己铺满整窗。
+  const immersiveHomeMode =
+    location.pathname === "/" || location.pathname.startsWith("/galaxy");
   // 桌面壳内（透明圆角窗体）：Web 自绘圆角框架与状态坞，壳只留窗框。
   const inShell =
     typeof window !== "undefined" &&
@@ -164,7 +168,9 @@ export default function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+      {/* 默认暗色：样张（avatar 视觉基准）是暗绿门面，系统浅色不再
+          把门面翻成亮色——用户显式切亮仍尊重（attribute=class）。 */}
+      <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
         <NuqsAdapter>
           {petMode ? (
             <main className="flex flex-1 flex-col">{canvas}</main>
@@ -178,10 +184,11 @@ export default function App() {
                 <main className="flex min-h-0 flex-1 flex-col">{canvas}</main>
               </div>
             )
-          ) : identityMode ? (
+          ) : identityMode || immersiveHomeMode ? (
             /* 心智页 = 剧场（theater-stage.html 完整还原，2026-10-14
                拍板）：顶栏 + 舞台/引擎视图自持整窗——NavRail/档案卡/
-               状态坞是工作台语汇，不进剧场。 */
+               状态坞是工作台语汇，不进剧场。同行面与星系同为样张形态
+               自持整页（2026-10-15）。 */
             <div className="flex h-screen flex-col overflow-hidden bg-background">
               {canvas}
             </div>
