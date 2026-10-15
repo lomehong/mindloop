@@ -86,19 +86,42 @@ export default function Diary() {
 
   // 滚轮=时间旅行：向上拉远、向下拉近（350ms 节流；离散档位——
   // reduced-motion 与常态同一行为，缩放永远可预期）。
+  // 守卫（main ecd818b 同款问题的同款修法，抄 scene-cosmos）：事件
+  // 目标落在可滚动容器（生命线卡片长列表等）或交互元素上时放行——
+  // 缩放不得独占滚轮，否则页内滚动区滚不动。
+  const rootRef = useRef<HTMLDivElement>(null);
   const wheelLock = useRef(0);
   useEffect(() => {
+    const host = rootRef.current;
+    if (!host) return;
+    const scrollableAncestor = (el: Element | null): boolean => {
+      for (let n = el; n && n !== host; n = n.parentElement) {
+        const s = getComputedStyle(n);
+        if (/(auto|scroll)/.test(s.overflowY) && n.scrollHeight > n.clientHeight + 1) {
+          return true;
+        }
+      }
+      return false;
+    };
     const onWheel = (e: WheelEvent) => {
+      const target = e.target as Element | null;
+      if (
+        target?.closest("a,button,input,textarea") ||
+        scrollableAncestor(target)
+      ) {
+        return;
+      }
       const t = Date.now();
       if (t - wheelLock.current < WHEEL_THROTTLE_MS) return;
       wheelLock.current = t;
       const i = zoomIndex(zoom);
       const next = e.deltaY < 0 ? i + 1 : i - 1;
       if (next < 0 || next >= DIARY_ZOOMS.length) return;
+      e.preventDefault();
       setZoom(stepZoom(next));
     };
-    window.addEventListener("wheel", onWheel, { passive: true });
-    return () => window.removeEventListener("wheel", onWheel);
+    host.addEventListener("wheel", onWheel, { passive: false });
+    return () => host.removeEventListener("wheel", onWheel);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoom, params]);
 
@@ -124,7 +147,7 @@ export default function Diary() {
         } 起，更早的在泳道`;
 
   return (
-    <div className="relative h-full">
+    <div ref={rootRef} className="absolute inset-0 overflow-hidden">
       {/* 沉浸氛围（样张 s-diary：cosmos 星空压暗）——日记是时间旅行，
           不用引擎室的纸感。 */}
       <div
@@ -171,7 +194,7 @@ export default function Diary() {
         </Link>
       </div>
 
-      <div className="relative h-full pr-24">
+      <div className="absolute inset-0 overflow-y-auto px-10 py-8 pr-28">
         {zoom === "now" && (
           <div className="mx-auto mt-10 max-w-xl rounded-xl border border-border bg-card p-5">
             <div className="text-[15px] font-medium">此刻舞台</div>

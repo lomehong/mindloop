@@ -5,7 +5,7 @@
 // 退出码非零 = 有断言失败。
 import { chromium } from "playwright-core";
 
-const BASE = process.argv[2] ?? "http://127.0.0.1:18080";
+const BASE = process.argv[2] ?? "http://127.0.0.1:8080";
 const fails = [];
 const ok = (cond, name) => {
   console.log(`${cond ? "PASS" : "FAIL"} ${name}`);

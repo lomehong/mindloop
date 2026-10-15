@@ -253,6 +253,13 @@ export default function IdentityShell() {
               onClose={() => setXrayOpen(false)}
             />
           </>
+        ) : section === "diary" ? (
+          // 日记（样张 s-diary）：沉浸面同舞台待遇——自持整区、星空
+          // 铺满。居中文档容器会把它截成一小块，滚轮缩放失去落点
+          //（审查偏差 #1 的根因之一）。
+          <div className="relative h-full">
+            <Outlet />
+          </div>
         ) : (
           <div
             className={

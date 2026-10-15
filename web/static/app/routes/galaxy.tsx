@@ -116,7 +116,7 @@ export default function Galaxy() {
           >
             <span
               className={cn(
-                "block rounded-full transition-transform group-hover:scale-125",
+                "galaxy-star block rounded-full transition-transform group-hover:scale-125",
                 it.live ? "size-7" : "size-4 opacity-50"
               )}
               style={{

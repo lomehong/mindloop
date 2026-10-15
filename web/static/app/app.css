@@ -996,3 +996,10 @@ html.dark .pet-shadow { opacity: 0.32; }
     translate: 0 -9px;
   }
 }
+@media (prefers-reduced-motion: reduce) {
+  /* 星系慢漂在 reduced-motion 下静止（审查偏差 #2：内联 animation
+     不被通用规则覆盖，须点名）。 */
+  .galaxy-star {
+    animation: none !important;
+  }
+}

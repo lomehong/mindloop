@@ -83,7 +83,7 @@ function statusLabel(status?: string) {
 }
 
 export function meta() {
-  return [{ title: "mindloop · 记忆" }];
+  return [{ title: "mindloop · 手账" }];
 }
 
 export default function MemoriesPage() {
