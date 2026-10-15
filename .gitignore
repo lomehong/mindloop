@@ -25,6 +25,9 @@ web/static/build/
 uitest/node_modules/
 uitest/package-lock.json
 
+# TypeScript 增量构建中间产物
+web/static/*.tsbuildinfo
+
 # 桌面壳（desktop/）
 desktop/src-tauri/target/
 desktop/src-tauri/binaries/
