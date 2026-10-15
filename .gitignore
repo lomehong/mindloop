@@ -42,3 +42,6 @@ go-test.zip
 
 # WorkBuddy 会话工作数据（本地）
 .workbuddy/
+
+# worktree 构建产物（avatar 分支工作目录名派生，build.ps1 可再生）
+mindloop-avatar.exe
