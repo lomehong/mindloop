@@ -19,6 +19,7 @@ import {
 import { Skeleton } from "~/components/ui/loading-skeleton";
 import { fetchUsage, refreshUsage } from "~/lib/api";
 import { formatBytes, formatClock, formatCount, formatRelativeTime } from "~/lib/format";
+import { cn } from "~/lib/utils";
 import {
   JOB_PROGRESS_POLL_MS,
   USAGE_IDLE_POLL_MS,
@@ -503,6 +504,7 @@ export default function UsagePage() {
       ? `${chartDays[0][0].slice(5)} — ${chartDays[chartDays.length - 1][0].slice(5)}`
       : undefined;
   const admission = usage.admission;
+  const today = days.find(([day]) => day === new Date().toISOString().slice(0, 10))?.[1];
   const budgetValue = !admission
     ? { text: "—", unset: true }
     : admission.daily_limit > 0
@@ -549,6 +551,61 @@ export default function UsagePage() {
               {formatBytes(usage.pending_bytes)} 待统计
             </Badge>
           )}
+        </div>
+
+        {/* 样张食量环（avatar.md §3.1 新陈代谢面）：水位读数的图形化 +
+            近 14 天调用柱——读数全部真实（admission/usage 台账）。 */}
+        <div className="mb-4 grid gap-3 min-[880px]:grid-cols-[auto_1fr_1fr]">
+          <div className="flex items-center gap-4 rounded-xl border border-border bg-card p-4">
+            <UsageRing admission={admission} />
+            <div className="text-[12.5px] leading-relaxed text-muted-foreground">
+              <div className="text-foreground">今日预算水位</div>
+              {admission && admission.daily_limit > 0 ? (
+                <>
+                  <div className={pctOf(admission) >= 80 ? "text-resin" : undefined}>
+                    {pctOf(admission) >= 80 ? "微饿（≥80%）" : "不饿"}
+                    {admission.cooling_until ? " · 熔断冷却" : ""}
+                  </div>
+                </>
+              ) : (
+                <div className="text-faint">未设每日预算</div>
+              )}
+            </div>
+          </div>
+          <div className="rounded-xl border border-border bg-card p-4">
+            <div className="mb-2 text-[13px] font-medium">今日分账</div>
+            <div className="flex flex-col gap-1.5 font-mono text-[12px] text-muted-foreground">
+              <Row label="输入" value={formatCount(today?.in ?? 0)} />
+              <Row label="输出" value={formatCount(today?.out ?? 0)} />
+              <Row label="思考" value={formatCount(today?.think ?? 0)} />
+              <Row label="调用" value={`${today?.calls ?? 0} 次`} />
+            </div>
+          </div>
+          <div className="rounded-xl border border-border bg-card p-4">
+            <div className="mb-2 text-[13px] font-medium">
+              消化 · 近 14 天
+              <span className="ml-2 font-mono text-[10.5px] text-faint">
+                柱 = 当日调用
+              </span>
+            </div>
+            <div className="flex h-[56px] items-end gap-[3px]">
+              {days.slice(-14).map(([day, v]) => {
+                const max = Math.max(1, ...days.slice(-14).map(([, x]) => x.calls));
+                const h = v.calls > 0 ? Math.max(3, Math.round((v.calls / max) * 56)) : 2;
+                return (
+                  <i
+                    key={day}
+                    title={`${day} · ${v.calls} 次调用`}
+                    className={cn("flex-1 rounded-t-[2px]", v.calls > 0 ? "bg-moss opacity-85" : "bg-muted")}
+                    style={{ height: h }}
+                  />
+                );
+              })}
+            </div>
+            <div className="mt-1.5 font-mono text-[10.5px] text-faint">
+              每 token 产出的有效步骤是消化率——它吃饭越来越顶用还是越来越虚，看这里与任务完成率的走势。
+            </div>
+          </div>
         </div>
 
         <div className="mb-4">
@@ -667,6 +724,52 @@ export default function UsagePage() {
             </div>
           </ChartCard>
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ---- 样张食量环（avatar.md §3.1 新陈代谢面）------------------------------------
+
+function pctOf(admission: UsageAdmission): number {
+  return Math.round((admission.used_today / admission.daily_limit) * 100);
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-b border-line pb-1 last:border-b-0">
+      <span>{label}</span>
+      <span className="tabular-nums text-foreground">{value}</span>
+    </div>
+  );
+}
+
+/** 水位环：真实 admission 读数的图形化；未设预算画空环。 */
+function UsageRing({ admission }: { admission: UsageAdmission | undefined }) {
+  const pct = admission && admission.daily_limit > 0 ? pctOf(admission) : null;
+  const r = 56;
+  const c = 2 * Math.PI * r;
+  return (
+    <div className="relative size-[140px] shrink-0">
+      <svg viewBox="0 0 140 140" className="size-full -rotate-90">
+        <circle cx="70" cy="70" r={r} fill="none" stroke="var(--surface-2)" strokeWidth="9" />
+        {pct !== null && (
+          <circle
+            cx="70"
+            cy="70"
+            r={r}
+            fill="none"
+            stroke="var(--resin)"
+            strokeWidth="9"
+            strokeLinecap="round"
+            strokeDasharray={`${(pct / 100) * c} ${c}`}
+            className={cn(pct >= 80 && "opacity-95", pct < 80 && "opacity-80")}
+          />
+        )}
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <b className="font-mono text-[24px] font-normal">{pct !== null ? `${pct}%` : "—"}</b>
       </div>
     </div>
   );

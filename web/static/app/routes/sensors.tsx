@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Eye, RefreshCw, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams } from "react-router";
 import { toast } from "sonner";
 
@@ -27,12 +27,15 @@ import {
 } from "~/components/ui/select";
 import {
   addSensor,
+  fetchMindlog,
   fetchSensors,
   fetchTaste,
   removeSensor,
   toggleSensor,
 } from "~/lib/api";
 import { STATUS_BACKGROUND_POLL_MS } from "~/lib/polling";
+import { attentionStream, type AttentionItem } from "~/lib/attention";
+import { formatClock } from "~/lib/format";
 import type { SensorView } from "~/lib/types";
 import { cn } from "~/lib/utils";
 
@@ -313,6 +316,10 @@ export default function SensorsPage() {
           </Button>
         </div>
 
+        {/* ── 注意力流（avatar.md §3.1 感知面；样张 §4）：S2 一张卡 ·
+            S1 一行 · S0 折叠——界面不绕过它的降噪直接铺日志 ── */}
+        <AttentionStreamPanel identityId={identityId} />
+
         {/* ── 眼 · 观察 ── */}
         <SenseCard
           dot="bg-lake"
@@ -585,6 +592,120 @@ export default function SensorsPage() {
           if (sensorToRemove) remove.mutate(sensorToRemove.id);
         }}
       />
+    </div>
+  );
+}
+
+
+// ---- 注意力流（样张 §4：S2 卡 / S1 行 / S0 折叠 / 学习期预演）------------
+
+const ATTENTION_TAIL = 1000;
+
+function AttentionStreamPanel({ identityId }: { identityId: string }) {
+  const { data: mindlog } = useQuery({
+    queryKey: ["ledger-steps", identityId],
+    queryFn: () => fetchMindlog(identityId, { tail: ATTENTION_TAIL }),
+    refetchInterval: 30_000,
+  });
+  const stream = useMemo(
+    () => attentionStream(mindlog?.steps ?? []),
+    [mindlog]
+  );
+  const s2 = stream.s2.slice(0, 2);
+  const s1 = stream.s1.slice(0, 6);
+  return (
+    <div className="mb-5 space-y-3">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <h2 className="text-[14px] font-medium">它正在看什么</h2>
+        <span className="font-mono text-[10.5px] text-faint">
+          视觉分级复用神经系统：S2 一张卡 · S1 一行 · S0 几乎不可见 ·
+          最近 {ATTENTION_TAIL} 步内
+          {stream.windowStart ? `（自 ${formatClock(stream.windowStart).slice(0, 5)} 起）` : ""}
+        </span>
+      </div>
+      {s2.length === 0 && s1.length === 0 && stream.s0Total === 0 ? (
+        <div className="rounded-xl border border-border bg-card px-4 py-3 text-[12.5px] text-faint">
+          窗口内没有感知事件——世界很安静，或感官还没学会说话。
+        </div>
+      ) : (
+        <>
+          {s2.map((it) => (
+            <S2Card key={it.stepId} item={it} />
+          ))}
+          {s1.length > 0 && (
+            <div className="rounded-xl border border-border bg-card px-4 py-2">
+              <div className="py-1 font-mono text-[10.5px] tracking-[0.08em] text-faint">
+                S1 · 值得知道（并入下次汇报）
+              </div>
+              {s1.map((it) => (
+                <div
+                  key={it.stepId}
+                  className="flex gap-2.5 border-b border-line py-1.5 text-[12.5px] last:border-b-0"
+                >
+                  <span className="shrink-0 pt-px font-mono text-[10.5px] text-faint">
+                    {formatClock(it.ts).slice(0, 5)}
+                  </span>
+                  <span className="shrink-0 rounded border border-line-strong px-1 font-mono text-[10px] text-faint">
+                    {it.source}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground" title={it.digest}>
+                    {it.digest}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {stream.s0Total > 0 && (
+            <div className="rounded-xl border border-border bg-card px-4 py-3 opacity-55">
+              <div className="font-mono text-[10.5px] tracking-[0.08em] text-faint">
+                S0 · 背景沉淀（不叫醒，喂记忆代谢）
+              </div>
+              <div className="mt-1 text-[12.5px] text-faint">
+                另有 {stream.s0Total} 条背景变化已限速落盘：
+                {stream.s0BySource.map((x) => ` ${x.source} ×${x.count}`).join(" ·")}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+      {/* 学习期转正预演：被 learning-cap 压在 s1 的消息，转正后会以 S2 叫醒 */}
+      {stream.learningCapBySource.length > 0 && (
+        <div className="rounded-xl border border-resin/50 bg-resin/5 px-4 py-3">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="rounded-full border border-resin/50 px-2.5 py-0.5 font-mono text-[10.5px] text-resin">
+              学习期 · 转正预演
+            </span>
+            <span className="text-[12.5px] text-muted-foreground">
+              {stream.learningCapBySource
+                .map((x) => `${x.source} 压着 ${x.count} 条`)
+                .join(" · ")}
+              ——转正后它们会以 S2 叫醒你；信任是一次事故就破产的资产，先演后放，转正由你点头。
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function S2Card({ item }: { item: AttentionItem }) {
+  return (
+    <div
+      className="rounded-xl border bg-card px-4 py-3"
+      style={{ borderColor: "color-mix(in srgb, var(--primary) 45%, transparent)" }}
+    >
+      <div className="flex flex-wrap items-center gap-2.5">
+        <span className="rounded-full border border-primary/50 px-2.5 py-0.5 font-mono text-[10.5px] text-primary">
+          S2 · 值得现在看
+        </span>
+        <span className="font-mono text-[10.5px] text-faint">
+          {formatClock(item.ts).slice(0, 5)}
+        </span>
+        <span className="rounded border border-line-strong px-1 font-mono text-[10px] text-faint">
+          {item.source}
+        </span>
+      </div>
+      <div className="mt-1.5 text-[13.5px] leading-relaxed">{item.digest}</div>
     </div>
   );
 }

@@ -985,3 +985,14 @@ html.dark .pet-shadow { opacity: 0.32; }
     animation-delay: 0ms !important;
   }
 }
+
+/* 星系（avatar D 期）：星的慢漂——样张 @keyframes drift 的等价物。
+   prefers-reduced-motion 由全局降级规则接管。 */
+@keyframes galaxy-drift {
+  from {
+    translate: 0 0;
+  }
+  to {
+    translate: 0 -9px;
+  }
+}

@@ -258,57 +258,67 @@ export default function IdentityShell() {
             className={
               // 对话页（书签兜底路由）同样履行 ChatPage 的高度契约：
               // 宿主定界为 flex 列、自身不滚——消息区自滚、输入坞贴底。
+              // 其余引擎页 = 样张 .work 版式：max-1200 居中 + 底部留白
+              // （体征 pill 常驻在底部）。
               section === "chat"
                 ? "flex h-full flex-col overflow-hidden px-5 pb-16 sm:px-6"
-                : "h-full overflow-y-auto px-5 pb-16 sm:px-6"
+                : "h-full overflow-y-auto"
             }
           >
-            <NeedYouBar identityId={identityId} />
-            {/* engine-head（样张 .engine-head）：标题左、搜索右（仅轨迹
-                ——手账页有自己的搜索记忆框） */}
-            <div className="mb-[18px] flex items-baseline gap-[14px]">
-              <h1 className="text-[20px] font-semibold tracking-[0.01em]">
-                {sectionLabel} · {identityName}
-              </h1>
-              <span className="flex-1" />
-              {section === "traj" && (
-                <MindlogSearch
-                  identityId={identityId}
-                  windowStart={0}
-                  onJump={defaultJump}
-                />
-              )}
-            </div>
-            {/* 子页 chips 独立成行（泳道/日志流/分集 等） */}
-            {seg && (
-              <div className="mb-3 flex gap-1.5">
-                {seg.map((item) => {
-                  const on = rest === item.path;
-                  return (
-                    <Link
-                      key={item.path}
-                      to={`${base}${item.path}`}
-                      aria-current={on ? "page" : undefined}
-                      className={cn(
-                        "rounded-full px-2.5 py-1 font-mono text-[10px] transition-colors",
-                        on
-                          ? "bg-primary/10 text-primary"
-                          : "border border-line text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      {item.label}
-                    </Link>
-                  );
-                })}
+            {section !== "chat" ? (
+              <div className="mx-auto w-full max-w-[1200px] px-7 pb-24">
+                <NeedYouBar identityId={identityId} />
+                {/* engine-head（样张 .masthead）：标题左、动作右。run/
+                    sensors/settings 六页自带标题与动作行——壳不再重复
+                    一行（双标题是还原样张时留下的缝）。 */}
+                {["traj", "memories", "review", "growth", "diary", "tasks"].includes(section) && (
+                  <div className="mb-[18px] flex flex-wrap items-baseline gap-[14px] pt-5">
+                    <h1 className="text-[20px] font-medium tracking-[0.01em]">
+                      {sectionLabel}
+                      <span className="ml-2.5 font-mono text-[12px] font-normal text-faint">
+                        {identityName}
+                      </span>
+                    </h1>
+                    <span className="flex-1" />
+                    {section === "traj" && (
+                      <MindlogSearch
+                        identityId={identityId}
+                        windowStart={0}
+                        onJump={defaultJump}
+                      />
+                    )}
+                  </div>
+                )}
+                {/* 子页 chips 独立成行（泳道/日志流/分集 等） */}
+                {seg && (
+                  <div className="mb-3 flex gap-1.5">
+                    {seg.map((item) => {
+                      const on = rest === item.path;
+                      return (
+                        <Link
+                          key={item.path}
+                          to={`${base}${item.path}`}
+                          aria-current={on ? "page" : undefined}
+                          className={cn(
+                            "rounded-full px-2.5 py-1 font-mono text-[10px] transition-colors",
+                            on
+                              ? "bg-primary/10 text-primary"
+                              : "border border-line text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          {item.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+                <Outlet />
+              </div>
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <Outlet />
               </div>
             )}
-            <div
-              className={
-                section === "chat" ? "flex min-h-0 flex-1 flex-col" : undefined
-              }
-            >
-              <Outlet />
-            </div>
           </div>
         )}
       </div>

@@ -126,7 +126,7 @@ export default function Galaxy() {
                 boxShadow: it.live
                   ? "0 0 22px color-mix(in srgb, var(--color-moss, #8fc166) 40%, transparent)"
                   : "none",
-                animationDuration: `${6 + phaseFor(it.id) * 6}s`,
+                animation: `galaxy-drift ${8 + phaseFor(it.id) * 7}s ease-in-out infinite alternate`,
               }}
             />
             {needYou && (

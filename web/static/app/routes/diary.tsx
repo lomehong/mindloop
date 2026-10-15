@@ -125,6 +125,22 @@ export default function Diary() {
 
   return (
     <div className="relative h-full">
+      {/* 沉浸氛围（样张 s-diary：cosmos 星空压暗）——日记是时间旅行，
+          不用引擎室的纸感。 */}
+      <div
+        aria-hidden
+        className="absolute inset-0 opacity-60"
+        style={{
+          background:
+            "radial-gradient(1px 1px at 12% 22%, rgba(230,236,225,.5) 50%, transparent 51%)," +
+            "radial-gradient(1px 1px at 78% 14%, rgba(230,236,225,.4) 50%, transparent 51%)," +
+            "radial-gradient(1.5px 1.5px at 62% 74%, rgba(230,236,225,.35) 50%, transparent 51%)," +
+            "radial-gradient(1px 1px at 30% 68%, rgba(230,236,225,.4) 50%, transparent 51%)," +
+            "radial-gradient(1px 1px at 88% 55%, rgba(230,236,225,.3) 50%, transparent 51%)," +
+            "radial-gradient(1.5px 1.5px at 44% 32%, rgba(183,155,209,.4) 50%, transparent 51%)," +
+            "radial-gradient(1px 1px at 8% 82%, rgba(230,236,225,.3) 50%, transparent 51%)",
+        }}
+      />
       {/* 右缘时间刻度尺（常驻）：缩放永远可预期。 */}
       <div className="absolute right-1 top-1/2 z-20 flex -translate-y-1/2 flex-col items-end gap-1 rounded-xl border border-border bg-card/90 p-2 backdrop-blur">
         <span className="px-2 pb-0.5 font-mono text-[10px] text-faint">拉远 ↑</span>
@@ -155,7 +171,7 @@ export default function Diary() {
         </Link>
       </div>
 
-      <div className="h-full pr-24">
+      <div className="relative h-full pr-24">
         {zoom === "now" && (
           <div className="mx-auto mt-10 max-w-xl rounded-xl border border-border bg-card p-5">
             <div className="text-[15px] font-medium">此刻舞台</div>
