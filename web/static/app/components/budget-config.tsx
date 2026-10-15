@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { fetchBudget, putBudget } from "~/lib/api";
 import { useEffect, useState } from "react";
 
 // 预算控制：身份每日 token 上限的配置节（配置页内嵌卡片）。
@@ -10,13 +12,7 @@ export function BudgetConfig({ identityId }: { identityId: string }) {
   const qc = useQueryClient();
   const { data, refetch } = useQuery({
     queryKey: ["budget", identityId],
-    queryFn: async () => {
-      const r = await fetch(
-        `/api/identities/${encodeURIComponent(identityId)}/budget`
-      );
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return (await r.json()) as { daily_limit: number | null };
-    },
+    queryFn: () => fetchBudget(identityId),
     staleTime: 30_000,
   });
 
@@ -25,17 +21,7 @@ export function BudgetConfig({ identityId }: { identityId: string }) {
   const [dirty, setDirty] = useState(false);
 
   const save = useMutation({
-    mutationFn: async (limit: number | null) => {
-      const r = await fetch(
-        `/api/identities/${encodeURIComponent(identityId)}/budget`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ daily_limit: limit }),
-        }
-      );
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    },
+    mutationFn: (limit: number | null) => putBudget(identityId, limit),
     onSuccess: () => {
       setDirty(false);
       void refetch();

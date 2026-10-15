@@ -140,8 +140,11 @@ export interface BoundaryRow {
 
 export function boundaryReadings(input: {
   env: Record<string, string>;
-  dailyLimit: number | null;
+  /** undefined=查询缺席；null=端点明示不封顶；数字=封顶值。 */
+  dailyLimit: number | null | undefined;
   sensors: SensorsView | undefined;
+  /** 近窗口被 learning-cap 压制的消息数；null = 轨迹窗口读数缺席。 */
+  learningCapped: number | null;
 }): BoundaryRow[] {
   const policy = parsePolicyMode(input.env["MINDLOOP_EXEC_POLICY"]);
   const policyText: Record<PolicyMode, string> = {
@@ -165,26 +168,34 @@ export function boundaryReadings(input: {
     value: spont ? `${Number(spont).toLocaleString()} tokens/日` : "未配置",
     hint: "调整：MINDLOOP_SPONTANEOUS_TOKENS",
   });
+  // 三态区分（审查修正）：undefined=查询缺席（读数缺席）；null=端点
+  // 明示不封顶（budget PUT 的语义）；数字=封顶值。此前把 null 当缺席，
+  // 未封顶被误标成"读数缺席"。
   rows.push({
     label: "每日总预算",
     value:
-      input.dailyLimit === null
+      input.dailyLimit === undefined
         ? "读数缺席"
-        : input.dailyLimit > 0
+        : input.dailyLimit !== null && input.dailyLimit > 0
           ? `${input.dailyLimit.toLocaleString()} tokens/日`
           : "未封顶",
     hint: "喂食在「食量」面 · 调整：/settings/config",
   });
-  const learning = (input.sensors?.sensors ?? []).filter(
-    (s) => s.learning_days !== undefined && s.learning_days > 0 && s.enabled !== false
-  );
+  // 学习期口径（审查修正）：「条目显式配置了 learning_days」≠「在学习
+  // 期」——LearningDays 带 omitempty（靠缺省学习期的新感官不吐字段，
+  // 会漏报），且是否仍在期内需要感官出生时间（API 不暴露）。这里以
+  // 轨迹实证为准：近窗口被 learning-cap 压制的消息数（调用方传入；
+  // null = 轨迹窗口读数缺席），预演详单在注意力面。
+  const capped = input.learningCapped;
   rows.push({
     label: "感官学习期",
     value:
-      learning.length === 0
-        ? "没有在学习期的感官"
-        : `${learning.length} 只在学习期 · 转正由你点头`,
-    hint: learning.length > 0 ? "预演与放行：注意力面" : undefined,
+      capped === null
+        ? "机制开启（新感官缺省 3 天）· 轨迹窗口读数缺席"
+        : capped > 0
+          ? `生效中 · 近窗口压制 ${capped} 条 → 预演在注意力面`
+          : "机制开启（新感官缺省 3 天）· 窗口内没有被压制的消息",
+    hint: "是否仍在期内以轨迹 learning-cap 为准（出生时间不在读数里）",
   });
   const robotd = input.sensors?.robotd;
   if (robotd?.configured) {

@@ -9,6 +9,8 @@ import {
   phaseChipOf,
   segmentNameOf,
 } from "./growth-dossier";
+import { learningCapTotal } from "./attention";
+import type { NormalizedStep } from "./types";
 import type { MemoryInfo } from "./types";
 
 describe("CURVE_SEGMENTS", () => {
@@ -42,30 +44,40 @@ describe("boundaryReadings", () => {
           { id: "b", type: "git" },
         ],
       },
+      learningCapped: 5,
     });
     expect(rows[0]).toMatchObject({ label: "执行授权档", value: "auto · 分级放行（需审批类才等你）" });
     expect(rows[0].hint).toContain("MINDLOOP_EXEC_POLICY");
     expect(rows[0].hint).not.toContain("未显式配置");
     expect(rows[1]).toMatchObject({ label: "自发档日预算", value: "20,000 tokens/日" });
     expect(rows[2]).toMatchObject({ label: "每日总预算", value: "40,000 tokens/日" });
-    expect(rows[3].value).toBe("1 只在学习期 · 转正由你点头");
+    expect(rows[3].value).toBe("生效中 · 近窗口压制 5 条 → 预演在注意力面");
   });
 
   it("缺省档标注缺省；未封顶/未配置/robotd 观察模式如实", () => {
     const rows = boundaryReadings({
       env: {},
-      dailyLimit: 0,
+      dailyLimit: null,
       sensors: {
         sensors: [],
         robotd: { configured: true, mode: "observe" },
       },
+      learningCapped: 0,
     });
     expect(rows[0].value).toContain("auto · 分级放行");
     expect(rows[0].hint).toContain("未显式配置");
     expect(rows[0].hint).toContain("缺省 auto");
     expect(rows[1].value).toBe("未配置");
-    expect(rows[2].value).toBe("未封顶");
-    expect(rows[3].value).toBe("没有在学习期的感官");
+    expect(rows[2].value).toBe("未封顶"); // null = 端点明示不封顶（非缺席）
+    // 查询缺席（undefined）才是"读数缺席"
+    const absent = boundaryReadings({
+      env: {},
+      dailyLimit: undefined,
+      sensors: { sensors: [] },
+      learningCapped: 0,
+    });
+    expect(absent[2].value).toBe("读数缺席");
+    expect(rows[3].value).toBe("机制开启（新感官缺省 3 天）· 窗口内没有被压制的消息");
     expect(rows[4]).toMatchObject({ label: "身（robotd）", value: "observe · 只许看不许动" });
   });
 });
@@ -139,5 +151,28 @@ describe("axisMeters（样张量条，真实读数填充）", () => {
     expect(meters[0].text).toBe("近 7 天无委托");
     expect(meters[2].ratio).toBe(0);
     expect(meters[2].text).toBe("0 条在案");
+  });
+});
+
+describe("learningCapTotal（学习期的轨迹实证口径）", () => {
+  const step = (id: string, type: string, raw: Record<string, unknown>) =>
+    ({
+      step_id: id,
+      ts: "2026-10-15T10:00:00.000Z",
+      type,
+      source: null,
+      preview: "",
+      raw,
+      run_id: null,
+    }) as NormalizedStep;
+  it("只数带 learning-cap 标记的 event 步骤", () => {
+    expect(
+      learningCapTotal([
+        step("1", "event", { reason: "+learning-cap" }),
+        step("2", "event", { reason: "quiet-held:+learning-cap" }),
+        step("3", "event", { reason: "first-seen" }),
+        step("4", "alert", { reason: "+learning-cap" }), // alert 不算（s3 走告警通道）
+      ])
+    ).toBe(2);
   });
 });

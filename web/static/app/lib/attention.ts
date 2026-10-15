@@ -86,3 +86,21 @@ export function attentionStream(steps: NormalizedStep[]): AttentionStream {
     windowStart,
   };
 }
+
+
+/** 近窗口被 learning-cap 压制的消息总数——"感官在学习期"的轨迹实证
+ * （配置判据不可靠：LearningDays 带 omitempty，靠缺省学习期的新感官
+ * 不吐字段；且"配置了天数"≠"仍在期内"）。null 安全：无窗口即 0。 */
+export function learningCapTotal(steps: NormalizedStep[]): number {
+  let n = 0;
+  for (const s of steps) {
+    if (
+      s.type === "event" &&
+      typeof s.raw.reason === "string" &&
+      s.raw.reason.includes("learning-cap")
+    ) {
+      n += 1;
+    }
+  }
+  return n;
+}

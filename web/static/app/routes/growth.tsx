@@ -16,6 +16,7 @@ import { LedgerColumn } from "~/components/ledger-column";
 import { Skeleton } from "~/components/ui/loading-skeleton";
 import {
   fetchApprovals,
+  fetchBudget,
   fetchIdentityEnv,
   fetchIdentities,
   fetchMemories,
@@ -29,6 +30,7 @@ import {
   parsePolicyMode,
   type IdentityLedger,
 } from "~/lib/growth-ledger";
+import { learningCapTotal } from "~/lib/attention";
 import {
   boundaryReadings,
   curvePositionOf,
@@ -140,15 +142,10 @@ export default function Growth() {
     refetchInterval: LEDGER_POLL_MS,
   });
   // 每日总预算（budget-config.tsx 同源端点；键一致共享缓存）。
+  // 走 fetchBudget（apiRequest：token 部署带鉴权头，同源守卫）。
   const { data: budget } = useQuery({
     queryKey: ["budget", identityId],
-    queryFn: async () => {
-      const r = await fetch(
-        `/api/identities/${encodeURIComponent(identityId)}/budget`
-      );
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return (await r.json()) as { daily_limit: number | null };
-    },
+    queryFn: () => fetchBudget(identityId),
     staleTime: 30_000,
   });
   // 同行账的事件源（与工作台共享 ["ledger-steps"] 缓存）。
@@ -184,8 +181,9 @@ export default function Growth() {
   const policy = parsePolicyMode(envVars["MINDLOOP_EXEC_POLICY"]);
   const rows = boundaryReadings({
     env: envVars,
-    dailyLimit: budget?.daily_limit ?? null,
+    dailyLimit: budget?.daily_limit,
     sensors,
+    learningCapped: mindlog ? learningCapTotal(mindlog.steps) : null,
   });
   const legacy = legacyEvidence(memories, taste);
 

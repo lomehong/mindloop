@@ -449,6 +449,28 @@ export function removeSensor(
 }
 
 /** 舌：味觉聚合（你的撤销归因/审批/漏报——校准证据面，近 7 天）。 */
+/** 每日预算读数（budget_handlers：{daily_limit}，null=未封顶）。
+ * 走 apiRequest——token 部署下带鉴权头（裸 fetch 会静默 401）。 */
+export function fetchBudget(
+  identityId: string
+): Promise<{ daily_limit: number | null }> {
+  return getJson(
+    `/api/identities/${encodeURIComponent(identityId)}/budget`
+  );
+}
+
+/** 保存每日预算（null=不封顶）。写入身份 .env，重启心智生效。 */
+export function putBudget(
+  identityId: string,
+  daily_limit: number | null
+): Promise<void> {
+  return sendJson(
+    "PUT",
+    `/api/identities/${encodeURIComponent(identityId)}/budget`,
+    { daily_limit }
+  ).then(() => undefined);
+}
+
 export function fetchTaste(identityId: string): Promise<TasteSummary> {
   return getJson(
     `/api/identities/${encodeURIComponent(identityId)}/taste`
