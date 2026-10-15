@@ -26,16 +26,18 @@ export function ChatOverlay({
   return (
     <div
       data-testid="chat-overlay"
-      className="fixed inset-0 z-50 flex items-stretch justify-center bg-background/85 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-stretch justify-center bg-background/70 backdrop-blur-[3px]"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="my-[4vh] mb-[3vh] flex w-[min(860px,88vw)] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
-        <div className="flex items-center gap-3 border-b border-border px-5 py-3">
+      {/* 样张 #chatov 形态（对话单真相源）：全屏沉浸——宇宙压暗、追光
+          给对话；消息列 8vw 边距居中，不做居中小卡。 */}
+      <div className="flex min-h-0 w-full flex-col">
+        <div className="flex items-center gap-3 border-b border-border/60 px-6 py-3">
           <span className="text-[13px] font-semibold text-foreground">对话</span>
           <span className="font-mono text-[10px] text-muted-foreground">
-            目录 · 历史 · 深链 · 流式回复全在内 · Esc 收起
+            宇宙压暗 · 追光给对话 · 目录/历史/深链/流式全在内 · Esc 收起
           </span>
           <button
             type="button"
@@ -43,12 +45,12 @@ export function ChatOverlay({
             onClick={onClose}
             className="ml-auto rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
-            收起
+            收起（Esc）
           </button>
         </div>
         {/* ChatPage 自带高度契约（消息区自滚、输入坞贴底）：宿主只
             让位，不再包一层滚动——否则表单跟着内容滚、底部留空腔。 */}
-        <div className="flex min-h-0 flex-1 flex-col p-5">
+        <div className="mx-auto flex min-h-0 w-full flex-1 flex-col px-[8vw] pb-5 pt-4">
           <ChatPage />
         </div>
       </div>
