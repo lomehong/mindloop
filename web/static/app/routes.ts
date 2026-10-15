@@ -19,6 +19,7 @@ export default [
     route("memories", "routes/memories.tsx"),
     route("sensors", "routes/sensors.tsx"),
     route("growth", "routes/growth.tsx"),
+    route("diary", "routes/diary.tsx"),
     route("run/thinkers", "routes/thinkers.tsx"),
     route("run/schedule", "routes/schedule.tsx"),
     route("run/health", "routes/health.tsx"),
@@ -32,4 +33,7 @@ export default [
     route("*", "routes/redirect.tsx"),
   ]),
   route("pet", "routes/pet.tsx"),
+  // 星系（avatar.md D 期：多心智远景，时间望远镜的最远档）——多心智
+  // 一屏，不属任何单一身份，挂根级。
+  route("galaxy", "routes/galaxy.tsx"),
 ] satisfies RouteConfig;

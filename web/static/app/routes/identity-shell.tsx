@@ -36,6 +36,7 @@ const NAV = [
   { key: "tasks", label: "任务", path: "/tasks" },
   { key: "memories", label: "手账", path: "/memories" },
   { key: "growth", label: "成长", path: "/growth" },
+  { key: "diary", label: "日记", path: "/diary" },
   { key: "run", label: "运行", path: "/run/thinkers" },
   { key: "review", label: "回看", path: "/review" },
   { key: "sensors", label: "注意力", path: "/sensors" },
@@ -51,6 +52,7 @@ function sectionOf(rest: string): SectionKey {
   if (rest.startsWith("/tasks")) return "tasks";
   if (rest.startsWith("/memories")) return "memories";
   if (rest.startsWith("/growth")) return "growth";
+  if (rest.startsWith("/diary")) return "diary";
   if (rest.startsWith("/review")) return "review";
   if (rest.startsWith("/sensors")) return "sensors";
   // 裸入口 = 舞台（心智页默认落地，2026-10-14 拍板）；显式 /traj 系

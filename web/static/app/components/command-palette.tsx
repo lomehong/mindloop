@@ -24,6 +24,7 @@ const ROUTES = [
   { label: "对话", path: "/chat" },
   { label: "手账 · 记忆", path: "/memories" },
   { label: "成长档案", path: "/growth" },
+  { label: "日记 · 时间望远镜", path: "/diary" },
   { label: "注意力 · 感知", path: "/sensors" },
   { label: "运行 · 思考者", path: "/run/thinkers" },
   { label: "运行 · 作息", path: "/run/schedule" },
@@ -161,6 +162,14 @@ export function CommandPalette({
             >
               <span className="w-5 font-mono text-[11px] text-faint">⌂</span>
               工作台 · 同行面
+            </Command.Item>
+            <Command.Item
+              value="全局 星系 多心智 远景"
+              onSelect={() => go("/galaxy")}
+              className={itemClass}
+            >
+              <span className="w-5 font-mono text-[11px] text-faint">✦</span>
+              星系 · 多心智远景
             </Command.Item>
           </Command.Group>
         </Command.List>
