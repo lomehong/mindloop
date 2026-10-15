@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 
 import { QueryErrorBanner } from "~/components/query-error-banner";
@@ -559,7 +559,18 @@ export default function UsagePage() {
           <div className="flex items-center gap-4 rounded-xl border border-border bg-card p-4">
             <UsageRing admission={admission} />
             <div className="text-[12.5px] leading-relaxed text-muted-foreground">
-              <div className="text-foreground">今日预算水位</div>
+              <div className="flex items-center gap-2">
+                <span className="text-foreground">今日预算水位</span>
+                {controlsEnabled && (
+                  <Link
+                    to={`/i/${encodeURIComponent(identityId)}/settings/config`}
+                    className="rounded-lg border border-primary/50 px-2.5 py-1 text-[11.5px] text-primary transition-colors hover:bg-primary/10"
+                    title="喂食：调每日预算（样张：调整是对它说的话，落轨迹，不是改配置文件）"
+                  >
+                    喂食 · 调预算 →
+                  </Link>
+                )}
+              </div>
               {admission && admission.daily_limit > 0 ? (
                 <>
                   <div className={pctOf(admission) >= 80 ? "text-resin" : undefined}>

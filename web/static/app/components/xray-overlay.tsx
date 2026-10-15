@@ -119,6 +119,32 @@ export function XrayOverlay({
         aria-hidden
         className="absolute left-1/2 top-1/2 size-32 -translate-x-1/2 -translate-y-1/2 rounded-full border border-dashed border-lake/70"
       />
+      {/* 引导虚线（样张 .leader）：核心 → 各读数卡，"透过仪器看同一具身体" */}
+      <svg
+        aria-hidden
+        className="pointer-events-none absolute inset-0 size-full"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+      >
+        {[
+          [50, 50, 22, 28],
+          [50, 50, 74, 22],
+          [50, 50, 20, 70],
+          [50, 50, 76, 66],
+        ].map(([x1, y1, x2, y2], i) => (
+          <line
+            key={i}
+            x1={x1}
+            y1={y1}
+            x2={x2}
+            y2={y2}
+            stroke="var(--line-strong)"
+            strokeWidth="0.3"
+            strokeDasharray="1 1"
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
+      </svg>
       <svg
         aria-hidden
         className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"

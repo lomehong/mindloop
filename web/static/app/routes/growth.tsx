@@ -207,16 +207,50 @@ export default function Growth() {
             {rows.map((row) => (
               <div
                 key={row.label}
-                className="flex flex-wrap items-baseline gap-x-3 border-b border-border py-2 last:border-b-0"
+                className="flex flex-wrap items-center gap-x-3 border-b border-border py-2 last:border-b-0"
               >
                 <span className="w-28 shrink-0 text-[12.5px] text-muted-foreground">
                   {row.label}
                 </span>
-                <span className="min-w-0 flex-1 text-[13px]">{row.value}</span>
-                {row.hint && (
-                  <span className="font-mono text-[10.5px] text-faint">
-                    {row.hint}
+                {row.label === "执行授权档" ? (
+                  // 样张 .seg 分段控件形态——只读显示：当前档高亮，
+                  // 调整走 CLI/env（§10 裁决：界面内可调需要新端点）。
+                  <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                    <span className="inline-flex overflow-hidden rounded-lg border border-line-strong">
+                      {(
+                        [
+                          ["auto", "auto · 分级"],
+                          ["ask", "ask · 全审"],
+                          ["trusted", "trusted · 直执行"],
+                          ["deny", "deny · 只思考"],
+                        ] as const
+                      ).map(([m, label]) => (
+                        <span
+                          key={m}
+                          className={cn(
+                            "px-2.5 py-1 font-mono text-[11px]",
+                            policy.mode === m
+                              ? "bg-primary/12 text-primary"
+                              : "text-faint"
+                          )}
+                        >
+                          {label}
+                        </span>
+                      ))}
+                    </span>
+                    {row.hint && (
+                      <span className="font-mono text-[10.5px] text-faint">{row.hint}</span>
+                    )}
                   </span>
+                ) : (
+                  <>
+                    <span className="min-w-0 flex-1 text-[13px]">{row.value}</span>
+                    {row.hint && (
+                      <span className="font-mono text-[10.5px] text-faint">
+                        {row.hint}
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
             ))}
