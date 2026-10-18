@@ -1,0 +1,6 @@
+{
+  "repo": "github.com/lomehong/mindloop",
+  "failing_check": { "command": "go test ./cmd/... ./internal/..." },
+  "forbidden_paths": [".env", ".github/", "*.pem", "deploy/", "web/static/node_modules/"],
+  "notes": "mindloop = 心智（mind）+ 身（robotd，桌面 MCP server）。Go 1.26，cobra 命令树在 internal/cli。修复勿动 go.mod/go.sum（依赖冻结）；web/static 下有 npm 嵌入的 Go 包，跑测试用 ./cmd/... ./internal/... 规避。"
+}
