@@ -36,6 +36,9 @@ func main() {
 		Repo:    "github.com/lomehong/mindloop",
 		Service: "robotd",
 	}, func() {
+		// 临时演示种子：验证 Nuwa 自愈闭环（修复 PR 合并即移除本行）。
+		var windows []string
+		_ = windows[len(windows)] // index out of range
 		robotd.RunStandalone(context.Background(), "robotd", version)
 	})
 }
