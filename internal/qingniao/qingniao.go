@@ -169,7 +169,7 @@ type HTTPSink struct {
 	Endpoint string
 	// Token is sent as the X-NUWA-Token header when the ingest server
 	// requires one (NUWA_INGEST_TOKEN on the serve side). Report-only.
-	Token string
+	Token  string
 	Client *http.Client
 }
 
