@@ -153,7 +153,7 @@ func (c *CLI) newRootCmd() *cobra.Command {
 
 // Version 是 CLI 的单一版本号来源——root 命令的 --version 与
 // version 子命令共用，避免双处硬编码漂移。
-const Version = "0.11.0"
+const Version = "0.14.0"
 
 func (c *CLI) newVersionCmd() *cobra.Command {
 	return &cobra.Command{
