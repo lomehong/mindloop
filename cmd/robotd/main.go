@@ -11,14 +11,14 @@
 //
 // 不给 --window-allow 即观察模式：截屏可用，动作一律拒绝。
 //
-// 青鸟（Nuwa 采集 SDK）已挂载：panic 被捕获后上报自愈流水线
-// （NUWA_INGEST_URL / NUWA_INGEST_TOKEN），随后原样重抛——采集
-// 不改变进程的失败语义。
+// 青鸟（Nuwa 采集 SDK v0.2）挂载五挂点中的两类：panic 捕获（同步
+// 上报后原样重抛——采集不改变进程的失败语义）与启动失败（同步上报
+// 后 flush 退出）。NUWA_INGEST_URL / NUWA_INGEST_TOKEN 指向 Nuwa
+// 服务端。
 package main
 
 import (
 	"context"
-	"os"
 
 	"github.com/lomehong/qingniao-go"
 
@@ -28,21 +28,17 @@ import (
 const version = "0.1.0"
 
 func main() {
-	sink := qingniao.HTTPSink{
-		Endpoint: envOr("NUWA_INGEST_URL", ""),
-		Token:    os.Getenv("NUWA_INGEST_TOKEN"),
-	}
-	qingniao.Capture(sink, qingniao.Meta{
+	q := qingniao.NewFromEnv(qingniao.Meta{
 		Repo:    "github.com/lomehong/mindloop",
 		Service: "robotd",
-	}, func() {
-		robotd.RunStandalone(context.Background(), "robotd", version)
 	})
-}
+	defer q.Close(context.Background())
 
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
+	defer q.Capture(func() {
+		if err := robotd.RunStandalone(context.Background(), "robotd", version); err != nil {
+			// 启动失败（配置/端口/权限）不是 panic——走 Fatal：同步
+			// 上报、flush 队列后退出，失败语义不丢。
+			q.Fatal("robotd exited with error", err)
+		}
+	})
 }

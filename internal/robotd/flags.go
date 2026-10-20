@@ -7,7 +7,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
 )
 
 // WindowAllow 是 --window-allow 的可重复 flag.Value：stdlib flag 与
@@ -40,13 +39,10 @@ func AddFlags(fs *flag.FlagSet) func() Options {
 	return func() Options { return Options{WindowAllow: allow.Values(), MinIdle: *minIdle} }
 }
 
-// RunStandalone 是独立二进制（cmd/robotd）的入口：解析命令行、
-// 运行 serve，失败带退出码。
-func RunStandalone(ctx context.Context, serverName, version string) {
+// RunStandalone 是独立进程入口：解析命令行并运行 server。返回错误而非
+// 自行退出——让调用方（main）决定失败语义（如经青鸟上报后退出）。
+func RunStandalone(ctx context.Context, serverName, version string) error {
 	opt := AddFlags(flag.CommandLine)()
 	flag.Parse()
-	if err := Run(ctx, Options{ServerName: serverName, Version: version, WindowAllow: opt.WindowAllow}); err != nil {
-		fmt.Fprintln(os.Stderr, "robotd:", err)
-		os.Exit(1)
-	}
+	return Run(ctx, Options{ServerName: serverName, Version: version, WindowAllow: opt.WindowAllow})
 }
