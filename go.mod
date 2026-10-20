@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/fsnotify/fsnotify v1.10.1
+	github.com/lomehong/qingniao-go v0.1.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sys v0.48.0
 )

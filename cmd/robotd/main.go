@@ -20,7 +20,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/lomehong/mindloop/internal/qingniao"
+	"github.com/lomehong/qingniao-go"
 
 	"github.com/lomehong/mindloop/internal/robotd"
 )
