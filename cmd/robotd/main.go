@@ -25,7 +25,7 @@ import (
 	"github.com/lomehong/mindloop/internal/robotd"
 )
 
-const version = "0.15.0"
+const version = "0.16.0"
 
 func main() {
 	q := qingniao.NewFromEnv(qingniao.Meta{
