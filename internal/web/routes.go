@@ -38,7 +38,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/llm-health/probe", s.withAuth(s.handleLlmHealthProbe))
 	s.mux.HandleFunc("GET /api/openrouter/models", s.withAuth(s.handleOpenRouterModels))
 	s.mux.HandleFunc("POST /api/killall", s.withAuth(s.handleKillall))
-	s.mux.HandleFunc("POST /api/update", s.withAuth(s.handleSelfUpdate))
+	// 检测升级（internal/update）：检测自动、安装必须显式点击。
+	s.mux.HandleFunc("GET /api/update/latest", s.withAuth(s.handleUpdateLatest))
+	s.mux.HandleFunc("POST /api/update/check", s.withAuth(s.handleUpdateCheck))
+	s.mux.HandleFunc("POST /api/update/install", s.withAuth(s.handleUpdateInstall))
 	s.mux.HandleFunc("GET /api/push/key", s.withAuth(s.handleEmpty404))
 	s.mux.HandleFunc("POST /api/push/subscriptions", s.withAuth(s.handleEmpty404))
 	s.mux.HandleFunc("POST /api/push/unsubscribe", s.withAuth(s.handleEmpty404))

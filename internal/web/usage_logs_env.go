@@ -490,14 +490,6 @@ func (s *Server) handleKillall(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleSelfUpdate：本地工具不做自更新——给出可执行的替代（git pull）。
-func (s *Server) handleSelfUpdate(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"ok": false, "updated": false, "restarting": false,
-		"detail": "本地部署不支持热更新：在仓库执行 git pull && go install ./cmd/mindloop 后重启 web",
-	})
-}
-
 // handleLlmHealthProbe 真实发起一次最小 LLM 调用（一次 ping），
 // 返回 LlmProbeResult 契约：{ok, latency_ms, model, provider, error}。
 // 这是运维手动触发的全局连通性检查（无身份上下文）：不挂准入

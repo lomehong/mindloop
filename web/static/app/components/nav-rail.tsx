@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, LayoutGrid, Minus, Moon, PanelLeft, Plus, RefreshCw, Square, Sun, X } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -8,7 +8,12 @@ import { toast } from "sonner";
 import { NewTaskDialog } from "~/components/new-task-dialog";
 import { useControlsEnabled } from "~/components/thinker-controls";
 import { Button } from "~/components/ui/button";
-import { fetchConfig, fetchIdentities, selfUpdate } from "~/lib/api";
+import {
+  checkUpdateNow,
+  fetchConfig,
+  fetchIdentities,
+  installUpdate,
+} from "~/lib/api";
 import type { Config } from "~/lib/types";
 
 // Trellis 左导航栏（docs/designs/ui-language.md）：新的任务（打开派发
@@ -70,54 +75,41 @@ function ThemeToggle() {
   );
 }
 
-/** Wait through the restart: poll /api/config until the commit changes,
- * then reload the page (which also picks up the rebuilt frontend). */
-function pollForNewBuild(oldCommit: string, timeoutMs = 5 * 60 * 1000) {
-  const started = Date.now();
-  const tick = async () => {
-    if (Date.now() - started > timeoutMs) {
-      toast.error("更新超时——请在服务器上检查 mindloop web 服务的日志。");
-      return;
-    }
-    try {
-      const config = await fetchConfig();
-      if (config.git_commit && config.git_commit !== oldCommit) {
-        window.location.reload();
-        return;
-      }
-    } catch {
-      // server is restarting/rebuilding — keep waiting
-    }
-    setTimeout(tick, 3000);
-  };
-  setTimeout(tick, 3000);
-}
-
-/** The build stamp doubles as a meta menu: click for server details and —
- * when the server allows it — a "pull latest & restart" control. */
+/** 构建戳 = 元信息菜单：服务器详情 + 真实的「检测升级」——检查自动、
+ * 安装必须显式点击（internal/update 三端点的前端门面）。 */
 export function BuildMenu({ config }: { config: Config }) {
   const controlsEnabled = useControlsEnabled();
   const [open, setOpen] = useState(false);
-  const [updating, setUpdating] = useState(false);
-
-  const runUpdate = async () => {
-    setUpdating(true);
-    try {
-      const result = await selfUpdate();
-      if (!result.updated) {
-        toast.info(`已是最新版本 (${result.commit})`);
-        setUpdating(false);
+  const check = useMutation({
+    mutationFn: checkUpdateNow,
+    onSuccess: (info) => {
+      if (info.error) {
+        toast.error(`检查失败：${info.error}`);
         return;
       }
-      toast.success(
-        `更新中 ${result.from_commit} → ${result.to_commit}——服务重启中，恢复后页面自动刷新（约 1-2 分钟）`
-      );
-      pollForNewBuild(config.git_commit ?? "");
-    } catch (error) {
-      toast.error((error as Error).message);
-      setUpdating(false);
-    }
-  };
+      if (info.has_update) {
+        toast.info(`新版本 ${info.latest_tag} 已发布（当前 ${info.current}）`);
+      } else {
+        toast.info(`已是最新版本（${info.current}）`);
+      }
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+  const install = useMutation({
+    mutationFn: installUpdate,
+    onSuccess: (result) => {
+      if (result.mode === "installer") {
+        toast.success(result.detail);
+      } else if (result.mode === "binary") {
+        toast.success(result.detail, { duration: 10_000 });
+      } else {
+        toast.info(result.detail);
+      }
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+  const latest = check.data;
+  const busy = check.isPending || install.isPending;
 
   return (
     <div className="relative">
@@ -143,17 +135,34 @@ export function BuildMenu({ config }: { config: Config }) {
               <span className="text-muted-foreground">根目录</span>
               <span className="break-all">{config.root}</span>
             </div>
-            {config.self_update_enabled && controlsEnabled && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                disabled={updating}
-                onClick={runUpdate}
-              >
-                <RefreshCw className={`size-3 ${updating ? "animate-spin" : ""}`} />
-                {updating ? "更新中…" : "拉取最新并重启"}
-              </Button>
+            {controlsEnabled && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  disabled={busy}
+                  onClick={() => check.mutate()}
+                >
+                  <RefreshCw className={`size-3 ${check.isPending ? "animate-spin" : ""}`} />
+                  {check.isPending ? "检查中…" : "检查更新"}
+                </Button>
+                {latest?.has_update && (
+                  <div className="space-y-1.5 rounded-md border border-resin/45 bg-resin/10 p-2">
+                    <div className="font-mono text-[11px] text-resin">
+                      新版本 {latest.latest_tag}（当前 {latest.current}）
+                    </div>
+                    <Button
+                      size="sm"
+                      className="w-full"
+                      disabled={install.isPending}
+                      onClick={() => install.mutate()}
+                    >
+                      {install.isPending ? "升级中…" : "升级到 " + latest.latest_tag}
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </>

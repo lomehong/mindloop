@@ -23,6 +23,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/lomehong/mindloop/internal/update"
 )
 
 // Config 描述仪表盘启动参数。Root 是身份目录本身（里面直接是
@@ -39,6 +41,9 @@ type Config struct {
 	ViewerFS  fs.FS
 	Addr      string
 	Token     string
+	// Update 非空时启用「检测升级」三端点（latest/check/install）；
+	// nil = 功能关闭（端点 503 如实说明）。
+	Update *update.Checker
 }
 
 // Server 是仪表盘 HTTP 服务。
@@ -46,6 +51,9 @@ type Server struct {
 	cfg Config
 	mux *http.ServeMux
 	srv *http.Server
+
+	// updateChecker 检测升级（可空 = 功能关闭）。
+	updateChecker *update.Checker
 
 	// indexes 是进程内共享的侧索引存储（键：Timeline.Path）——
 	// 高流量端点复用同一份增量观察，避免每次请求全量扫描。
@@ -76,6 +84,7 @@ type Server struct {
 //   - /api/* 经 sameOrigin 守卫：跨源请求与回环部署下的非回环
 //     Host 一律 403（防 CSRF 与 DNS rebinding）
 func New(cfg Config) (*Server, error) {
+	updateChecker := cfg.Update
 	if cfg.Root == "" {
 		return nil, errors.New("web: Root is required")
 	}
@@ -92,6 +101,7 @@ func New(cfg Config) (*Server, error) {
 		llmModelsCache: map[string]llmModelsEntry{},
 		replyPollEvery: 200 * time.Millisecond,
 		replyPingEvery: 15 * time.Second,
+		updateChecker:  updateChecker,
 	}
 	s.streams = newStreamHub(s)
 	s.routes()

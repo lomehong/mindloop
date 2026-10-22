@@ -36,7 +36,8 @@ import type {
   SensorsView,
   TasteSummary,
   Usage,
-  SelfUpdateResult,
+  UpdateInfo,
+  UpdateInstallResult,
   SkillContent,
   SkillsView,
   StepDetail,
@@ -191,8 +192,21 @@ export function fetchConfig(): Promise<Config> {
   return getJson("/api/config");
 }
 
-export function selfUpdate(): Promise<SelfUpdateResult> {
-  return postJson("/api/update", {});
+/** 最近一次检测读数（后台周期 + 首屏轮询共用同一端点）。 */
+export function fetchUpdateLatest(): Promise<UpdateInfo> {
+  return getJson("/api/update/latest");
+}
+
+/** 立即检测（手动「检查更新」按钮——绕过缓存周期）。 */
+export function checkUpdateNow(): Promise<UpdateInfo> {
+  return postJson("/api/update/check", {});
+}
+
+/** 执行升级。mode=installer（桌面壳：安装器已启动）| binary（已替换
+ * 待重启）| none（已是最新）。安装必须由操作员显式触发——本函数只在
+ * 用户点击「升级」时调用。 */
+export function installUpdate(): Promise<UpdateInstallResult> {
+  return postJson("/api/update/install", {});
 }
 
 export function fetchLlmHealth(): Promise<LlmHealth> {

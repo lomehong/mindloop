@@ -52,13 +52,27 @@ export interface LlmProbeResult {
   error?: string;
 }
 
-export interface SelfUpdateResult {
-  ok: boolean;
-  updated: boolean;
-  restarting: boolean;
-  commit?: string;
-  from_commit?: string;
-  to_commit?: string;
+/** 检测升级读数（GET/POST /api/update/latest|check）。error 非空 =
+ * 这次检测失败——读数诚实，前端不得把失败渲染成"已是最新"。 */
+export interface UpdateInfo {
+  checked_at: string;
+  current: string;
+  latest_tag: string;
+  has_update: boolean;
+  url: string;
+  published_at?: string;
+  notes?: string;
+  error?: string;
+}
+
+/** 升级执行结果（POST /api/update/install）。mode:
+ * none=已是最新 / installer=安装器已启动（桌面壳） / binary=已替换待重启。 */
+export interface UpdateInstallResult {
+  mode: "none" | "installer" | "binary";
+  replaced?: string[];
+  detail: string;
+  from?: string;
+  to?: string;
 }
 
 export interface DispatcherStatus {

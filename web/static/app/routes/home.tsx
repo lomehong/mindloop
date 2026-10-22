@@ -12,6 +12,7 @@ import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { AuthenticatedDownload } from "~/components/authenticated-download";
+import { UpdateBanner } from "~/components/update-banner";
 import { ConfirmDialog } from "~/components/confirm-dialog";
 import { CreatureSvg } from "~/components/pet/creature";
 import { QueryErrorBanner } from "~/components/query-error-banner";
@@ -842,6 +843,7 @@ export default function Home() {
 
   return (
     <div className="space-y-3.5 pt-4">
+      <UpdateBanner />
       {masthead}
       <NeedYou rows={signals} pending={signalsPending} />
       {slots.length <= 6 ? (

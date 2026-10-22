@@ -91,6 +91,9 @@ pub fn spawn_backend(
         args.push(viewer.to_string_lossy().into_owned());
     }
     let mut cmd = std::process::Command::new("mindloop.exe");
+    // 桌面壳标记：后端据此选择升级路径（壳内=下载 NSIS 安装器接管，
+    // 绝不自替换壳持有的 sidecar——见 internal/update）。
+    cmd.env("MINDLOOP_SHELL", "1");
     cmd.args(&args);
     // 排障实验：debug 构建不设 CREATE_NO_WINDOW，验证子进程秒退是否
     // 与无控制台相关。

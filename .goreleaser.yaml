@@ -24,6 +24,22 @@ builds:
       - release
     ldflags:
       - -s -w
+  # robotd（"身"）随 zip 分发——检测升级才能一并带走它；此前它只有
+  # go install 一条安装路，released 二进制升级后 robotd 永远停在旧版。
+  - id: robotd
+    main: ./cmd/robotd
+    binary: robotd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
 
 archives:
   - formats: [zip]

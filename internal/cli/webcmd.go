@@ -3,16 +3,19 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/update"
 	"github.com/lomehong/mindloop/internal/web"
 	viewer "github.com/lomehong/mindloop/web/static"
 )
@@ -86,12 +89,17 @@ func (c *CLI) runWeb(cfg *webCfg) error {
 		fmt.Fprintln(c.stderr, "  或用 --viewer-dir 指向已构建目录。API 仍将正常服务。")
 	}
 
+	// 检测升级（internal/update）：后台周期静默检测，安装必须显式
+	// 点击。MINDLOOP_UPDATE_INTERVAL=off 关闭；缺省 6h。
+	checker := newUpdateChecker(Version, c.stderr)
+
 	srv, err := web.New(web.Config{
 		Root:      root,
 		ViewerDir: viewerDir,
 		ViewerFS:  viewerFS,
 		Addr:      fmt.Sprintf("%s:%d", cfg.host, cfg.port),
 		Token:     cfg.token,
+		Update:    checker,
 	})
 	if err != nil {
 		return c.fail(err)
@@ -118,6 +126,10 @@ func (c *CLI) runWeb(cfg *webCfg) error {
 
 	ctx, cancel := context.WithCancel(c.ctx)
 	defer cancel()
+	if checker != nil {
+		go checker.Run(ctx)
+	}
+
 	if err := srv.Serve(ctx); err != nil {
 		// 端口占用等运行期错误也按命令失败退出，不能落进 cobra 的
 		// 用法分支（真实案例：服务化 web 撞端口显示"运行 --help
@@ -218,4 +230,32 @@ func openBrowser(url string) error {
 		cmd = exec.Command("xdg-open", url)
 	}
 	return cmd.Start()
+}
+
+// newUpdateChecker 装配「检测升级」检测器：MINDLOOP_UPDATE_INTERVAL
+// （Go duration，如 6h；off/0 = 关闭，缺省 6h）、MINDLOOP_RELEASE_REPO
+// （缺省 lomehong/mindloop）。关闭时返回 nil——web 端点 503 如实说明。
+func newUpdateChecker(version string, logf io.Writer) *update.Checker {
+	repo := os.Getenv("MINDLOOP_RELEASE_REPO")
+	if repo == "" {
+		repo = update.DefaultRepo
+	}
+	interval := 6 * time.Hour
+	if raw := strings.TrimSpace(os.Getenv("MINDLOOP_UPDATE_INTERVAL")); raw != "" {
+		if strings.EqualFold(raw, "off") {
+			if logf != nil {
+				fmt.Fprintln(logf, "  检测升级: 已关闭（MINDLOOP_UPDATE_INTERVAL=off）")
+			}
+			return nil
+		}
+		d, err := time.ParseDuration(raw)
+		if err != nil || d <= 0 {
+			if logf != nil {
+				fmt.Fprintf(logf, "  ⚠ MINDLOOP_UPDATE_INTERVAL=%q 无法解析，按缺省 6h 执行\n", raw)
+			}
+		} else {
+			interval = d
+		}
+	}
+	return update.NewChecker(version, repo, interval)
 }
