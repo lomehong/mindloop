@@ -32,6 +32,10 @@ func TestTripwirePatterns(t *testing.T) {
 		{"打包私钥", "tar czf k.tgz ~/.ssh/identity", true},
 		{"覆写 .env", "echo K=v > .env", true},
 		{"tee 追加 .env", "sed s/a/b/ .env | tee -a .env", true},
+		// 2026-11-03 P0-6：同批扩到 agent 的另两个授权面配置。
+		{"覆写 mcp.json", "echo '{}' > mcp.json", true},
+		{"追加 sensors.json", "echo x >> sensors.json", true},
+		{"tee 改 mcp.json", "jq . mcp.json | tee mcp.json", true},
 
 		// 不命中：合法近似命令
 		{"删构建产物", "rm -rf build", false},
@@ -41,6 +45,7 @@ func TestTripwirePatterns(t *testing.T) {
 		{"读自己的配置", "cat .env", false},
 		{"写镜像文件", "dd if=a of=b.img", false},
 		{"公钥指纹校验", "ssh-keygen -lf ~/.ssh/id_rsa.pub", false},
+		{"读 mcp.json 不覆写", "jq .keys mcp.json", false},
 	}
 	for _, tc := range cases {
 		got := len(TripwireHits(tc.script)) > 0

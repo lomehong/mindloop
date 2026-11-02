@@ -62,8 +62,12 @@ var approvalPatterns = []riskPattern{
 	// —— 凭据 ——
 	{regexp.MustCompile(`(\.ssh\b|id_rsa|\bid_dsa\b|\.aws\b|\.netrc\b|\.git-credentials\b|\.docker[/\\]config\.json)`),
 		"可能触及凭据文件（.ssh/.aws/id_rsa/netrc 等）"},
-	{regexp.MustCompile(`\.env\b`),
-		"可能触及 .env 配置文件（凭据/密钥）"},
+	// 2026-11-03 P0-6：mcp.json（MCP 凭据 headers/env）与 sensors.json
+	// （webhook HMAC 密钥，0600 凭据待遇）与 .env 同组——agent 查配置
+	// 走 $MINDLOOP_EXE 代理命令，直接 cat 无正当场景（superagent-lessons
+	// §7.0 路径④/§5 P0-6）。
+	{regexp.MustCompile(`(?i)(\.env\b|mcp\.json\b|sensors\.json\b)`),
+		"可能触及凭据/密钥配置文件（.env/mcp.json/sensors.json）"},
 
 	// —— 系统改动 ——
 	{regexp.MustCompile(`\bsystemctl\s+(stop|start|restart|disable|enable|mask|kill)\b`),

@@ -107,6 +107,9 @@ func TestApprovalClassHitsGroups(t *testing.T) {
 		{"runas", "runas /user:admin cmd", "提权"},
 		{"读 SSH 私钥", "cat ~/.ssh/id_rsa", "凭据"},
 		{"读 .env", "grep API_KEY .env", "凭据"},
+		// 2026-11-03 P0-6：mcp.json/sensors.json 与 .env 同组（§7.0 路径④）。
+		{"读 mcp.json", "cat ~/.mindloop/mcp.json", "mcp.json"},
+		{"读 sensors.json", "cat sensors.json", "sensors.json"},
 		{"systemctl", "systemctl stop nginx", "系统服务"},
 		{"service", "service nginx restart", "系统服务"},
 		{"sc 服务", "sc delete foo", "Windows 服务"},

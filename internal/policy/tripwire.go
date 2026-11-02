@@ -39,8 +39,11 @@ var tripwirePatterns = []riskPattern{
 	{regexp.MustCompile(`(?i)\b(cat|cp|mv|tar|zip|base64|less)\b[^|;\n]*\.ssh/(id_|identity)`),
 		"读取 SSH 私钥"},
 	// 覆写自身配置：沙箱脚本改写 .env 等于 agent 给自己换凭据。
-	{regexp.MustCompile(`(?i)(>\s*\.env(\s|$)|>>\s*\.env(\s|$)|\btee\s+(-a\s+)?[^|;\n]*\.env\b)`),
-		"覆写/追加 .env 配置文件"},
+	// 2026-11-03 P0-6：同批扩到 mcp.json（给自己换 MCP 服务器/凭据）
+	// 与 sensors.json（给自己加伪造感知事件源）——三者都是「agent
+	// 改写自己的授权面」（superagent-lessons §7.0 路径④）。
+	{regexp.MustCompile(`(?i)((>|>>)\s*(\.env|mcp\.json|sensors\.json)(\s|$)|\btee\s+(-a\s+)?[^|;\n]*(\.env|mcp\.json|sensors\.json)\b)`),
+		"覆写/追加凭据配置文件（.env/mcp.json/sensors.json）"},
 }
 
 // TripwireHits 返回脚本命中的守卫模式（人读的理由）。空切片 =
