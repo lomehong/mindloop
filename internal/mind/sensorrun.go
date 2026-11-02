@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/lomehong/mindloop/internal/connector/sensor"
+	"github.com/lomehong/mindloop/internal/thread"
 	"github.com/lomehong/mindloop/internal/traj"
 )
 
@@ -76,8 +77,12 @@ type SensorRunner struct {
 	// 文章 3.3 引用图的 mindloop 最小形态。内存态，重启即清：锚
 	// 只服务"近期"导航，不承诺全史）。
 	recentBySource map[string]string
-	cancel         context.CancelFunc
-	ctx            context.Context
+	// threadsCache/threadsMTime 是 threads.json 的归属缓存（P1-10：
+	// event/alert 按线索 subject 锚归属，mtime 失效）。
+	threadsCache []thread.Thread
+	threadsMTime string
+	cancel       context.CancelFunc
+	ctx          context.Context
 }
 
 type runningSensor struct {
@@ -388,6 +393,10 @@ func (r *SensorRunner) writeEvent(rs *runningSensor, e sensor.PEvent, sal sensor
 	if prev := r.takeRecent(rs.cfg.ID, s.StepID); prev != "" {
 		s.Fields["prev"] = prev
 	}
+	// P1-10：线索归属——subject 精确锚定到开放线索时附 thread id。
+	if tid := r.threadSubject(e.Subject); tid != "" {
+		s.Fields["thread"] = tid
+	}
 	r.append(s)
 }
 
@@ -414,7 +423,37 @@ func (r *SensorRunner) writeAlert(rs *runningSensor, e sensor.PEvent, reason str
 	if prev := r.takeRecent(rs.cfg.ID, s.StepID); prev != "" {
 		s.Fields["prev"] = prev
 	}
+	// P1-10：alert 同样做线索归属。
+	if tid := r.threadSubject(e.Subject); tid != "" {
+		s.Fields["thread"] = tid
+	}
 	r.append(s)
+}
+
+// threadSubject 返回 subject 的线索归属 id（P1-10）：threads.json
+// 按 mtime 失效缓存，归属只认线索 Subjects 的精确锚定——不做标题
+// 语义猜测（猜错的归属比没有归属更误导）。文件缺失/损坏返回空
+// （感官不能因归属失败停摆）。
+func (r *SensorRunner) threadSubject(subject string) string {
+	if subject == "" {
+		return ""
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	path := thread.Path(r.opts.IdentityDir)
+	if fi, err := os.Stat(path); err == nil {
+		key := fi.ModTime().String()
+		if key != r.threadsMTime || r.threadsCache == nil {
+			if items, err := thread.Load(r.opts.IdentityDir); err == nil {
+				r.threadsCache, r.threadsMTime = items, key
+			}
+		}
+	}
+	if r.threadsCache == nil {
+		return ""
+	}
+	id, _ := thread.MatchSubject(r.threadsCache, subject)
+	return id
 }
 
 // takeRecent 取出并更新同源最近 step-id（返回上一条供锚定）。

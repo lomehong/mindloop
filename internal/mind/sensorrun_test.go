@@ -43,6 +43,7 @@ type sensorHarness struct {
 	t       *testing.T
 	tl      *traj.Timeline
 	runner  *SensorRunner
+	dir     string // IdentityDir（P1-10 归属测试要写 threads.json）
 	mu      sync.Mutex
 	sensors map[string]*stubSensor
 }
@@ -58,7 +59,7 @@ func newSensorHarness(t *testing.T, cfgJSON string, learnDays int) *sensorHarnes
 	if err := os.WriteFile(filepath.Join(dir, "sensors.json"), []byte(cfgJSON), 0o644); err != nil {
 		t.Fatalf("写 sensors.json: %v", err)
 	}
-	h := &sensorHarness{t: t, tl: tl, sensors: map[string]*stubSensor{}}
+	h := &sensorHarness{t: t, tl: tl, dir: dir, sensors: map[string]*stubSensor{}}
 	h.runner = NewSensorRunner(SensorRunnerOptions{
 		Timeline:    tl,
 		IdentityDir: dir,

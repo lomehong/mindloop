@@ -33,23 +33,29 @@ wakeTask 会把未完结线索注入唤醒提示——"进度怎么样""那个�
 }
 
 func (c *CLI) newThreadAddCmd() *cobra.Command {
-	return &cobra.Command{
+	var subjects []string
+	cmd := &cobra.Command{
 		Use:   "add <身份名> <标题>",
 		Short: "开一条新线索（open）",
-		Args:  exactArgs(2, "用法: mindloop thread add <身份名> <标题>"),
+		Args:  exactArgs(2, "用法: mindloop thread add <身份名> <标题> [--subject 观察对象]..."),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := c.loadIdentity(args[0])
 			if err != nil {
 				return c.fail(err)
 			}
-			t, err := thread.Add(id.Dir, args[1])
+			t, err := thread.Add(id.Dir, args[1], subjects...)
 			if err != nil {
 				return c.fail(err)
 			}
 			fmt.Fprintf(c.stdout, "已开线索 %s：%s\n", t.ID, t.Title)
+			if len(subjects) > 0 {
+				fmt.Fprintf(c.stdout, "  观察锚：%s（匹配的感官事件将归属此线索）\n", strings.Join(subjects, ", "))
+			}
 			return nil
 		},
 	}
+	cmd.Flags().StringSliceVar(&subjects, "subject", nil, "观察对象锚（可重复；感官 subject 精确命中即归属——文件路径/URL/hook 名）")
+	return cmd
 }
 
 func (c *CLI) newThreadUpdateCmd() *cobra.Command {

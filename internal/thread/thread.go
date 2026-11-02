@@ -43,6 +43,11 @@ type Thread struct {
 	Status Status `json:"status"`
 	Opened string `json:"opened"` // RFC3339（UTC）
 	Active string `json:"active"` // 最近活动时刻（排序键）
+	// Subjects 是观察对象锚（P1-10，2026-11-03）：该线索关心的感官
+	// subject（文件路径/URL/hook 名，精确匹配）。感官事件按此归属
+	// 到线索（event/alert 的 thread 字段）——文章 3.2 Thread 事件
+	// 流归属的 mindloop 形态：归属是显式锚定的，不做标题语义猜测。
+	Subjects []string `json:"subjects,omitempty"`
 }
 
 // File 是 threads.json 的结构。
@@ -97,7 +102,8 @@ func validate(title string) error {
 
 // Add 开一条新线索（open，活动时刻 = 现在）。标题重复不是错误——
 // 同名线索往往是同一件事的延续，调用方应先 List 确认（模型自己看）。
-func Add(identityDir, title string) (Thread, error) {
+// subjects 是可选的观察对象锚（见 Thread.Subjects）。
+func Add(identityDir, title string, subjects ...string) (Thread, error) {
 	if err := validate(title); err != nil {
 		return Thread{}, err
 	}
@@ -120,14 +126,33 @@ func Add(identityDir, title string) (Thread, error) {
 		id = fmt.Sprintf("th-%d", n+1)
 	}
 	t := Thread{
-		ID:     id,
-		Title:  title,
-		Status: Open,
-		Opened: now,
-		Active: now,
+		ID:       id,
+		Title:    title,
+		Status:   Open,
+		Opened:   now,
+		Active:   now,
+		Subjects: subjects,
 	}
 	items = append(items, t)
 	return t, Save(identityDir, items)
+}
+
+// MatchSubject 在开放线索里找 subject 的精确锚定归属（P1-10）。
+// 多条命中取最近活跃（Active 降序第一条）；无命中返回 false——
+// 归属是锚定的，不是猜的。
+func MatchSubject(items []Thread, subject string) (string, bool) {
+	best, bestActive := "", ""
+	for _, it := range items {
+		if it.Status == Done {
+			continue
+		}
+		for _, s := range it.Subjects {
+			if s == subject && it.Active >= bestActive {
+				best, bestActive = it.ID, it.Active
+			}
+		}
+	}
+	return best, best != ""
 }
 
 // idTaken 报告 id 是否已被既有线索占用（Add 的碰撞顺延用）。
