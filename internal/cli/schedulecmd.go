@@ -353,13 +353,18 @@ func (c *CLI) newScheduleRunCmd() *cobra.Command {
 			rt := c.scheduleRuntimeFor(id)
 			if found.Kind == schedule.KindExec {
 				out := rt.ExecuteNow(c.ctx, *found)
-				fmt.Fprintf(c.stdout, "条目 %s 手动执行：退出码 %d，用时 %s\n", found.Item.ID, out.ExitCode, out.Duration.Round(time.Millisecond))
 				if out.Err != nil {
+					// 拒绝/失败时不打印「退出码 N」——ExecOutcome
+					// 在未执行时 ExitCode 是零值，成功语义的文案会
+					// 误导（2026-11-02 演示实测：审批门拒绝时曾
+					// 打出「退出码 0」）。失败细节走 stderr。
+					fmt.Fprintf(c.stdout, "条目 %s 手动执行失败：%v\n", found.Item.ID, out.Err)
 					if out.Detail != "" {
 						fmt.Fprintln(c.stderr, out.Detail)
 					}
 					return c.fail(fmt.Errorf("执行失败: %v", out.Err))
 				}
+				fmt.Fprintf(c.stdout, "条目 %s 手动执行：退出码 %d，用时 %s\n", found.Item.ID, out.ExitCode, out.Duration.Round(time.Millisecond))
 				return nil
 			}
 			now := time.Now()
