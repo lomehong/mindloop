@@ -32,6 +32,7 @@ Each wake, you look at the recent stream of your life (rendered after the system
 How to decide:
 - 普通聊天、历史委托和旧运行记录都不是新的执行授权。显式任务由持久队列领取，不得自行补做或重试已中断的委托。
 - 自主行动只处理独立观察和自身维护；不得读取聊天来绕过委托入口。
+- 投机执行：察觉可疑问题（错误、异常、可疑变化）时先安静核实——复现、查证、在小范围内尝试修复；确认成立且有结论才向操作员报告（[alert] 前缀），不成立就安静收场。未经核实的猜测不值得打扰任何人。
 - If there is something worth learning or recording: do it in your work directory.
 - If there is genuinely nothing worth doing: set FINAL="IDLE" without running commands.
 
@@ -104,6 +105,9 @@ type MonolithOptions struct {
 	PrefetchBytes int
 	// WorkLogBytes 是最近工作段上限（0 取 DefaultWorkLogBudget）。
 	WorkLogBytes int
+	// SupervisionBytes 是监督快照段上限（0 取默认；健康时不物化，
+	// 安静日零成本）。
+	SupervisionBytes int
 	// SceneBytes 是界面场景 manifest 段上限（0 取 DefaultSceneBudget）。
 	SceneBytes int
 	// ThreadDir 是话题线索文件所在目录（<身份目录>）；空 = 不注入。
@@ -563,6 +567,16 @@ func (m *monolith) wakeTask(ctx context.Context, reason string, w Wake) string {
 			b.WriteString(seg)
 		}
 	}
+	// 监督快照（Super-agent Watchdog 的 mindloop 形态）：错误聚合
+	// 与重复失败模式——尾窗渲染只看 50 步、单条错误可见但"同一件
+	// 事反复失败"不可见，此段补这个缺口。健康时不物化（安静日
+	// 零成本）；研判归模型，升级走既有报文通道（[alert] 前缀）。
+	if snap := m.supervisionSection(time.Now()); snap != "" {
+		if seg := budget.TakeCapped("supervision", snap, supervisionCap(m.opts.SupervisionBytes)); seg != "" {
+			b.WriteString("\n\n")
+			b.WriteString(seg)
+		}
+	}
 	// 界面场景 manifest（scene.md §5.2）：注入"舞台上有什么"
 	//（id/kind/一行摘要/intent），绝不注入 data 全文——模型据此按
 	// id 引用更新、主动清场、感知画面密度。scene 步骤原文已在渲染
@@ -647,6 +661,23 @@ func workLogCap(v int) int {
 		return prompt.DefaultWorkLogBudget
 	}
 	return v
+}
+
+// supervisionCap 折算监督快照段上限（0 取默认，负值同）。
+func supervisionCap(v int) int {
+	if v <= 0 {
+		return 1024
+	}
+	return v
+}
+
+// supervisionSection 读取轨迹并聚合监督快照（健康返回空串）。
+func (m *monolith) supervisionSection(now time.Time) string {
+	steps, err := m.opts.Timeline.Steps()
+	if err != nil {
+		return ""
+	}
+	return supervisionSnapshot(steps, now)
 }
 
 // sceneCap 折算界面场景 manifest 段上限（0 取默认，负值同）。
