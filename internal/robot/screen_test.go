@@ -12,6 +12,10 @@ func TestIsSensitiveTitle(t *testing.T) {
 	sensitive := []string{
 		"密码管理器", "1Password - 主保险库", "Bitwarden Password Manager",
 		"KeePass", "Windows 安全中心", "User Account Control: 凭据", "PASSWORD.vault",
+		// 2026-11-02 扩表：凭据画面不只密码管理器——编辑凭据文件/
+		// 证书/密钥的窗口同样是敏感画面（图片通道无文本打码）。
+		".env - Code", "API Key Generator", "generate_ssh_key - 终端",
+		"server.pem - Notepad", "id_rsa - 记事本", "Bearer Token 调试",
 	}
 	for _, s := range sensitive {
 		if !IsSensitiveTitle(s) {

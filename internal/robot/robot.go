@@ -20,18 +20,29 @@ var ErrUnsupported = errors.New("robot: 本平台不支持（仅 Windows）")
 // sensitiveTitleKeys 是敏感窗口的标题关键词（大小写不敏感）：命中
 // 的前台窗口里截屏/输入一律拒绝——密码框内容与凭据画面没有理由
 // 进入任何回读通道。
+//
+// 2026-11-02 扩表（superagent-lessons §7.0 路径⑤）：图片通道不经
+// 文本打码管线直发模型供应商，标题守卫是截屏侧唯一防线——补
+// token/secret/.env/证书/私钥类关键词。裸 "key" 误杀面过大
+// （keyboard/keymap），用组合词；"token" 命中开发窗口（如
+// tokenize.go）按「宁可多拒」哲学接受。
 var sensitiveTitleKeys = []string{
 	"password", "passwd", "pwd", "凭据", "密码", "口令",
 	"1password", "bitwarden", "keepass", "lastpass", "dashlane",
 	"credential manager", "windows 安全", "windows security",
+	"token", "secret", ".env", "api key", "apikey",
+	"ssh key", "private key", ".pem", ".p12", ".pfx", "id rsa",
 }
 
 // IsSensitiveTitle 报告窗口标题是否命中敏感关键词。标题匹配是
-// 尽责检测不是完备检测：误杀放行的代价不对等，宁可多拒。
+// 尽责检测不是完备检测：误杀放行的代价不对等，宁可多拒。匹配前把
+// `_`/`-` 归一化为空格（generate_ssh_key 与 "ssh key" 是同一凭据
+// 画面的两种标题写法），词表统一用空格/连写形态。
 func IsSensitiveTitle(title string) bool {
 	t := strings.ToLower(title)
+	norm := strings.NewReplacer("_", " ", "-", " ").Replace(t)
 	for _, k := range sensitiveTitleKeys {
-		if strings.Contains(t, k) {
+		if strings.Contains(t, k) || strings.Contains(norm, k) {
 			return true
 		}
 	}
