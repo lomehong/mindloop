@@ -57,6 +57,8 @@ func parseFile(path string) (Memory, error) {
 			}
 		case "source":
 			m.Source = v
+		case "author":
+			m.Author = v
 		case "status":
 			m.Status = v
 		case "expires":

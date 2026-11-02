@@ -59,7 +59,15 @@ func (c *CLI) newMemAddCmd() *cobra.Command {
 			if err != nil {
 				return c.fail(err)
 			}
-			a, err := store.AddWith(c.ctx, typ, args[0], mem.AddOpts{})
+			// D4 盖章版（2026-11-02 裁决提前）：写入者 provenance 按
+			// 调用环境自动盖章，无旗标不可伪造（agent 环境判定同
+			// agentguard——MINDLOOP_RUN_ID 信号）。「未核实降权」
+			// 防线属 §2.4 智能层批次，本字段是前提与审计面。
+			author := "operator"
+			if agentSandboxed() {
+				author = "agent"
+			}
+			a, err := store.AddWith(c.ctx, typ, args[0], mem.AddOpts{Author: author})
 			if err != nil {
 				return c.fail(err)
 			}

@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -96,5 +98,48 @@ func TestOperatorUnaffected(t *testing.T) {
 	}
 	if code, _, errOut := runCLI(t, "traj", "append", id, "observation", "--content", "seen"); code != 0 {
 		t.Fatalf("操作员 observation 应放行: %d %s", code, errOut)
+	}
+}
+
+// TestMemAddAuthorStamp：D4 盖章版——mem add 的 author 按调用环境
+// 自动盖章（agent 环境 agent、操作员环境 operator），无旗标可伪造。
+func TestMemAddAuthorStamp(t *testing.T) {
+	id := taskTestIdentity(t)
+	memDir := filepath.Join(id.Dir, "memories")
+	readAuthors := func() map[string]string {
+		out := map[string]string{}
+		files, _ := filepath.Glob(filepath.Join(memDir, "*.md"))
+		for _, f := range files {
+			b, err := os.ReadFile(f)
+			if err != nil {
+				t.Fatalf("读 %s: %v", f, err)
+			}
+			for _, ln := range strings.Split(string(b), "\n") {
+				if v, ok := strings.CutPrefix(ln, "author: "); ok {
+					out[filepath.Base(f)] = strings.TrimSpace(v)
+				}
+			}
+		}
+		return out
+	}
+	// 操作员写入 → author: operator
+	if code, _, errOut := runCLI(t, "mem", "add", "--identity", "ada", "--type", "fact", "操作员直记"); code != 0 {
+		t.Fatalf("操作员 mem add: %d %s", code, errOut)
+	}
+	// agent 沙箱写入 → author: agent
+	agentEnv(t)
+	if code, _, errOut := runCLI(t, "mem", "add", "--identity", "ada", "--type", "fact", "agent 观察记录"); code != 0 {
+		t.Fatalf("agent mem add: %d %s", code, errOut)
+	}
+	authors := readAuthors()
+	if len(authors) != 2 {
+		t.Fatalf("应有 2 条记忆，得 %d：%v", len(authors), authors)
+	}
+	seen := map[string]bool{}
+	for _, a := range authors {
+		seen[a] = true
+	}
+	if !seen["operator"] || !seen["agent"] {
+		t.Fatalf("应同时存在 operator 与 agent 盖章，得 %v", authors)
 	}
 }

@@ -226,7 +226,9 @@ func mcpServeTools(defaultIdentity string) []mcp.ServerTool {
 					a.Type = "fact"
 				}
 				store := mem.Store{Dir: filepath.Join(id.Dir, "memories")}
-				added, err := store.AddWith(ctx, a.Type, a.Content, mem.AddOpts{Source: a.Source})
+				// MCP 调用方是外部 agent（Claude/Cursor 等），非
+				// 操作员终端直跑——author 一律 agent（D4 盖章版）。
+				added, err := store.AddWith(ctx, a.Type, a.Content, mem.AddOpts{Source: a.Source, Author: "agent"})
 				if err != nil {
 					return mcp.ToolResult{}, err
 				}

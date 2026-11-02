@@ -38,11 +38,14 @@ const (
 // Memory 是一条记忆。可选字段：来源步骤（provenance）、最近修订
 // 时间、状态、失效时间与替代链——旧文件缺字段时全部取零值。
 type Memory struct {
-	ID           string
-	Type         string
-	Created      time.Time
-	Updated      time.Time // 可选：最近一次修订时间
-	Source       string    // 可选：来源轨迹步骤 ID
+	ID      string
+	Type    string
+	Created time.Time
+	Updated time.Time // 可选：最近一次修订时间
+	Source  string    // 可选：来源轨迹步骤 ID
+	Author  string    // 可选：写入者 provenance（operator|agent；
+	// 零值 = 旧文件/未知。2026-11-02 D4 盖章版——「未核实降权」
+	// 防线属 roadmap §2.4 智能层批次，本字段是其前提与审计面）
 	Status       string    // 可选：""/active | invalid | superseded
 	Expires      time.Time // 可选：失效时间（零值 = 不过期）
 	Supersedes   string    // 可选：本修订替代的旧记忆 ID
@@ -72,7 +75,9 @@ var ValidTypes = map[string]bool{
 
 // AddOpts 是写记忆的可选参数。
 type AddOpts struct {
-	Source  string    // 来源步骤 ID（可选，供追溯）
+	Source string // 来源步骤 ID（可选，供追溯）
+	Author string // 写入者 provenance：operator|agent（可选，
+	// 由装配层按调用环境判定，CLI 不给旗标防伪造）
 	Expires time.Time // 失效时间（可选，零值 = 不过期）
 }
 
@@ -139,7 +144,7 @@ func (s Store) AddWith(ctx context.Context, typ, content string, opts AddOpts) (
 	summary := summarize(content)
 	m := Memory{
 		ID: id, Type: typ, Created: now, Summary: summary, Content: content,
-		Source: opts.Source, Expires: opts.Expires.UTC(),
+		Source: opts.Source, Author: opts.Author, Expires: opts.Expires.UTC(),
 	}
 	fname := fmt.Sprintf("%06d_%s.md", seq, id)
 	path := filepath.Join(s.Dir, fname)
@@ -229,6 +234,9 @@ func renderMemory(m Memory) string {
 	if m.Source != "" {
 		fmt.Fprintf(&b, "source: %s\n", quoteYAML(m.Source))
 	}
+	if m.Author != "" {
+		fmt.Fprintf(&b, "author: %s\n", m.Author)
+	}
 	if m.Status != "" && m.Status != StatusActive {
 		fmt.Fprintf(&b, "status: %s\n", m.Status)
 	}
@@ -279,7 +287,7 @@ func (s Store) Revise(ctx context.Context, id, content string) (Added, error) {
 	now := time.Now().UTC()
 	m := Memory{
 		ID: newID, Type: old.Type, Created: now, Updated: now,
-		Source: old.Source, Supersedes: id,
+		Source: old.Source, Author: old.Author, Supersedes: id,
 		Summary: summarize(content), Content: content,
 	}
 	path := filepath.Join(s.Dir, fmt.Sprintf("%06d_%s.md", seq, newID))
