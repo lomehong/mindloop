@@ -40,6 +40,25 @@ func waitEvents(t *testing.T, get func() []PEvent, n int, why string) []PEvent {
 	return nil
 }
 
+// removeWithRetry 对共享违例短重试：Windows 上杀软/索引器可能正
+// 扫新建的 Temp 文件（本机 Orca/HipsDaemon 实证），瞬时占用不是
+// 产品缺陷——感官侧只 Stat+ReadFile（Go 句柄带 FILE_SHARE_DELETE，
+// 不阻删除），重试是 Windows 处理此类瞬态的规范姿势。
+func removeWithRetry(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		err := os.Remove(path)
+		if err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("删文件（重试后仍失败）: %v", err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func TestFileSensorRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	s, err := NewFileSensor(SensorConfig{ID: "fs1", Type: "file", Path: dir})
@@ -68,14 +87,30 @@ func TestFileSensorRoundTrip(t *testing.T) {
 	}
 	evs = waitEvents(t, events, 2, "二次修改应产生 changed")
 
-	// 删除 → removed。
-	if err := os.Remove(p); err != nil {
-		t.Fatalf("删文件: %v", err)
+	// 删除 → removed。等法按 kind 不按条数：Windows 的
+	// ReadDirectoryChangesW 对一次 WriteFile 可能产生多条变更通知
+	//（write/close 各一条），计数等待有时等到的是第二条 changed——
+	// removed 在其后才到（间歇失败的根因：量错了东西，不是产品缺陷）。
+	removeWithRetry(t, p)
+	deadline := time.Now().Add(30 * time.Second)
+	var removed *PEvent
+	for removed == nil && time.Now().Before(deadline) {
+		for _, ev := range events() {
+			if ev.Kind == KindRemoved {
+				e := ev
+				removed = &e
+				break
+			}
+		}
+		if removed == nil {
+			time.Sleep(20 * time.Millisecond)
+		}
 	}
-	evs = waitEvents(t, events, 3, "删除应产生 removed")
-	last := evs[len(evs)-1]
-	if last.Kind != KindRemoved {
-		t.Fatalf("最后事件应 removed，得 %s", last.Kind)
+	if removed == nil {
+		t.Fatalf("等待 removed 事件超时，实收: %+v", events())
+	}
+	if removed.Subject != p {
+		t.Fatalf("removed subject = %q", removed.Subject)
 	}
 }
 
