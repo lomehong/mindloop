@@ -462,6 +462,14 @@ type Options struct {
 	ReportTo string
 	// Execute 是 exec 条目的执行器；nil 时用沙箱默认实现（测试注入用）。
 	Execute func(ctx context.Context, p Parsed) ExecOutcome
+	// BeforeExecute 是 exec 条目启动前的统一授权入口——与
+	// runner.Options.BeforeExecute 同一控制点（policy.Gate 实现）。
+	// exec 条目此前不经任何审批门（superagent-lessons §7.0 路径②，
+	// 2026-11-02 修复：一次免审批写入 schedule.json 曾等价于跨重启的
+	// 周期性零审批执行）。默认沙箱执行器对 nil 拒绝执行（fail-closed：
+	// 治理动作不静默放行，装配层必须接线）；注入 Execute 的测试路径
+	// 不经此门。
+	BeforeExecute func(ctx context.Context, script string) error
 	// PrefetchDir 是预热缓存目录（ACI：exec 成功输出的落盘处，心智
 	// 侧按有效期注入上下文）。空 = 不落盘（向后兼容；CLI 与 web 的
 	// 手动执行同走此选项）。目录由本包按需创建。

@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/policy"
 	"github.com/lomehong/mindloop/internal/schedule"
 )
 
@@ -104,9 +105,14 @@ func (c *CLI) warnScheduleTakeEffect(id *identity.Identity) {
 
 // scheduleRuntimeFor 按装配语义构造一个日程运行时（同一路径、同一
 // 任务提交通道）——CLI 子命令直接使用；日志走文件，不注入终端。
+// exec 条目过与心智装配同款的审批门（§7.0 路径②）：手动 run 也经
+// 同一授权语义（auto 档良性放行、危险类别照批），不因手动而豁免。
 func (c *CLI) scheduleRuntimeFor(id *identity.Identity) *schedule.Runtime {
 	_, _, extraEnv, _ := identityExtension(id)
-	return assembleSchedule(id, extraEnv, nil)
+	gate := policy.NewGate(policy.Dir(id.Timeline.Dir), policy.ModeFromEnv())
+	gate.AutoReadOnly = policy.AutoReadOnlyFromEnv()
+	gate.Tripwire = policy.TripwireFromEnv()
+	return assembleSchedule(id, extraEnv, nil, gate)
 }
 
 // scheduleEntryView 是 list --json 的条目形态：解析结果 + 状态投影

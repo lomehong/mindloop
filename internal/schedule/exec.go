@@ -2,6 +2,7 @@ package schedule
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -10,11 +11,22 @@ import (
 	"github.com/lomehong/mindloop/internal/sandbox"
 )
 
-// executeSandbox 是 exec 条目的默认执行器：经沙箱（bash + Windows
-// Job Object 整树管辖）在身份目录里执行命令。环境是 childenv 白名单
-// + 显式业务变量——父环境的模型凭据不下传；超时杀整棵树，不留残
-// 余子进程。
+// ErrNoGate 是 fail-closed 哨兵：默认沙箱执行器未接审批门
+// （BeforeExecute）时拒绝执行——exec 的执行授权不可静默放行。
+var ErrNoGate = errors.New("exec 条目未配置审批门（BeforeExecute）")
+
+// executeSandbox 是 exec 条目的默认执行器：先过统一审批门
+// （BeforeExecute，与 runner 的执行授权同一控制点），再经沙箱
+// （bash + Windows Job Object 整树管辖）在身份目录里执行命令。
+// 环境是 childenv 白名单 + 显式业务变量——父环境的模型凭据不下传；
+// 超时杀整棵树，不留残余子进程。
 func (r *Runtime) executeSandbox(ctx context.Context, p Parsed) ExecOutcome {
+	if r.opts.BeforeExecute == nil {
+		return ExecOutcome{Err: ErrNoGate, Detail: ErrNoGate.Error()}
+	}
+	if err := r.opts.BeforeExecute(ctx, p.Item.Exec); err != nil {
+		return ExecOutcome{Err: fmt.Errorf("审批门拒绝: %w", err), Detail: err.Error()}
+	}
 	timeout := p.Timeout
 	if timeout <= 0 {
 		timeout = DefaultTimeout

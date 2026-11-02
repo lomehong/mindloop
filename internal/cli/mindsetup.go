@@ -158,8 +158,9 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 		Streaming:   streamEnabled(),
 		StreamFn:    responderStreamFn(client),
 	}))
-	// 身份日程挂上调度器心跳：Run 启动装载、每拍检查到点。
-	dispatcher.SetSchedule(assembleSchedule(id, extraEnv, o.logger))
+	// 身份日程挂上调度器心跳：Run 启动装载、每拍检查到点。exec 条目
+	// 复用上面构造的同一审批门（§7.0 路径②）。
+	dispatcher.SetSchedule(assembleSchedule(id, extraEnv, o.logger, gate))
 	// 感官宿主挂上调度器生命周期（感知系统宿主在 mind 主进程，
 	// perception.md §4.2）：sensors.json 缺席 = 静默；配置坏 =
 	// 调度器降级告警，不杀心智。
@@ -277,7 +278,7 @@ func schedulePaths(id *identity.Identity) (schedulePath, logPath, statePath stri
 // assembleSchedule 装配身份日程：at/巡检任务经任务层幂等提交，exec
 // 条目经沙箱执行（不叫醒模型、零 API 成本），exec 失败经 Alert 写
 // alert 步骤叫醒心智。
-func assembleSchedule(id *identity.Identity, extraEnv []string, logger func(string, ...any)) *schedule.Runtime {
+func assembleSchedule(id *identity.Identity, extraEnv []string, logger func(string, ...any), gate *policy.Gate) *schedule.Runtime {
 	schedulePath, logPath, statePath := schedulePaths(id)
 	return schedule.New(schedule.Options{
 		Path:        schedulePath,
@@ -290,6 +291,12 @@ func assembleSchedule(id *identity.Identity, extraEnv []string, logger func(stri
 		Logger:      logger,
 		Submit:      scheduleSubmitter(id),
 		Alert:       scheduleAlerter(id, logger),
+		// exec 条目过统一审批门（2026-11-02 §7.0 路径②修复）：与
+		// 自主行动/显式任务同一 Gate。RunID 用 "schedule:<条目>" 由
+		// 装配闭包区分审计面；nil 时 schedule 侧 fail-closed。
+		BeforeExecute: func(ctx context.Context, script string) error {
+			return gate.Authorize(ctx, runner.Execution{Script: script, WorkDir: id.Dir, RunID: "schedule"})
+		},
 	})
 }
 
