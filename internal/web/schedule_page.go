@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/lomehong/mindloop/internal/identity"
+	"github.com/lomehong/mindloop/internal/policy"
+	"github.com/lomehong/mindloop/internal/runner"
 	"github.com/lomehong/mindloop/internal/schedule"
 	"github.com/lomehong/mindloop/internal/task"
 )
@@ -279,6 +281,13 @@ func firstScheduleWarning(warns []string, entryID string) string {
 // 终端。
 func scheduleRuntimeFor(id *identity.Identity) *schedule.Runtime {
 	schedulePath, logPath, statePath := schedule.Paths(id.Dir, id.Timeline.Dir)
+	// exec 条目过统一审批门（与 cli 装配同语义，§7.0 路径②）：
+	// web 手动触发不豁免。P0-1 时本调用点被遗漏，fail-closed 的
+	// ErrNoGate 在 TestScheduleRunExec 立即暴露——漏接线显式失败
+	// 而非静默放行，正是哨兵的设计价值（2026-11-03 补接线）。
+	gate := policy.NewGate(policy.Dir(id.Timeline.Dir), policy.ModeFromEnv())
+	gate.AutoReadOnly = policy.AutoReadOnlyFromEnv()
+	gate.Tripwire = policy.TripwireFromEnv()
 	return schedule.New(schedule.Options{
 		Path:      schedulePath,
 		Dir:       id.Dir,
@@ -289,6 +298,9 @@ func scheduleRuntimeFor(id *identity.Identity) *schedule.Runtime {
 			"SKILLS_DIR=" + filepath.Join(id.Dir, "skills"),
 		},
 		Submit: scheduleSubmitter(id),
+		BeforeExecute: func(ctx context.Context, script string) error {
+			return gate.Authorize(ctx, runner.Execution{Script: script, WorkDir: id.Dir, RunID: "schedule"})
+		},
 	})
 }
 
