@@ -423,7 +423,14 @@ func renderLife(path string, maxEpisodes int) (string, error) {
 	var b strings.Builder
 	b.WriteString("=== 人生分集摘要（旧→新）===\n")
 	for i, e := range eps {
-		fmt.Fprintf(&b, "[第%d幕 %s] %s\n", i+1, e.Title, e.Summary)
+		// P1-9 链式召回落点 c：分集带窗口首步 id——从摘要跳回原文的
+		// 下一跳锚点（superagent-lessons §5 P1-9；旧缓存无 StepFrom
+		// 时不附）。
+		if e.StepFrom != "" {
+			fmt.Fprintf(&b, "[第%d幕 %s] %s（原文: mindloop traj show %s --full）\n", i+1, e.Title, e.Summary, ids.Short(e.StepFrom, 8))
+		} else {
+			fmt.Fprintf(&b, "[第%d幕 %s] %s\n", i+1, e.Title, e.Summary)
+		}
 	}
 	return b.String(), nil
 }

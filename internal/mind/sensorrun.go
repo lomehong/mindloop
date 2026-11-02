@@ -71,8 +71,13 @@ type SensorRunner struct {
 	states    map[string]*sensor.State
 	buckets   map[string]*sensor.Bucket
 	firstSeen map[string]time.Time // 学习期起点（sensors-state.json 持久化）
-	cancel    context.CancelFunc
-	ctx       context.Context
+	// recentBySource 是同源上一条 event/alert 的 step-id（P1-9
+	// 链式召回落点 a：下一条同源事件附 prev 锚，模型可一跳回看——
+	// 文章 3.3 引用图的 mindloop 最小形态。内存态，重启即清：锚
+	// 只服务"近期"导航，不承诺全史）。
+	recentBySource map[string]string
+	cancel         context.CancelFunc
+	ctx            context.Context
 }
 
 type runningSensor struct {
@@ -379,6 +384,10 @@ func (r *SensorRunner) writeEvent(rs *runningSensor, e sensor.PEvent, sal sensor
 	s.Fields["salience"] = string(sal)
 	s.Fields["reason"] = reason
 	s.Fields["digest"] = wrapDigest(rs.cfg.ID, e.Digest)
+	// P1-9 落点 a：同源上一条的锚（链式召回一跳）。
+	if prev := r.takeRecent(rs.cfg.ID, s.StepID); prev != "" {
+		s.Fields["prev"] = prev
+	}
 	r.append(s)
 }
 
@@ -401,7 +410,24 @@ func (r *SensorRunner) writeAlert(rs *runningSensor, e sensor.PEvent, reason str
 	if e.Silent {
 		s.Fields["eval"] = "0"
 	}
+	// P1-9 落点 a：alert 同样附同源锚。
+	if prev := r.takeRecent(rs.cfg.ID, s.StepID); prev != "" {
+		s.Fields["prev"] = prev
+	}
 	r.append(s)
+}
+
+// takeRecent 取出并更新同源最近 step-id（返回上一条供锚定）。
+// recentBySource 惰性初始化——零感官部署不分配。
+func (r *SensorRunner) takeRecent(source, stepID string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.recentBySource == nil {
+		r.recentBySource = map[string]string{}
+	}
+	prev := r.recentBySource[source]
+	r.recentBySource[source] = stepID
+	return prev
 }
 
 func (r *SensorRunner) append(s traj.Step) {

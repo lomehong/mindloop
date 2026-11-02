@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/lomehong/mindloop/internal/ids"
 	"github.com/lomehong/mindloop/internal/prompt"
 	"github.com/lomehong/mindloop/internal/traj"
 )
@@ -198,16 +199,71 @@ func (c *CLI) newTrajShowCmd() *cobra.Command {
 			if !errors.Is(err, traj.ErrNotFound) {
 				return c.fail(err)
 			}
-			s, _, ferr := traj.FindStepAnywhere(args[0])
+			s, tl, ferr := traj.FindStepAnywhere(args[0])
 			if ferr != nil {
 				return c.fail(err)
 			}
 			printPretty(c.stdout, s, full)
+			// P1-9 链式召回落点 b（superagent-lessons §5 P1-9）：
+			// 取回全文后附「下一跳」导航——时间相邻与同 subject/
+			// source 的近窗步骤 id，模型/人可顺藤摸瓜（文章 3.3 的
+			// 引用图逐跳召回，mindloop 形态：traj show 即一跳）。
+			if full {
+				fmt.Fprint(c.stdout, relatedNavigation(tl, s))
+			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&full, "full", false, "完整输出字段值")
 	return cmd
+}
+
+// relatedNavigation 生成步骤的下一跳导航：时间相邻（前/后各一条）+
+// 同 subject/source 的近窗步骤（至多 3 条）。只做尾窗扫描——
+// 链式召回的锚点在"附近"，不在全史。
+func relatedNavigation(tl *traj.Timeline, s traj.Step) string {
+	if tl == nil {
+		return ""
+	}
+	tail, err := tl.Tail(40, nil)
+	if err != nil || len(tail) == 0 {
+		return ""
+	}
+	idx := -1
+	for i := range tail {
+		if tail[i].StepID == s.StepID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("相关步骤（下一跳导航）:\n")
+	if idx > 0 {
+		prev := tail[idx-1]
+		fmt.Fprintf(&b, "  前一条: %s (%s)\n", ids.Short(prev.StepID, 8), prev.Type)
+	}
+	if idx+1 < len(tail) {
+		next := tail[idx+1]
+		fmt.Fprintf(&b, "  后一条: %s (%s)\n", ids.Short(next.StepID, 8), next.Type)
+	}
+	subj, _ := s.Field("subject")
+	src, _ := s.Field("source")
+	n := 0
+	for j := idx - 1; j >= 0 && n < 3; j-- {
+		sj, _ := tail[j].Field("subject")
+		sc, _ := tail[j].Field("source")
+		if (subj != "" && sj == subj) || (src != "" && sc == src) {
+			fmt.Fprintf(&b, "  同源: %s (%s)\n", ids.Short(tail[j].StepID, 8), tail[j].Type)
+			n++
+		}
+	}
+	if b.Len() == len("相关步骤（下一跳导航）:\n") {
+		return ""
+	}
+	return b.String()
 }
 
 func (c *CLI) newTrajTailCmd() *cobra.Command {
