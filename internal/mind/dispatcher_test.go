@@ -182,6 +182,17 @@ func TestDispatcherCoalescesSelfWakesKeepsFifoForMessages(t *testing.T) {
 	if types[2] != "observation" {
 		t.Fatalf("合并观察应在消息之后: %v", types)
 	}
+	// P1-7 Batch 观测章：第二次唤醒（msg2）投递时槽内剩 1 条合并
+	// 观察，Batch=2；第三次（观察）投递时槽空，Batch=1。第一次的
+	// Batch 取决于心跳与入队时序，不作断言。
+	tk.mu.Lock()
+	defer tk.mu.Unlock()
+	if tk.wakes[1].Batch != 2 {
+		t.Fatalf("第二次唤醒 Batch = %d，应为 2（剩余 1 合并观察+本次）", tk.wakes[1].Batch)
+	}
+	if tk.wakes[2].Batch != 1 {
+		t.Fatalf("第三次唤醒 Batch = %d，应为 1（槽空）", tk.wakes[2].Batch)
+	}
 }
 
 func TestDispatcherWatchdogSyntheticWake(t *testing.T) {

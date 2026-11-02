@@ -37,6 +37,8 @@ type UsageRow struct {
 	Thinker          string `json:"thinker,omitempty"`
 	Wake             string `json:"wake,omitempty"`
 	Phase            string `json:"phase,omitempty"`
+	Batch            int    `json:"batch,omitempty"`
+	WakeDelayMS      int64  `json:"wake_delay_ms,omitempty"`
 	Error            string `json:"error,omitempty"`
 }
 
@@ -100,6 +102,16 @@ type Stats struct {
 
 	SensorWakes   int // 感知事件唤醒的思考轮（感官信噪比的分母）
 	SensorIdleRun int // 其中窗口内未跟随新 run 的（信噪比分子）
+
+	// P1-7 调度观测：批大小与唤醒延迟的分布锚点（消融与 D1 的
+	// 数据底座；均值仅统计带章的行——新部署前段无数据是常态，
+	// 0 行如实呈现）。
+	BatchRows      int     // 带 batch 章的行数
+	BatchAvg       float64 // 平均批大小（含触发步骤）
+	BatchMax       int     // 最大批大小
+	DelayRows      int     // 带 wake_delay_ms 章的行数
+	WakeDelayAvgMS int64   // 平均唤醒延迟（触发落盘→调用）
+	WakeDelayMaxMS int64   // 最大唤醒延迟
 
 	FirstTS string
 	LastTS  string
@@ -172,6 +184,20 @@ func Derive(rows []UsageRow, idleWindow time.Duration) Stats {
 		if r.Phase != "wake" {
 			continue
 		}
+		if r.Batch > 0 {
+			st.BatchRows++
+			st.BatchAvg += float64(r.Batch)
+			if r.Batch > st.BatchMax {
+				st.BatchMax = r.Batch
+			}
+		}
+		if r.WakeDelayMS > 0 {
+			st.DelayRows++
+			st.WakeDelayAvgMS += r.WakeDelayMS
+			if r.WakeDelayMS > st.WakeDelayMaxMS {
+				st.WakeDelayMaxMS = r.WakeDelayMS
+			}
+		}
 		switch r.Wake {
 		case "watchdog":
 			st.WatchdogWakes++
@@ -186,6 +212,12 @@ func Derive(rows []UsageRow, idleWindow time.Duration) Stats {
 			}
 			st.SensorIdleRun++
 		}
+	}
+	if st.BatchRows > 0 {
+		st.BatchAvg /= float64(st.BatchRows)
+	}
+	if st.DelayRows > 0 {
+		st.WakeDelayAvgMS /= int64(st.DelayRows)
 	}
 	return st
 }

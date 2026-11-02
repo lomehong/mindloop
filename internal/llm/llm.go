@@ -56,6 +56,13 @@ type Usage struct {
 	Thinker string `json:"thinker,omitempty"`
 	Wake    string `json:"wake,omitempty"`
 	Phase   string `json:"phase,omitempty"`
+	// Batch 是本次唤醒投递时思考者槽内的积压步骤总数（fifo+
+	// coalesced，含本次触发）——调度批大小的观测章（P1-7）。
+	Batch int `json:"batch,omitempty"`
+	// WakeDelayMS 是触发步骤落盘到本次调用的延迟（毫秒）——含
+	// 调度排队与思考者就绪，饥饿观测章（P1-7；合成唤醒 TS 即
+	// 构造时刻，语义为就绪延迟）。
+	WakeDelayMS int64 `json:"wake_delay_ms,omitempty"`
 }
 
 // Client 是可并发使用的模型客户端：实例无状态（monolith 与

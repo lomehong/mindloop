@@ -58,6 +58,10 @@ type Wake struct {
 	// Step 是触发步骤；合成唤醒时是内存构造的步骤，不落盘。
 	Step traj.Step
 	Kind WakeKind
+	// Batch 是投递时该思考者槽内的积压步骤总数（fifo+coalesced，
+	// 含本次触发）——Router 批大小的 mindloop 观测章（P1-7，
+	// superagent-lessons §5 P1-7：消融与 D1 观测的共同前置）。
+	Batch int
 }
 
 // Subscription 描述思考者的订阅。
@@ -152,6 +156,14 @@ func (w *worker) next() (Wake, bool) {
 		return wake, true
 	}
 	return Wake{}, false
+}
+
+// pendingCount 快照槽内剩余积压（fifo+coalesced）——P1-7 的 Batch
+// 观测：next 取出后调用，+1 即本次唤醒可见的总积压。
+func (w *worker) pendingCount() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.fifo) + len(w.coalesced)
 }
 
 // Schedule 是身份日程检查器（schedule.Runtime 实现）：调度器负责
@@ -450,13 +462,15 @@ func (d *Dispatcher) step(ctx context.Context) error {
 	}
 	d.mu.Unlock()
 
-	// 3. 投递：空闲槽位优先给 FIFO 里的消息。
+	// 3. 投递：空闲槽位优先给 FIFO 里的消息。Batch 在取出后快照
+	// 槽内剩余+1（P1-7）——唤醒时可见积压的计数与投递原子。
 	d.mu.Lock()
 	for _, w := range d.workers {
 		if w.isBusy() {
 			continue
 		}
 		if wake, ok := w.next(); ok {
+			wake.Batch = w.pendingCount() + 1
 			d.deliver(ctx, w, wake)
 		}
 	}

@@ -8,12 +8,14 @@ import "context"
 // Attrib 描述一次模型调用的业务归属。零值字段表示"未设"，合并
 // 时不覆盖已有值。
 type Attrib struct {
-	Task    string // 显式任务 ID
-	Run     string // 运行代次（runner 的 run_id）
-	Attempt int    // 任务 attempt（0 = 非任务运行）
-	Thinker string // 发起调用的思考者（monolith/responder/recap）
-	Wake    string // 唤醒原因（scheduled spontaneity 等）
-	Phase   string // 阶段（task/wake/chat/recap）
+	Task        string // 显式任务 ID
+	Run         string // 运行代次（runner 的 run_id）
+	Attempt     int    // 任务 attempt（0 = 非任务运行）
+	Thinker     string // 发起调用的思考者（monolith/responder/recap）
+	Wake        string // 唤醒原因（scheduled spontaneity 等）
+	Phase       string // 阶段（task/wake/chat/recap）
+	Batch       int    // 唤醒时槽内积压总数（P1-7 观测章）
+	WakeDelayMS int64  // 触发步骤落盘→本次调用的延迟（P1-7）
 }
 
 // attribKey 是 ctx 里归因的私有键类型。
@@ -41,6 +43,12 @@ func WithAttrib(ctx context.Context, a Attrib) context.Context {
 	if a.Phase != "" {
 		cur.Phase = a.Phase
 	}
+	if a.Batch > 0 {
+		cur.Batch = a.Batch
+	}
+	if a.WakeDelayMS > 0 {
+		cur.WakeDelayMS = a.WakeDelayMS
+	}
 	return context.WithValue(ctx, attribKey{}, cur)
 }
 
@@ -58,4 +66,6 @@ func (u *Usage) applyAttrib(a Attrib) {
 	u.Thinker = a.Thinker
 	u.Wake = a.Wake
 	u.Phase = a.Phase
+	u.Batch = a.Batch
+	u.WakeDelayMS = a.WakeDelayMS
 }

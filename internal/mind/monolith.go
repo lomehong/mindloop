@@ -255,7 +255,15 @@ func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
 	}
 	// 归因随 ctx 走到模型调用收尾：台账能把这次唤醒的每一笔记到
 	// 思考者、唤醒原因与阶段上（recap 摘要调用会再覆盖成自己的）。
-	ctx = llm.WithAttrib(ctx, llm.Attrib{Thinker: m.Name(), Wake: wakeKind, Phase: "wake"})
+	// P1-7 观测章：Batch=投递时槽内积压总数；WakeDelayMS=触发步骤
+	// 落盘→调用的延迟（含调度排队；合成唤醒 TS=构造时刻）。
+	attrib := llm.Attrib{Thinker: m.Name(), Wake: wakeKind, Phase: "wake", Batch: w.Batch}
+	if t, err := time.Parse(traj.TimeFormat, w.Step.TS); err == nil && !t.IsZero() {
+		if d := time.Since(t).Milliseconds(); d > 0 {
+			attrib.WakeDelayMS = d
+		}
+	}
+	ctx = llm.WithAttrib(ctx, attrib)
 
 	start := time.Now()
 	// 分层上下文的补全：唤醒前先把积压的情节摘要补掉（每次至多

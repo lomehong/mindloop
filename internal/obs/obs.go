@@ -54,7 +54,11 @@ func UsageRecorder(dir, model, provider string, logf func(format string, args ..
 			Thinker    string `json:"thinker,omitempty"`
 			Wake       string `json:"wake,omitempty"`
 			Phase      string `json:"phase,omitempty"`
-			Error      string `json:"error,omitempty"`
+			// P1-7 观测章：调度批大小与唤醒延迟（消融与 D1 观测
+			// 的数据底座，superagent-lessons §5 P1-7）。
+			Batch       int    `json:"batch,omitempty"`
+			WakeDelayMS int64  `json:"wake_delay_ms,omitempty"`
+			Error       string `json:"error,omitempty"`
 		}{
 			TS:               traj.NowString(),
 			PromptTokens:     u.PromptTokens,
@@ -70,6 +74,8 @@ func UsageRecorder(dir, model, provider string, logf func(format string, args ..
 			Thinker:          u.Thinker,
 			Wake:             u.Wake,
 			Phase:            u.Phase,
+			Batch:            u.Batch,
+			WakeDelayMS:      u.WakeDelayMS,
 		}
 		if err != nil {
 			rec.Error = err.Error()
