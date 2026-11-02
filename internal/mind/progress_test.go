@@ -58,7 +58,7 @@ func TestResponderProgressDigestInjectsWorkSummary(t *testing.T) {
 		SelfName: "ada",
 	})
 	res := r.(*Responder)
-	if _, err := res.compose(context.Background(), "operator", "进度如何了？", nil); err != nil {
+	if _, err := res.compose(context.Background(), "operator", "进度如何了？", "chat", nil); err != nil {
 		t.Fatalf("compose: %v", err)
 	}
 
@@ -86,7 +86,7 @@ func TestResponderProgressDigestEmptyKeepsPromptUntouched(t *testing.T) {
 	thinker := &captureThinker{}
 	r := NewResponder(ResponderOptions{Timeline: tl, Thinker: thinker, SelfName: "ada"})
 	res := r.(*Responder)
-	if _, err := res.compose(context.Background(), "operator", "在吗", nil); err != nil {
+	if _, err := res.compose(context.Background(), "operator", "在吗", "chat", nil); err != nil {
 		t.Fatalf("compose: %v", err)
 	}
 	if strings.Contains(thinker.got(), "Work digest") {

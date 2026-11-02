@@ -39,7 +39,7 @@ func TestComposeRejectsProtectedOverflow(t *testing.T) {
 		o.Persona = strings.Repeat("P", 500)
 		o.ContextBudget = 100
 	})
-	_, err := r.compose(context.Background(), "operator", "你好", nil)
+	_, err := r.compose(context.Background(), "operator", "你好", "chat", nil)
 	var oe *prompt.OverflowError
 	if !errors.As(err, &oe) {
 		t.Fatalf("persona 超限应返回 *prompt.OverflowError，得到: %v", err)
@@ -68,7 +68,7 @@ func TestComposeHistoryTrimmedToRemainingBudget(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_, err := r.compose(context.Background(), "operator", "最新消息", nil)
+	_, err := r.compose(context.Background(), "operator", "最新消息", "chat", nil)
 	if err != nil {
 		t.Fatalf("compose: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestComposeDigestCappedBySummaryBudget(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_, err := r.compose(context.Background(), "operator", "hi", nil)
+	_, err := r.compose(context.Background(), "operator", "hi", "chat", nil)
 	if err != nil {
 		t.Fatalf("compose: %v", err)
 	}

@@ -33,6 +33,19 @@ A recent look screenshot may appear as a [屏幕回读] image — describe only 
 
 History entries are prefixed with [timestamps] — that is metadata, not content. Never start your reply with a timestamp or copy any history formatting into your reply. Reply with plain spoken text only.`
 
+// responderIMDiscipline 是 IM 信道（source=wecom*）的词限纪律段
+// （P0-5，2026-11-03 裁决落地；superagent-lessons §5 P0-5——文章
+// 4.2「验证过的单次回复 ≤100 词」+ L1-L4 级纪律从主动汇报面扩展到
+// 对话面）。按 source 键控：CLI/终端（chat）不注入，IM 信道注入。
+// 这是提示词层软纪律（与 L1-L4 同层），不是机制强制。
+const responderIMDiscipline = "\n\n本条消息来自 IM 即时通讯信道（带宽窄、打扰成本高）：单次回复不超过 100 字（词），只问直接问题、给简短结论；需要长内容或结构化展示时放 scene 卡片或说明将落盘成报告，不在正文展开。"
+
+// imSource 报告消息来源是否 IM 信道（按 source 前缀名单判定——
+// 信道档案的最小形态，扩渠道时在此加项：dingtalk-/feishu-…）。
+func imSource(source string) bool {
+	return strings.HasPrefix(source, "wecom")
+}
+
 // Responder 是对话回复思考者：拾取对身份的 message 步骤，组装
 // 对话历史，一次模型调用产出回复，写回轨迹（reply_to 盖章）。
 // 它同时是持久思考者：恢复账本见 chatdurable.go。
@@ -157,6 +170,7 @@ func (r *Responder) Wake(ctx context.Context, w Wake) Outcome {
 		return Outcome{Note: "消息过于陈旧，跳过"}
 	}
 	content, _ := step.Field("content")
+	source, _ := step.Field("source")
 
 	// 流式旁路：建立（截断式）+ replying 状态。返回 nil（开关关、
 	// 无 StreamFn、reply_to 不合规或建立失败）则退化为一次性补全
@@ -166,7 +180,7 @@ func (r *Responder) Wake(ctx context.Context, w Wake) Outcome {
 		stream = beginReplyStream(r.opts.Timeline.Dir, step.StepID, r.opts.MinDwell)
 	}
 
-	reply, err := r.compose(ctx, from, content, stream)
+	reply, err := r.compose(ctx, from, content, source, stream)
 	if err != nil {
 		stream.discard() // LLM 失败：旁路与状态一起消失
 		note := "回复失败: " + err.Error()
@@ -375,10 +389,13 @@ func (r *Responder) recentScreenImage() (llm.Message, bool) {
 // 上下文经预算账本组装：persona/规则与最新用户消息受保护（超限
 // 报错，绝不静默截掉人话），工作摘要与相关记忆先按各自上限裁剪
 // （低优先），历史再吃剩余——空余预算回流历史。
-func (r *Responder) compose(ctx context.Context, person, inbound string, stream *replyStream) (string, error) {
+func (r *Responder) compose(ctx context.Context, person, inbound, source string, stream *replyStream) (string, error) {
 	// 归因随 ctx 走到模型调用收尾：聊天开销与任务/唤醒分开记账。
 	ctx = llm.WithAttrib(ctx, llm.Attrib{Thinker: r.Name(), Phase: "chat"})
 	system := fmt.Sprintf(ResponderSystemTemplate, r.opts.Persona)
+	if imSource(source) {
+		system += responderIMDiscipline
+	}
 	budget := prompt.NewBudget(r.opts.ContextBudget)
 	if err := budget.TakeProtected("system", system); err != nil {
 		return "", err
