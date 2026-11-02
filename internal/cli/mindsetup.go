@@ -158,6 +158,17 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 		Streaming:   streamEnabled(),
 		StreamFn:    responderStreamFn(client),
 	}))
+	// 方向研判者（D12 顾问型，2026-11-03 裁决）：低频对照任务书判
+	// 偏航、只发 alert 不动手（cancel 权留操作员）。无在途任务零
+	// 模型调用，默认启用无负担；MINDLOOP_ADVISOR_INTERVAL=0 关闭。
+	if d := advisorIntervalFromEnv(); d > 0 {
+		dispatcher.Register(mind.NewAdvisor(mind.AdvisorOptions{
+			Timeline: id.Timeline,
+			Thinker:  mind.LLMThinker{Client: client},
+			SelfName: id.Name,
+			Interval: d,
+		}))
+	}
 	// 身份日程挂上调度器心跳：Run 启动装载、每拍检查到点。exec 条目
 	// 复用上面构造的同一审批门（§7.0 路径②）。
 	dispatcher.SetSchedule(assembleSchedule(id, extraEnv, o.logger, gate))
@@ -298,6 +309,22 @@ func assembleSchedule(id *identity.Identity, extraEnv []string, logger func(stri
 			return gate.Authorize(ctx, runner.Execution{Script: script, WorkDir: id.Dir, RunID: "schedule"})
 		},
 	})
+}
+
+// advisorIntervalFromEnv 读 MINDLOOP_ADVISOR_INTERVAL：缺省 30m；
+// "0" 显式关闭研判者；非法值回落缺省（治理开关容错但不静默猜新义）。
+func advisorIntervalFromEnv() time.Duration {
+	v := strings.TrimSpace(os.Getenv("MINDLOOP_ADVISOR_INTERVAL"))
+	switch {
+	case v == "":
+		return mind.DefaultAdvisorInterval
+	case v == "0":
+		return 0
+	}
+	if d, err := time.ParseDuration(v); err == nil && d > 0 {
+		return d
+	}
+	return mind.DefaultAdvisorInterval
 }
 
 // prefetchDir 是身份预热缓存目录（ACI）：exec 条目成功输出的落盘处，
