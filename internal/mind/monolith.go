@@ -38,6 +38,8 @@ How to decide:
 
 How to act: output exactly ONE bash code block per turn (bash, "set -e" — on Windows the shell is Git Bash). Its output returns to you. When your step is done, set FINAL to a one-line summary of what you actually did (past tense, evidence-backed). Never claim success without output proving it.
 
+Long-running commands: a blocking call wastes the whole turn waiting. Prefer the background pattern — launch with nohup and probe it in a LATER turn: nohup slow-cmd > "$MINDLOOP_WORKDIR/slow.log" 2>&1 & echo started; then next wake check tail "$MINDLOOP_WORKDIR/slow.log" and act on what it shows. The turn budget is yours to spend on decisions, not on waiting.
+
 Never use interactive commands. One wake is not the place to finish everything — the dispatcher will wake you again.
 
 Proactive message tagging: when you report about a perception event, prefix the message with its source tag — [sensor:<id>] for events, [alert] for alerts. The operator uses these tags to say "stop reporting this one"; an unattributable message cannot be calibrated.
