@@ -30,3 +30,11 @@ npm ci && npx tsc --noEmit && npm run lint && npm test && npm run build
 3. **seed panic 纪律**：`cmd/robotd/main.go` 的演示种子（若存在）仅用于 Nuwa 闭环验证，修复 PR 合并即移除；不得新增其他故意缺陷。
 4. **nuwa.repo.json 是 runner 指令文件**：`failing_check` 命令是 runner 的验证门与 CI 的对齐基准；改门禁命令时两处同步。
 5. 一次提交一个完整变更，message 写清 what + why。
+6. **发版三件套（打 v* tag 前缺一不可）**：`internal/cli/root.go`
+   版本常量顺延、`CHANGELOG.md` 补该版本条目（Keep a Changelog 风格，
+   写 what + why——Release 说明由 CI 从此提取，检测升级的横幅 notes
+   直接消费它，条目是写给操作员看的）、`desktop/src-tauri/tauri.conf.json`
+   版本对齐（历史踩过两次漂移坑：安装包名与 tag 不一致）。发布顺序：
+   三件套入库 → 打 tag → release.yml 出资产。CHANGELOG 缺档时 CI
+   只警告不卡发版，但缺档是要补的账（2026-10 复盘：0.12→0.16 五个
+   版本曾集体缺档，并行会话各自顺延版本号都忘了记账）。

@@ -44,6 +44,29 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Release 说明取 CHANGELOG 对应段落（版本协议：CHANGELOG 就是
+      # 写给操作员看的升级说明——检测升级横幅的 notes 直接消费它，
+      # goreleaser 的 git log 堆砌只配当兜底）。缺档不卡发版（警告
+      # 后保留 git log body），但按协议缺档本身是要补的账。
+      - name: 用 CHANGELOG 段落覆盖 Release 说明
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'EOF'
+          import os, re, subprocess, sys
+          tag = os.environ["GITHUB_REF_NAME"]
+          ver = tag.lstrip("v")
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          m = re.search(r"^## \[" + re.escape(ver) + r"\] - [^\n]*\n(.*?)(?=^## \[|\Z)", text, re.M | re.S)
+          if not m:
+              print(f"::warning::CHANGELOG.md 缺 [{ver}] 条目，Release 说明保留 git log 生成版")
+              sys.exit(0)
+          notes = m.group(1).strip()
+          r = subprocess.run(["gh", "release", "edit", tag, "--notes", notes], capture_output=True, text=True)
+          if r.returncode != 0:
+              print(r.stderr); sys.exit(1)
+          print(f"Release 说明已替换为 CHANGELOG [{ver}] 段落（{len(notes)} 字符）")
+          EOF
 
   tauri:
     runs-on: windows-latest
