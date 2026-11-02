@@ -125,6 +125,12 @@ func (s *Server) handleHook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
+	// P1-11（D7a）：可选 Bearer 第二道——非回环部署的纵深防御；
+	// 未配置时恒通过（单防线现状不变）。
+	if err := sensor.VerifyHookBearer(cfg.Bearer, r.Header.Get("Authorization")); err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
 
 	// 事件形态：载荷是纯文本（外部系统自己决定语义）；subject/
 	// digest 由端点构造，指纹 = 载荷哈希。

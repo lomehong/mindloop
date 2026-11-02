@@ -11,9 +11,11 @@ package sensor
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -46,6 +48,25 @@ func VerifyHook(secret, ts, sig string, body []byte, now time.Time) error {
 	}
 	if !hmac.Equal(want, got) {
 		return fmt.Errorf("hook: 签名不匹配")
+	}
+	return nil
+}
+
+// VerifyHookBearer 校验 webhook 的可选第二道 Bearer（P1-11，D7a：
+// 非回环部署的纵深防御）。cfg 未配置 bearer 时恒通过（单防线现状
+// 不变）；配置后 Authorization 头必须精确匹配，比较常数时间。
+func VerifyHookBearer(cfgBearer, authHeader string) error {
+	if cfgBearer == "" {
+		return nil
+	}
+	const prefix = "Bearer "
+	if !strings.HasPrefix(authHeader, prefix) {
+		return fmt.Errorf("hook: 缺少 Bearer 凭据（该感官已配置双重鉴权）")
+	}
+	got := []byte(strings.TrimPrefix(authHeader, prefix))
+	want := []byte(cfgBearer)
+	if subtle.ConstantTimeCompare(got, want) != 1 {
+		return fmt.Errorf("hook: Bearer 不匹配")
 	}
 	return nil
 }

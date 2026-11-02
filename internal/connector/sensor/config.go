@@ -53,6 +53,9 @@ type SensorConfig struct {
 	Path   string `json:"path,omitempty"`   // file/git：目录或仓库
 	URL    string `json:"url,omitempty"`    // web：http(s) URL 或 feed
 	Secret string `json:"secret,omitempty"` // webhook：HMAC 共享密钥（装配层生成，不进 git）
+	// Bearer 是 webhook 的第二道可选鉴权（P1-11，D7a 裁决）：非回环
+	// 部署下 HMAC 是唯一防线，叠加 Bearer 纵深；空 = 单防线（现状）。
+	Bearer string `json:"bearer,omitempty"`
 
 	// Interval 是 web/git 轮询间隔（"5m" 形态）；下限 5 分钟
 	//（web）/ 1 分钟（git），低于下限按缺省处理并告警。
