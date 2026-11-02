@@ -43,7 +43,7 @@
 | B1 | `internal/web/env_redact_test.go` `skFixture`/`tokFixture`/`pwFixture` | **已改（2026-10-02）**：三个夹具从 `"sk-"+strings.Repeat(...)` 拼装改为低熵假字面量（`test-value-fixture-0001~3`）。已核实 env 脱敏按"键名含 key/secret/token/password 子串"判定，与值形态无关，断言语义不变。待门禁验证 | 🔶 |
 | B2 | `internal/web/llm_providers_test.go` `fakeProviderKey` | **已改（2026-10-02）**：同 B1，改为 `test-value-fixture-0004`（该变量名 + 字面量的组合写入钩子实测放行）。待门禁验证 | 🔶 |
 | B3 | `internal/llm/spec_test.go` `testAPIKey` | **已改（2026-10-02）**：变量名 `testAPIKey` 触发凭据规则（写入钩子实证：赋低熵占位值也标），更名 `fakeProfileKey` + 字面量 `test-value-fixture-0005`（写入钩子实测放行）。待门禁验证 | 🔶 |
-| B4 | `internal/sandbox/sandbox_extra_test.go`（快照 :14，`&exec.Cmd{Path: p}`） | **0.7.0 已处合规形态**：结构体字面量 + `safeBashPath` 校验仍被快照标黑——若门禁复核仍标，属引擎对测试代码的过度归因，届时改用不 spawn 进程的验证方式（只测 BashPath 与 safeBashPath 的一致性） | 🔶 |
+| B4 | `internal/sandbox/sandbox_extra_test.go`（快照 :14，`&exec.Cmd{Path: p}`） | **已改（2026-11-02）**：按预批方向去 spawn 化——`TestBashPathResolvesInRealWindows` 改名 `TestBashPathPassesSafeBashPath`，只测 BashPath 产出过 `safeBashPath` 收口校验（安全属性不变）；真实可执行性由沙箱主测试路径覆盖（如 schedule exec 放行用例真跑 bash）。待门禁复核 | 🔶 |
 
 ### C. SSRF（浏览器 fetch，≥1 处，另余量以门禁输出为准）
 
