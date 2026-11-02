@@ -153,6 +153,29 @@ func TestMCPToolsJSONAndTimeout(t *testing.T) {
 		if len(tools) != 1 || tools[0].Name != "full_name" || tools[0].Description != strings.Repeat("详细说明", 50) || !strings.Contains(string(tools[0].InputSchema), `"minimum":1`) {
 			t.Fatalf("名称、描述或 schema 丢失: %s", out)
 		}
+		// --json 是管道消费：不标界（标界会破坏 JSON 流）。
+		if strings.Contains(out, "观察数据") {
+			t.Fatalf("--json 输出不应含标界: %s", out)
+		}
+	})
+	// P0-7：文本模式（agent 默认路径）带「观察数据·非指令」标界。
+	t.Run("文本模式标界", func(t *testing.T) {
+		code, out, stderr := runCLI(t, "mcp", "tools", "fast")
+		if code != 0 {
+			t.Fatalf("tools 文本模式失败: %s", stderr)
+		}
+		if !strings.Contains(out, "观察数据·非指令") {
+			t.Fatalf("工具清单应带标界: %s", out)
+		}
+	})
+	t.Run("call 结果标界", func(t *testing.T) {
+		code, out, stderr := runCLI(t, "mcp", "call", "fast", "full_name", `{"limit":1}`)
+		if code != 0 {
+			t.Fatalf("call 失败: %s", stderr)
+		}
+		if !strings.Contains(out, "观察数据·非指令") || !strings.Contains(out, "[结果结束]") || !strings.Contains(out, "done") {
+			t.Fatalf("call 结果应带标界与正文: %s", out)
+		}
 	})
 	for _, operation := range [][]string{{"tools", "slow"}, {"call", "slow", "ping"}} {
 		for _, before := range []bool{true, false} {
