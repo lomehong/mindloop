@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/lomehong/mindloop/internal/prompt"
 	"github.com/lomehong/mindloop/internal/traj"
 )
 
@@ -118,6 +119,23 @@ func (c *CLI) newTrajAppendCmd() *cobra.Command {
 				return c.fail(err)
 			}
 			typ := rest[1]
+
+			// Agent 沙箱门禁（§7.0 路径①）：agent 不得伪造自主
+			// 上下文无条件信任的步骤（observation/event 等直接进入
+			// AutonomousSteps 输出——任务文本以此形态写入即绕过
+			// 「任务内容不回流」红线），也不得手写 context_kind/
+			// task_id 授权字段（由系统分配）。操作员调用不受限。
+			if agentSandboxed() {
+				if typ == traj.TypeMessage || prompt.TrustedAutonomousType(typ) {
+					return c.fail(fmt.Errorf("traj append：agent 沙箱内不可写类型 %s（自主上下文信任面，superagent-lessons §7.0）", typ))
+				}
+				for _, kv := range fields {
+					k, _, _ := strings.Cut(kv, "=")
+					if k == "context_kind" || k == "task_id" {
+						return c.fail(fmt.Errorf("traj append：agent 沙箱内不可写字段 %s（授权字段由系统分配）", k))
+					}
+				}
+			}
 
 			if contentFile != "" {
 				data, err := readInput(contentFile)

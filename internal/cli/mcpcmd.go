@@ -222,6 +222,11 @@ func (c *CLI) newMCPAddCmd() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Agent 沙箱门禁（§7.0 路径④）：mcp.json 是凭据与外带
+			// 通道配置面——被注入的 agent 可给自己添加恶意服务器。
+			if agentSandboxed() {
+				return c.fail(rejectAgent("mcp add"))
+			}
 			dash := cmd.ArgsLenAtDash()
 			_, writeFile, err := c.mcpConfigPaths(cmd)
 			if err != nil {
@@ -250,6 +255,11 @@ func (c *CLI) newMCPRemoveCmd() *cobra.Command {
 		Short: "从 mcp.json 移除服务器（身份级优先）",
 		Args:  exactArgs(1, "用法: mindloop mcp remove <名字> [--identity X]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Agent 沙箱门禁（§7.0 路径④）：与 add 同批——配置面
+			// 只许操作员修改。
+			if agentSandboxed() {
+				return c.fail(rejectAgent("mcp remove"))
+			}
 			_, writeFile, err := c.mcpConfigPaths(cmd)
 			if err != nil {
 				return c.fail(err)

@@ -161,6 +161,11 @@ func (c *CLI) newSkillsInstallCmd() *cobra.Command {
 安装前按标准校验，不合格零落盘；同名已存在时报错（先 remove）。`,
 		Args: exactArgs(1, "用法: mindloop skills install <目录|owner/repo> [--identity X]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Agent 沙箱门禁（§7.0 路径④）：技能正文直接进系统
+			// 提示——自我装备技能即自我扩权，只许操作员安装。
+			if agentSandboxed() {
+				return c.fail(rejectAgent("skills install"))
+			}
 			_, installDir, err := c.skillsStore(cmd)
 			if err != nil {
 				return c.fail(err)
@@ -181,6 +186,11 @@ func (c *CLI) newSkillsInitCmd() *cobra.Command {
 		Short: "脚手架一个新技能（标准 frontmatter 模板）",
 		Args:  exactArgs(1, "用法: mindloop skills init <name> [--identity X]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Agent 沙箱门禁（§7.0 路径④）：与 install 同批——写
+			// 入技能库即改写未来的系统提示面。
+			if agentSandboxed() {
+				return c.fail(rejectAgent("skills init"))
+			}
 			_, installDir, err := c.skillsStore(cmd)
 			if err != nil {
 				return c.fail(err)
@@ -201,6 +211,10 @@ func (c *CLI) newSkillsRemoveCmd() *cobra.Command {
 		Short: "删除技能（身份级与全局同名时删高优先层）",
 		Args:  exactArgs(1, "用法: mindloop skills remove <name> [--identity X]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Agent 沙箱门禁（§7.0 路径④）：与 install 同批。
+			if agentSandboxed() {
+				return c.fail(rejectAgent("skills remove"))
+			}
 			_, installDir, err := c.skillsStore(cmd)
 			if err != nil {
 				return c.fail(err)

@@ -222,6 +222,12 @@ func (c *CLI) newScheduleAddCmd() *cobra.Command {
   mindloop schedule add ada '{"id":"ci","every":"30m","task":"检查 CI，无事直接完成","quiet":"23:00-08:00"}'`,
 		Args: exactArgs(2, `用法: mindloop schedule add <身份名> '<条目 JSON>'`),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Agent 沙箱门禁（§7.0 路径②④）：日程配置只许操作员
+			// 修改——exec 执行已过审批门（P0-1），但 add 本身仍可
+			// 被用来加 task 条目给自我委派铺路。
+			if agentSandboxed() {
+				return c.fail(rejectAgent("schedule add"))
+			}
 			id, err := c.loadIdentity(args[0])
 			if err != nil {
 				return c.fail(err)
@@ -271,6 +277,11 @@ func (c *CLI) newScheduleRemoveCmd() *cobra.Command {
 		Short: "删除一个日程条目",
 		Args:  exactArgs(2, "用法: mindloop schedule remove <身份名> <条目 id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Agent 沙箱门禁（§7.0 路径②④）：与 add 同批——配置面
+			// 只许操作员修改。
+			if agentSandboxed() {
+				return c.fail(rejectAgent("schedule remove"))
+			}
 			id, err := c.loadIdentity(args[0])
 			if err != nil {
 				return c.fail(err)

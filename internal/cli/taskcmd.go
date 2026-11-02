@@ -203,6 +203,12 @@ func (c *CLI) newTaskSubmitCmd() *cobra.Command {
 			if cid == "" {
 				cid = ids.NewUUID()
 			}
+			// Agent 沙箱门禁（§7.0 路径③）：agent 发起的任务不得
+			// 声称操作员发起——From 一律记 "agent"（数据诚实 +
+			// 委派入口纪律：普通聊天不是新的执行授权，自我委派更不是）。
+			if agentSandboxed() {
+				from = "agent"
+			}
 			item, err := store.Submit(c.ctx, task.Submission{From: from, ClientMessageID: cid, Content: content, SourceStepID: sourceStepID})
 			if err != nil {
 				return taskErr(err)
