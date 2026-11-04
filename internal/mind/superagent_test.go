@@ -215,16 +215,27 @@ func TestTrueParallelForkExecution(t *testing.T) {
 		t.Fatalf("任务终态: %s / %s（期望双双 Succeeded）", a.State, b.State)
 	}
 
-	// merge 回根：每个 Worker 完成后在根轨迹落一条 TypeMerge。
-	steps, err := tl.Steps()
-	if err != nil {
-		t.Fatalf("读根轨迹: %v", err)
-	}
+	// merge 回根：每个 Worker 完成后在根轨迹落一条 TypeMerge。终态
+	// 落盘（store 写）先于 merge（runWorker 的收尾追加）——观察到
+	// 双 Succeeded 时 merge 可能还没落地，有界轮询而非立即断言
+	// （CI 实证竞态：实际 1 条时被判死）。
+	mergeDeadline := time.Now().Add(10 * time.Second)
 	merges := 0
-	for _, st := range steps {
-		if st.Type == traj.TypeMerge {
-			merges++
+	for time.Now().Before(mergeDeadline) {
+		steps, err := tl.Steps()
+		if err != nil {
+			t.Fatalf("读根轨迹: %v", err)
 		}
+		merges = 0
+		for _, st := range steps {
+			if st.Type == traj.TypeMerge {
+				merges++
+			}
+		}
+		if merges >= 2 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	if merges != 2 {
 		t.Fatalf("根轨迹应有 2 条 merge 步骤（Worker 汇报），实际 %d", merges)
