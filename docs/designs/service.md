@@ -162,9 +162,12 @@ headlong 的关键机制："Restart=on-failure 复活不了刻意停止的心智
    （免存密码但无网络凭据，出站 TLS 可用）、存密码（schtasks 不
    支持，要 PowerShell `/ru /rp` 或 COM）、SYSTEM（MINDLOOP_HOME
    得迁出用户目录）。个人桌面场景登录触发已够，等真实需求。
-2. **死睡告警**（headlong thinkers-silence/timer 的对应物）：外部
+2. **死睡告警** ✅（2026-11-04 落地，`mindloop watchdog`）：外部
    定时任务检测"轨迹 N 小时无新步骤"→ 企微提醒。连接器独立于
-   mind 存活，天然可行；唤醒预算与告警去重策略待设计。
+   mind 存活；告警去重 = 状态机（进入静默告一次、--realert 周期
+   重告、恢复清账），两类死睡（进程死/卡死）按运行锁属主探活区分。
+   挂计划任务：`schtasks /create /tn Mindloop-Watchdog /tr "<wrap>"
+   /sc minute /mo 30`；`service install` 的自动装配仍是开放项。
 3. **重启耗尽告警**（headlong OnFailure）：Count=999 耗尽后任务
    停在原地无人知晓——同死睡告警一起做（都是"外部检查者"角色）。
 4. **Linux/macOS**：systemd user units 生成器（`service install`
