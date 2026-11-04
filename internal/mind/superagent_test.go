@@ -43,10 +43,15 @@ func TestAsyncDispatchImmediateReturn(t *testing.T) {
 	}
 	t.Logf("派工返回: %+v", out)
 
-	// 释放模型 → Worker 完成。
+	// 释放模型 → Worker 完成。等池清空（Worker goroutine 完全退出、
+	// 轨迹写完）再让 TempDir 清理跑——固定 sleep 在慢 CI 上会漏
+	// （Linux unlinkat 竞态）。
 	close(block)
-	// 给 goroutine 一点时间收尾（不判终态——全链路在同步测试覆盖）。
-	time.Sleep(200 * time.Millisecond)
+	drainDeadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(drainDeadline) && m.(*monolith).workers.Count() > 0 {
+		time.Sleep(50 * time.Millisecond)
+	}
+	time.Sleep(100 * time.Millisecond) // 文件句柄释放余量
 
 	// Mandate 盖章验证：轨迹里应有 mandate 步骤。
 	steps, err := tl.Steps()
@@ -78,6 +83,7 @@ func TestAsyncDispatchImmediateReturn(t *testing.T) {
 func TestSyncWhenMaxWorkersOne(t *testing.T) {
 	tl := newTestTimeline(t)
 	done := make(chan struct{})
+	wakeDone := make(chan struct{})
 	var once sync.Once
 	m := NewMonolith(MonolithOptions{
 		Timeline: tl, SelfName: "ada", // MaxWorkers 未设 → 1 → 同步
@@ -90,6 +96,7 @@ func TestSyncWhenMaxWorkersOne(t *testing.T) {
 	submitTask(t, s, "同步任务")
 
 	go func() {
+		defer close(wakeDone)
 		m.Wake(context.Background(), Wake{Step: syntheticStep(monolithWakeType), Kind: WakeScheduled})
 	}()
 
@@ -98,6 +105,14 @@ func TestSyncWhenMaxWorkersOne(t *testing.T) {
 		// 同步路径：模型被调用了
 	case <-time.After(10 * time.Second):
 		t.Fatal("MaxWorkers=1 应走同步路径，10s 内模型未调用")
+	}
+	// 同步路径的完成语义：Wake 返回 = executeTask 完成（终态已落
+	// 盘）。等它退出再让 TempDir 清理跑——模型被调 ≠ Wake 已返回，
+	// Linux unlinkat 会撞上仍在写的轨迹目录（CI -race 实证）。
+	select {
+	case <-wakeDone:
+	case <-time.After(15 * time.Second):
+		t.Fatal("同步 Wake 未在模型调用后 15s 内返回")
 	}
 }
 
