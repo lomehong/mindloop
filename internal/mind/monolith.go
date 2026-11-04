@@ -185,13 +185,10 @@ type monolith struct {
 	// workers 是任务并发的槽位池（Super-agent 双层架构，2026-11-04）：
 	// monolith 领取任务后异步派工立即释放（Router 角色），runner.Run
 	// 在各自的 goroutine 里执行（Worker 角色），槽位上限约束并发度。
-	// workerMu 是任务执行互斥锁（v1：轨迹并发写对 task store 的
-	// 增量投影不安全——TestWorkerSlotExhaustion 实证，重试 4 次
-	// 仍不够。v1 的 Worker 池提供 Router 响应性（论文「连续」），
-	// 执行诚实串行（「高效」需 fork 子轨迹，下一步）。互斥锁覆盖
-	// Claim + mandate + executeTask 全周期——轨迹读写零竞态。
-	workers  *workerPool
-	workerMu sync.Mutex
+	// v2（fork 子轨迹）：Worker 在 fork 轨迹里写 runner 步骤，与根
+	// 轨迹隔离——并发写不再需要 v1 的 workerMu 串行化互斥锁，任务
+	// 终态经 store 的事务锁串行落根轨迹。真·任务并行。
+	workers *workerPool
 }
 
 // NewMonolith 构造 monolith 思考者。
@@ -239,10 +236,10 @@ func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
 	// store 层的并发领取（task 包的单任务锁在 max>1 时按上限
 	// 计数）。MaxWorkers <= 1（缺省）走既有同步路径——串行语义
 	// 与今天完全一致（测试与已有部署零影响）。
-	// Claim 不持 workerMu（防死锁：Wake 持锁等 Worker、Worker 持锁
-	// 等模型）。Claim 的轨迹读与在跑 Worker 的写入之间的撕裂由
-	// store 内置的 4 次退避重试兜住（runner 每步之间有秒级间隙，
-	// 重试窗口足够）。互斥只覆盖 executeTask（Worker 间串行）。
+	// 并发写安全（v2）：Worker 的 runner 步骤全部落在各自 fork
+	// 子轨迹里（与根隔离），只有 task 终态经 store 事务写根——
+	// store 自带跨进程锁 + 4 次退避重试，Router 的 Claim 读与
+	// Worker 的终态写不会撕裂。
 	item, claimErr := m.taskStore().ClaimConcurrent(ctx, ids.NewUUID(), m.workers.max)
 	if claimErr == nil {
 		if m.workers.max > 1 && m.workers.Acquire(item.ID) {
@@ -250,7 +247,7 @@ func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
 			go m.runWorker(item)
 			return Outcome{Note: fmt.Sprintf("任务 %s 已派工（在飞 %d/%d）", ids.Short(item.ID, 8), m.workers.Count(), m.workers.max)}
 		}
-		return m.executeTask(ctx, item)
+		return m.executeTask(ctx, item, m.opts.Timeline)
 	}
 	if !errors.Is(claimErr, task.ErrNoQueued) {
 		return Outcome{Note: "任务领取未执行: " + claimErr.Error()}

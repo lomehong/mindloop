@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -70,23 +71,43 @@ func (m *monolith) Pending(ctx context.Context) (Wake, bool, error) {
 	return Wake{}, false, nil
 }
 
-// runWorker 是异步任务执行体（Super-agent Worker 角色）：包裹
-// executeTask 的完整生命周期（监督轮询 + runner.Run + 终态落盘），
-// 结束时释放槽位。上下文用 WithoutCancel 派生——Worker 的生死
-// 不随唤醒 ctx（Router 的某一次调度）结束而中止。
+// runWorker 是异步任务执行体（Super-agent Worker 角色，v2 fork 并行）：
+// 在 fork 子轨迹里跑 runner（与根轨迹隔离——并发写安全），完成后
+// merge 回根（单次原子追加），task 终态经 store 写根轨迹（store 的
+// 事务机制自带串行化）。上下文 WithoutCancel——Worker 的生死不随
+// 唤醒 ctx（Router 的某一次调度）结束而中止。
 //
-// v1 执行串行化（诚实边界）：轨迹的并发追加对 task store 的增量
-// 投影不安全（TestWorkerSlotExhaustion 实证，store 内置的 4 次
-// 重试在 runner 持续写入下不够）。v1 的 Worker 池提供的是
-// **Router 响应性**（Wake 立即返回、monolith 持续响应事件——
-// 论文的「连续」），不是任务并行（「高效」需要 fork 子轨迹隔离
-// 写路径，是下一步）。workerMu 互斥锁覆盖 executeTask 全周期。
+// v2 变更（2026-11-04 第二轮）：去掉 v1 的 workerMu 串行化互斥锁
+// ——fork 隔离了 runner 的写路径，task store 只读根轨迹（fork 里的
+// 步骤不进入根），并发写安全问题消除。真·任务并行（论文「高效」）。
 func (m *monolith) runWorker(item task.Task) {
 	defer m.workers.Release(item.ID)
-	m.workerMu.Lock()
-	defer m.workerMu.Unlock()
 	ctx := context.WithoutCancel(context.Background())
-	m.executeTask(ctx, item)
+
+	// fork 子轨迹：runner 的全部步骤（reasoning/action/shell-output/
+	// final）落在 fork 里，与根轨迹完全隔离。
+	fork, err := traj.ForkAt(ctx, filepath.Dir(m.opts.Timeline.Dir),
+		"worker-"+ids.Short(item.ID, 8), m.opts.Timeline)
+	if err != nil {
+		// fork 失败降级为根轨迹同步执行（保正确性优先）。
+		m.executeTask(ctx, item, m.opts.Timeline)
+		return
+	}
+
+	// 在 fork 上执行（监督轮询 + runner.Run + 终态经 store 写根轨迹）。
+	m.executeTask(ctx, item, fork)
+
+	// merge 回根：fork 的最终结论合并为一条 merge 步骤（monolith 已
+	// 订阅 TypeMerge——「Worker 向 Router 汇报」的现成钩子）。失败
+	// 不影响任务终态（已通过 store 落盘）——merge 是轨迹可见性增强。
+	mergeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	content := fmt.Sprintf("worker %s attempt %d 完成（fork 轨迹 %s）",
+		ids.Short(item.ID, 8), item.Attempt, ids.Short(fork.ID, 8))
+	if _, err := m.opts.Timeline.Merge(mergeCtx, fork, content); err != nil {
+		// best-effort：merge 失败只记日志语义（不中断）。
+		_ = err
+	}
 }
 
 // defaultTaskCallBudget 是一个 task attempt 的默认模型调用尝试
@@ -111,7 +132,10 @@ func (m *monolith) taskCallBudget() int {
 }
 
 // executeTask 只执行领取到的当前 attempt；终态必须等 runner 真实退出。
-func (m *monolith) executeTask(ctx context.Context, item task.Task) Outcome {
+// workTL 是 runner 的写入轨迹（v2 fork 并行：异步 Worker 传 fork、
+// 同步路径传根——runner 步骤的落点由调用方决定，task 终态始终经
+// store 写根轨迹）。
+func (m *monolith) executeTask(ctx context.Context, item task.Task, workTL *traj.Timeline) Outcome {
 	store := m.taskStore()
 	// 调用配额挂在 runCtx 上：runner 的每轮 Think（含重试）过账，
 	// 耗尽时 llm 返回 ErrBudgetExceeded，runner 立即中止。
@@ -184,7 +208,7 @@ func (m *monolith) executeTask(ctx context.Context, item task.Task) Outcome {
 			}
 		}()
 		result, runErr = runner.Run(runCtx, runner.Options{
-			Timeline: m.opts.Timeline, Thinker: thinker, Task: item.Content,
+			Timeline: workTL, Thinker: thinker, Task: item.Content,
 			TaskID: item.ID, Attempt: item.Attempt, RunID: item.RunID,
 			SystemPrompt: taskSystem,
 			LaunchedBy:   m.Name(), MaxIterations: m.opts.TaskMaxIterations,

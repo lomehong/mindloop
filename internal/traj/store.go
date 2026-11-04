@@ -78,6 +78,13 @@ func CreateFork(ctx context.Context, slug string, parent *Timeline) (*Timeline, 
 	return createAt(ctx, TrajRoot(), slug, parent)
 }
 
+// ForkAt 在指定根目录 fork（身份级 Worker 子轨迹用：根目录取
+// filepath.Dir(parent.Dir)，与父轨迹同处一个身份的 trajectories/
+// 下）。与 CreateFork 的区别仅在于根目录——全局根 vs 身份根。
+func ForkAt(ctx context.Context, root, slug string, parent *Timeline) (*Timeline, error) {
+	return createAt(ctx, root, slug, parent)
+}
+
 func createAt(ctx context.Context, root, slug string, parent *Timeline) (*Timeline, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
