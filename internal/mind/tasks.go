@@ -41,10 +41,24 @@ func (m *monolith) Pending(ctx context.Context) (Wake, bool, error) {
 	if err != nil {
 		return Wake{}, false, err
 	}
+	// Super-agent 双层（2026-11-04）：槽位池决定并发度——有空槽
+	// 就放行下一个排队任务（Worker 池），没有就等（Router 的队列）。
+	// 在跑/等批/取消中的任务由 workers 跟踪（runWorker 的
+	// Acquire/Release），不再用它阻塞全部新任务。防御性兜底：若
+	// store 里有 Running 但槽位池没跟踪到（极端竞态窗口），仍阻塞。
+	running := 0
 	for _, item := range all {
 		if item.State == task.Running || item.State == task.AwaitingApproval || item.State == task.Canceling {
-			return Wake{}, false, nil
+			running++
 		}
+	}
+	if running > m.workers.Count() {
+		// store 报告的在跑数超过池的在飞数——有未被池跟踪的运行中
+		// 任务（可能是旧进程的遗留），保守阻塞。
+		return Wake{}, false, nil
+	}
+	if !m.workers.HasSlot() {
+		return Wake{}, false, nil
 	}
 	for _, item := range all {
 		if item.State == task.Queued {
@@ -54,6 +68,25 @@ func (m *monolith) Pending(ctx context.Context) (Wake, bool, error) {
 		}
 	}
 	return Wake{}, false, nil
+}
+
+// runWorker 是异步任务执行体（Super-agent Worker 角色）：包裹
+// executeTask 的完整生命周期（监督轮询 + runner.Run + 终态落盘），
+// 结束时释放槽位。上下文用 WithoutCancel 派生——Worker 的生死
+// 不随唤醒 ctx（Router 的某一次调度）结束而中止。
+//
+// v1 执行串行化（诚实边界）：轨迹的并发追加对 task store 的增量
+// 投影不安全（TestWorkerSlotExhaustion 实证，store 内置的 4 次
+// 重试在 runner 持续写入下不够）。v1 的 Worker 池提供的是
+// **Router 响应性**（Wake 立即返回、monolith 持续响应事件——
+// 论文的「连续」），不是任务并行（「高效」需要 fork 子轨迹隔离
+// 写路径，是下一步）。workerMu 互斥锁覆盖 executeTask 全周期。
+func (m *monolith) runWorker(item task.Task) {
+	defer m.workers.Release(item.ID)
+	m.workerMu.Lock()
+	defer m.workerMu.Unlock()
+	ctx := context.WithoutCancel(context.Background())
+	m.executeTask(ctx, item)
 }
 
 // defaultTaskCallBudget 是一个 task attempt 的默认模型调用尝试

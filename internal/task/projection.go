@@ -363,7 +363,10 @@ func applyData(ctx context.Context, p *projection, data []byte, checkHeader bool
 		if task == nil || validateTransition(task, ev) != nil {
 			return fmt.Errorf("%w: 任务事件 %s", ErrCorrupt, step.StepID)
 		}
-		if ev.Operation == "claim" {
+		if ev.Operation == "claim" && !ev.Concurrent {
+			// 单任务断言：普通 claim 不得在其他 active 任务存在时发生。
+			// Concurrent claim（ClaimConcurrent 写入、Super-agent 双层）
+			// 豁免——允许多个任务同时 Running（上限由 Claim 侧管）。
 			for _, other := range p.ordered {
 				if active(other.State) {
 					return ErrCorrupt

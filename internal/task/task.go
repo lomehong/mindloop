@@ -73,4 +73,8 @@ type Event struct {
 	Actor           string   `json:"actor,omitempty"`
 	RequestID       string   `json:"request_id,omitempty"`
 	BaseAttempt     int      `json:"base_attempt"`
+	// Concurrent 标记此事件来自 ClaimConcurrent（Super-agent 双层，
+	// 2026-11-04）：投影重放时跳过「claim 时不得有其他 active 任务」
+	// 的单任务断言——允许多个任务同时 Running。
+	Concurrent bool `json:"concurrent,omitempty"`
 }

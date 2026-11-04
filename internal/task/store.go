@@ -94,6 +94,38 @@ func (s *Store) Claim(ctx context.Context, runID string) (Task, error) {
 		return Task{}, ErrNoQueued
 	})
 }
+
+// ClaimConcurrent 是 Claim 的并发形态（Super-agent 双层架构，
+// 2026-11-04）：允许至多 max 个 active 任务同时存在（Running/
+// AwaitingApproval/Canceling），而非 Claim 的「任一 active 即忙」。
+// max <= 1 退化为与 Claim 完全同语义（既有调用方零影响）。
+// max > 1 时活跃数达到上限才返回 ErrBusy。写入的事件带
+// Concurrent=true——投影重放时据此跳过单任务断言。
+func (s *Store) ClaimConcurrent(ctx context.Context, runID string, max int) (Task, error) {
+	if !validKey(runID) {
+		return Task{}, ErrInvalid
+	}
+	if max <= 1 {
+		return s.Claim(ctx, runID)
+	}
+	return s.transaction(ctx, func(p *projection) (Task, error) {
+		n := 0
+		for _, task := range p.ordered {
+			if active(task.State) {
+				n++
+			}
+		}
+		if n >= max {
+			return Task{}, ErrBusy
+		}
+		for _, task := range p.ordered {
+			if task.State == Queued {
+				return s.writeEvent(ctx, task, Event{State: Running, Attempt: task.Attempt, BaseAttempt: task.Attempt, RunID: runID, Operation: "claim", Concurrent: true})
+			}
+		}
+		return Task{}, ErrNoQueued
+	})
+}
 func (s *Store) Advance(ctx context.Context, id string, ev Event) (Task, error) {
 	return s.transaction(ctx, func(p *projection) (Task, error) {
 		task := p.byID[id]

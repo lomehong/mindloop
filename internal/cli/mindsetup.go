@@ -114,6 +114,7 @@ func (c *CLI) assembleMindStack(id *identity.Identity, o mindStackOpts) (*mindSt
 		MaxIterations:      o.maxIterations,
 		TaskMaxIterations:  o.taskMaxIterations,
 		TaskCallBudget:     o.taskCallBudget,
+		MaxWorkers:         envInt("MINDLOOP_MAX_WORKERS", 2),
 		Watchdog:           o.watchdog,
 		Persona:            persona,
 		SelfName:           id.Name, // 轮次耗尽的工作摘要以身份名署名投递 operator
@@ -492,4 +493,14 @@ func mindOwnerPID(tlDir string) int {
 // mcp serve 的 Handler 统一用它回报调用方的协议错误。
 func mcpInvalidArgs(err error) error {
 	return fmt.Errorf("%w: %v", mcp.ErrInvalidArguments, err)
+}
+
+// envInt 读环境变量整数（缺省/解析失败取 def）。
+func envInt(key string, def int) int {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			return n
+		}
+	}
+	return def
 }

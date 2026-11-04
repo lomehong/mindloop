@@ -86,6 +86,12 @@ type MonolithOptions struct {
 	// （含重试；<=0 取默认 24）——与调度器的 30 分钟唤醒期限共同
 	// 构成任务成本防线，超出时任务落 budget_exceeded。
 	TaskCallBudget int
+	// MaxWorkers 是任务并发执行的 Worker 槽数上限（Super-agent
+	// 论文第 2 节双层架构，2026-11-04）。<=0 取默认 1（同步串行，
+	// 与既有行为完全一致——测试与已有部署零影响）。>= 2 开启异步
+	// 并发：领取→派工→立即释放回 Router 角色。MINDLOOP_MAX_WORKERS
+	// 环境变量在 wiring 侧覆盖（生产缺省 2）。
+	MaxWorkers int
 	// Timeout / IdleTimeout / MaxOutputBytes 透传给每轮执行。
 	Timeout        time.Duration
 	IdleTimeout    time.Duration
@@ -175,6 +181,17 @@ type monolith struct {
 	// 的无锁读（List/Get）——Store 内部的 cacheMu 就是为此存在的。
 	storeOnce sync.Once
 	store     *task.Store
+
+	// workers 是任务并发的槽位池（Super-agent 双层架构，2026-11-04）：
+	// monolith 领取任务后异步派工立即释放（Router 角色），runner.Run
+	// 在各自的 goroutine 里执行（Worker 角色），槽位上限约束并发度。
+	// workerMu 是任务执行互斥锁（v1：轨迹并发写对 task store 的
+	// 增量投影不安全——TestWorkerSlotExhaustion 实证，重试 4 次
+	// 仍不够。v1 的 Worker 池提供 Router 响应性（论文「连续」），
+	// 执行诚实串行（「高效」需 fork 子轨迹，下一步）。互斥锁覆盖
+	// Claim + mandate + executeTask 全周期——轨迹读写零竞态。
+	workers  *workerPool
+	workerMu sync.Mutex
 }
 
 // NewMonolith 构造 monolith 思考者。
@@ -185,7 +202,10 @@ func NewMonolith(opts MonolithOptions) Thinker {
 	if opts.TaskMaxIterations <= 0 {
 		opts.TaskMaxIterations = 16
 	}
-	return &monolith{opts: opts}
+	return &monolith{
+		opts:    opts,
+		workers: newWorkerPool(opts.MaxWorkers),
+	}
 }
 
 func (m *monolith) Name() string { return monolithName }
@@ -214,8 +234,22 @@ func (m *monolith) Subscriptions() Subscription {
 }
 
 func (m *monolith) Wake(ctx context.Context, w Wake) Outcome {
-	item, claimErr := m.taskStore().Claim(ctx, ids.NewUUID())
+	// Super-agent 双层架构（论文第 2 节）：MaxWorkers >= 2 时
+	// 领取→派工→立即释放（Router 角色）。ClaimConcurrent 允许
+	// store 层的并发领取（task 包的单任务锁在 max>1 时按上限
+	// 计数）。MaxWorkers <= 1（缺省）走既有同步路径——串行语义
+	// 与今天完全一致（测试与已有部署零影响）。
+	// Claim 不持 workerMu（防死锁：Wake 持锁等 Worker、Worker 持锁
+	// 等模型）。Claim 的轨迹读与在跑 Worker 的写入之间的撕裂由
+	// store 内置的 4 次退避重试兜住（runner 每步之间有秒级间隙，
+	// 重试窗口足够）。互斥只覆盖 executeTask（Worker 间串行）。
+	item, claimErr := m.taskStore().ClaimConcurrent(ctx, ids.NewUUID(), m.workers.max)
 	if claimErr == nil {
+		if m.workers.max > 1 && m.workers.Acquire(item.ID) {
+			m.stampMandate(item)
+			go m.runWorker(item)
+			return Outcome{Note: fmt.Sprintf("任务 %s 已派工（在飞 %d/%d）", ids.Short(item.ID, 8), m.workers.Count(), m.workers.max)}
+		}
 		return m.executeTask(ctx, item)
 	}
 	if !errors.Is(claimErr, task.ErrNoQueued) {
