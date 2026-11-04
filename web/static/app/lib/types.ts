@@ -578,7 +578,8 @@ export interface Mindlog {
 
 export interface SearchHit {
   /** Absolute step index in the full log — >= the loaded window's start
-   * means the step is on the page and can be scrolled to. */
+   * means the step is on the page and can be scrolled to. For fork hits
+   * (traj_id set) it is the index within the child trajectory. */
   index: number;
   step_id: string;
   ts: string | null;
@@ -588,6 +589,11 @@ export interface SearchHit {
   /** Which field matched (content, thought, cmd, stdout, …). */
   field: string;
   snippet: string;
+  /** Non-empty = hit lives in a fork sub-trajectory (Super-agent Worker
+   * execution detail); clicking jumps to the sub-trajectory page with a
+   * ?step= anchor instead of scrolling the root log. */
+  traj_id?: string;
+  traj_slug?: string;
 }
 
 export interface MindlogSearchResult {

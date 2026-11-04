@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { Info, Search, X } from "lucide-react";
+import { GitFork, Info, Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { StepCard } from "~/components/step-card";
 import { Input } from "~/components/ui/input";
@@ -130,6 +131,7 @@ export function MindlogSearch({
   const [open, setOpen] = useState(false);
   const [modalStep, setModalStep] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQ(q.trim()), DEBOUNCE_MS);
@@ -223,11 +225,18 @@ export function MindlogSearch({
             )}
             {hits.map((hit) => (
               <button
-                key={hit.step_id}
+                key={`${hit.traj_id ?? "root"}-${hit.step_id}`}
                 type="button"
                 className="block w-full border-b px-3 py-2 text-left last:border-b-0 hover:bg-accent/50"
                 onClick={() => {
-                  if (hit.index >= windowStart) {
+                  if (hit.traj_id) {
+                    // fork 命中：跳子轨迹页（?step= 锚点定位），根窗口
+                    // 之外的存在不挤占 modal 语义。
+                    setOpen(false);
+                    navigate(
+                      `/i/${encodeURIComponent(identityId)}/t/${encodeURIComponent(hit.traj_id)}?step=${encodeURIComponent(hit.step_id)}`
+                    );
+                  } else if (hit.index >= windowStart) {
                     setOpen(false);
                     onJump(hit);
                   } else {
@@ -245,7 +254,14 @@ export function MindlogSearch({
                     {hit.type}
                   </span>
                   <span>{hitTime(hit.ts)}</span>
-                  {hit.index < windowStart && <span>· 未加载</span>}
+                  {hit.traj_id ? (
+                    <span className="flex items-center gap-1 text-plum">
+                      <GitFork className="h-3 w-3" />
+                      {hit.traj_slug ?? hit.traj_id.slice(0, 8)}
+                    </span>
+                  ) : (
+                    hit.index < windowStart && <span>· 未加载</span>
+                  )}
                 </div>
                 <div className="line-clamp-2 text-xs">
                   <Snippet text={hit.snippet} q={debouncedQ} />

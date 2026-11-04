@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { FoldVertical, UnfoldVertical } from "lucide-react";
-import { Fragment, useMemo, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router";
 
 import { ForkTree } from "~/components/fork-tree";
 import { QueryErrorBanner } from "~/components/query-error-banner";
@@ -79,6 +79,32 @@ export default function SubTrajPage() {
     () => (traj ? assembleStream(traj.steps, traj.runs) : []),
     [traj]
   );
+
+  // 深链（?step=）：跨轨迹搜索命中的跳转锚点。子轨迹全量加载（无
+  // 窗口语义），定位失败即步骤不存在——静默放弃。大 fork 渲染慢，
+  // 重试到元素出现（log.tsx 同款纪律）。
+  const [searchParams] = useSearchParams();
+  const stepParam = searchParams.get("step") ?? "";
+  useEffect(() => {
+    if (!stepParam || !traj) return;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const attempt = () => {
+      const el = document.getElementById(`step-${stepParam}`);
+      if (el) {
+        el.scrollIntoView({ block: "center" });
+        el.classList.add("bg-primary/10");
+        setTimeout(() => el.scrollIntoView({ block: "center" }), 600);
+        setTimeout(() => el.classList.remove("bg-primary/10"), 2000);
+        return;
+      }
+      if (tries++ < 40) timer = setTimeout(attempt, 250);
+    };
+    timer = setTimeout(attempt, 100);
+    return () => clearTimeout(timer);
+    // scroll once per navigation, not on live-poll refreshes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepParam, traj?.traj_id]);
 
   if (isLoading) {
     return (

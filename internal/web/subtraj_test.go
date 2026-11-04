@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -248,6 +249,88 @@ func TestStepDetailScansFork(t *testing.T) {
 	}
 	if got.Run == nil || got.Run["status"] != "done" {
 		t.Fatalf("应带 run 上下文（done）: %v", got.Run)
+	}
+}
+
+// TestMindlogSearchScansFork：搜索跨 fork——Worker 的 prompt/reasoning
+// 内容可搜，命中携带 traj_id/traj_slug；根命中不带轨迹归属（前端按
+// 此分流跳转子轨迹页）。
+func TestMindlogSearchScansFork(t *testing.T) {
+	id, fork, _, _ := subtrajFixture(t)
+	// 根里也放一条可命中（含关键词的 message）。
+	msg := traj.NewStep("message")
+	msg.Fields["content"] = "根里的清点指令"
+	if err := id.Timeline.Append(context.Background(), msg); err != nil {
+		t.Fatal(err)
+	}
+	ts, _ := newTestServer(t, identity.Home(), "")
+
+	res, err := http.Get(ts.URL + "/api/identities/ada/mindlog/search?q=" + url.QueryEscape("清点"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("search 应 200，得到 %d", res.StatusCode)
+	}
+	var got struct {
+		Total int `json:"total"`
+		Hits  []struct {
+			StepID   string `json:"step_id"`
+			Type     string `json:"type"`
+			TrajID   string `json:"traj_id"`
+			TrajSlug string `json:"traj_slug"`
+			Snippet  string `json:"snippet"`
+		} `json:"hits"`
+		StepCount int `json:"step_count"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Total != 2 {
+		t.Fatalf("根 1 条 + fork prompt 1 条 = 2 个命中，得到 %d: %+v", got.Total, got.Hits)
+	}
+	var rootHit, forkHit = -1, -1
+	for i, h := range got.Hits {
+		if h.TrajID == "" {
+			rootHit = i
+		} else if h.TrajID == fork.ID {
+			forkHit = i
+		}
+	}
+	if rootHit == -1 || forkHit == -1 {
+		t.Fatalf("应有根命中（无 traj_id）与 fork 命中（traj_id=%s）: %+v", fork.ID, got.Hits)
+	}
+	if got.Hits[forkHit].Type != traj.TypePrompt {
+		t.Fatalf("fork 命中应为 prompt: %+v", got.Hits[forkHit])
+	}
+	if !strings.Contains(got.Hits[forkHit].Snippet, "清点") {
+		t.Fatalf("fork 命中应带摘要: %q", got.Hits[forkHit].Snippet)
+	}
+	if got.Hits[rootHit].TrajSlug != "" {
+		t.Fatalf("根命中不应带轨迹归属: %+v", got.Hits[rootHit])
+	}
+}
+
+// TestMindlogSearchScopeExcludesForkMechanics：scope=thoughts 时 fork 的
+// prompt（运行机制）不进结果——范围语义跨轨迹一致。
+func TestMindlogSearchScopeExcludesForkMechanics(t *testing.T) {
+	_, _, _, _ = subtrajFixture(t)
+	ts, _ := newTestServer(t, identity.Home(), "")
+
+	res, err := http.Get(ts.URL + "/api/identities/ada/mindlog/search?q=" + url.QueryEscape("清点") + "&scope=thoughts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var got struct {
+		Total int `json:"total"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Total != 0 {
+		t.Fatalf("thoughts 范围不应命中 fork 的 prompt（运行机制），得到 %d", got.Total)
 	}
 }
 

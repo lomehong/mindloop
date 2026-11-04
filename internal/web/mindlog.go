@@ -289,7 +289,10 @@ func relTrajDir(root, trajDir string) string {
 }
 
 // handleMindlogSearch 实现搜索框：在 content/类型字段里做大小写
-// 不敏感的子串匹配，返回 viewer SearchHit 列表。
+// 不敏感的子串匹配，返回 viewer SearchHit 列表。根命中在前（Index
+// 语义不变），fork 子轨迹命中（Super-agent Worker 的执行细节）追加
+// 在后并携带 traj_id/traj_slug——Worker 的 prompt/reasoning/shell
+// 输出从此可搜，前端按 traj_id 分流跳转。
 func (s *Server) handleMindlogSearch(w http.ResponseWriter, r *http.Request, id *identity.Identity, _ []string) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	scope := r.URL.Query().Get("scope")
@@ -307,23 +310,50 @@ func (s *Server) handleMindlogSearch(w http.ResponseWriter, r *http.Request, id 
 		writeError(w, 500, err.Error())
 		return
 	}
-	for i, s := range steps {
+	scan := func(s traj.Step) (searchHit, bool) {
 		if out.Scope == "thoughts" && !mindLevelStep(s.Type) {
-			continue
+			return searchHit{}, false
 		}
 		content, _ := s.Field("content")
 		hay := strings.ToLower(content)
 		if idx := strings.Index(hay, needle); idx >= 0 {
-			snippet := snippetAround(content, idx, 160)
 			src, _ := s.Field("launched_by")
 			rid, _ := s.Field("run_id")
-			out.Hits = append(out.Hits, searchHit{
-				Index: i, StepID: s.StepID, TS: s.TS, Type: s.Type,
-				Source: src, RunID: rid, Field: "content", Snippet: snippet,
-			})
+			return searchHit{
+				StepID: s.StepID, TS: s.TS, Type: s.Type,
+				Source: src, RunID: rid, Field: "content",
+				Snippet: snippetAround(content, idx, 160),
+			}, true
+		}
+		return searchHit{}, false
+	}
+	for i, s := range steps {
+		hit, ok := scan(s)
+		if !ok {
+			continue
+		}
+		hit.Index = i
+		out.Hits = append(out.Hits, hit)
+	}
+	// fork 扫描：枚举根引用的全部子轨迹（subtraj.go 的包含校验同一
+	// 纪律），命中带轨迹归属。Index 语义换成子轨迹内序号。
+	for _, tl := range s.identityChildTrajectories(id) {
+		childSteps, err := tl.Steps()
+		if err != nil {
+			continue
+		}
+		for i, s := range childSteps {
+			hit, ok := scan(s)
+			if !ok {
+				continue
+			}
+			hit.Index = i
+			hit.TrajID, hit.TrajSlug = tl.ID, tl.Slug
+			out.Hits = append(out.Hits, hit)
 		}
 	}
 	out.Total = len(out.Hits)
+	// StepCount 仍是根轨迹的步骤总数（StepModal「共 Y 步」的口径）。
 	out.StepCount = len(steps)
 	writeJSON(w, 200, out)
 }
@@ -353,6 +383,11 @@ type searchHit struct {
 	RunID   string `json:"run_id"`
 	Field   string `json:"field"`
 	Snippet string `json:"snippet"`
+	// TrajID/TrajSlug 非空 = 命中在 fork 子轨迹（Super-agent Worker 的
+	// 执行细节；根命中省略两字段）。Index 对 fork 命中是其在子轨迹内
+	// 的序号——跳转语义由前端按 traj_id 分流（子轨迹页 ?step= 锚点）。
+	TrajID   string `json:"traj_id,omitempty"`
+	TrajSlug string `json:"traj_slug,omitempty"`
 }
 
 type mindlogSearchResult struct {
