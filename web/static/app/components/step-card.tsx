@@ -1,4 +1,5 @@
-import { ExternalLink, GitFork, Undo2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ExternalLink, GitFork, GitMerge, Stamp } from "lucide-react";
 import { memo, useEffect, useState } from "react";
 import { Link } from "react-router";
 
@@ -8,9 +9,14 @@ import { StepHeader } from "~/components/step-header";
 import { Badge } from "~/components/ui/badge";
 import { CodeBlock } from "~/components/ui/code-block";
 import { Markdown } from "~/components/ui/markdown";
+import {
+  fetchIdentityStatus,
+  fetchSubTraj,
+  pollWhileLive,
+} from "~/lib/api";
 import { stepColor } from "~/lib/step-colors";
 import { slackConversationUrl, slackSourceUrl } from "~/lib/source-links";
-import { useTrajContext } from "~/lib/traj-context";
+import { TrajContext, useTrajContext } from "~/lib/traj-context";
 import type { NormalizedStep } from "~/lib/types";
 import { cn } from "~/lib/utils";
 
@@ -101,6 +107,63 @@ function CollapsedBlock({
         {open ? "▾" : "▸"} {summary}
       </button>
       {open && <div className="mt-1.5">{children}</div>}
+    </div>
+  );
+}
+
+/**
+ * Worker 执行详情的内联展开（Super-agent fork 穿透）：折叠头懒取
+ * 子轨迹的完整步骤流，Worker 在跑时随 live 轮询流进新步骤。嵌套
+ * TrajContext 把 trajId 切到 fork——里面的 BlobLoader/RunCommand
+ * 自动指向子轨迹的端点。状态轮询复用 ["status"] 共享缓存键，
+ * 折叠（enabled:false）时零请求。
+ */
+function ForkExpand({ childId, expandAll }: { childId: string; expandAll: boolean }) {
+  const ctx = useTrajContext();
+  const [open, setOpen] = useState(false);
+  useEffect(() => setOpen(expandAll), [expandAll]);
+  const identityId = ctx?.identityId ?? "";
+
+  const { data: status } = useQuery({
+    queryKey: ["status", identityId],
+    queryFn: () => fetchIdentityStatus(identityId),
+    refetchInterval: 2000,
+    enabled: open,
+  });
+  const live = status?.live ?? false;
+  const { data, isError, isLoading } = useQuery({
+    queryKey: ["fork-steps", identityId, childId],
+    queryFn: () => fetchSubTraj(identityId, childId),
+    enabled: open && Boolean(identityId),
+    refetchInterval: pollWhileLive(live),
+    retry: false,
+  });
+
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+      >
+        {open ? "▾" : "▸"} Worker 执行详情
+      </button>
+      {open && (
+        <div className="mt-1.5 rounded border bg-muted/20 px-2 py-1">
+          {isError ? (
+            <div className="text-[11px] text-clay">子轨迹加载失败（磁盘上可能已被清理）</div>
+          ) : isLoading ? (
+            <div className="text-[11px] text-muted-foreground">加载中…</div>
+          ) : data ? (
+            <TrajContext.Provider value={{ identityId, trajId: data.traj_id }}>
+              {data.steps.map((s) => (
+                <StepCard key={s.step_id} step={s} expandAll={expandAll} />
+              ))}
+            </TrajContext.Provider>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
@@ -268,16 +331,55 @@ export function StepContent({
       const childId = step.fork?.child_traj_id ?? str(raw.child);
       const label = step.fork?.slug ?? childId;
       return (
-        <div className="flex items-center gap-2 font-mono text-xs">
-          <GitFork className="h-3.5 w-3.5 text-plum" />
-          {step.fork?.resolved ? (
-            <TrajLink trajId={childId} className="truncate text-plum">
-              {label} ↗
-            </TrajLink>
-          ) : (
-            <span className="truncate" title="磁盘上未找到子轨迹">
-              {label}（未解析）
-            </span>
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 font-mono text-xs">
+            <GitFork className="h-3.5 w-3.5 text-plum" />
+            {step.fork?.resolved ? (
+              <TrajLink trajId={childId} className="truncate text-plum">
+                {label} ↗
+              </TrajLink>
+            ) : (
+              <span className="truncate" title="磁盘上未找到子轨迹">
+                {label}（未解析）
+              </span>
+            )}
+          </div>
+          {childId && <ForkExpand childId={childId} expandAll={expandAll} />}
+        </div>
+      );
+    }
+    case "mandate": {
+      // 授权盖章（Super-agent Mandate）：任务/来源/执行策略三要素快照。
+      const chips = [
+        str(raw.task_id) && `task ${str(raw.task_id).slice(0, 8)}`,
+        str(raw.from) && `from ${str(raw.from)}`,
+        str(raw.exec_policy) && `policy ${str(raw.exec_policy)}`,
+      ].filter(Boolean) as string[];
+      return (
+        <div className="flex flex-wrap items-center gap-1.5 font-mono text-[11px]">
+          <Stamp className="h-3.5 w-3.5 text-resin" />
+          <span className="text-muted-foreground">已授权执行</span>
+          {chips.map((c) => (
+            <Badge key={c} variant="outline" className="text-[10px] text-muted-foreground">
+              {c}
+            </Badge>
+          ))}
+        </div>
+      );
+    }
+    case "merge": {
+      const content = str(raw.content);
+      const from = step.writeback?.from_traj ?? str(raw.from_traj);
+      return (
+        <div className="space-y-1">
+          {from && (
+            <div className="flex items-center gap-1.5 font-mono text-[11px] text-plum">
+              <GitMerge className="h-3 w-3" />
+              <TrajLink trajId={from}>Worker 汇报 · 来自 {from.slice(0, 8)} ↗</TrajLink>
+            </div>
+          )}
+          {content && (
+            <ExpandableText text={content} expandAll={expandAll} className="font-note" />
           )}
         </div>
       );
@@ -290,14 +392,6 @@ export function StepContent({
       const content = str(raw.content) || str(raw.thought);
       return (
         <div className="space-y-1">
-          {step.writeback && (
-            <div className="flex items-center gap-1.5 font-mono text-[11px] text-plum">
-              <Undo2 className="h-3 w-3" />
-              <TrajLink trajId={step.writeback.from_traj}>
-                回写自 {step.writeback.from_traj.slice(0, 8)} ↗
-              </TrajLink>
-            </div>
-          )}
           <ExpandableText text={content} expandAll={expandAll} className="font-note" />
         </div>
       );

@@ -133,49 +133,29 @@ type childTrajInfo struct {
 	hasFinal          bool
 }
 
-// childTrajectories 列出 id 的直接子轨迹——经共享侧索引读根轨迹的
-// fork 步骤 child_ref（headlong 同款机制）；子轨迹的步数/末步/final
-// 由其各自的侧索引给出（同一 store，同尺寸替换/截断由 Index 重建覆盖）。
+// childTrajectories 列出 id 的直接子轨迹（枚举与包含校验见
+// subtraj.go 的 identityChildTrajectories）；id/slug 上报子轨迹
+// header 的真 UUID 与 slug——与 fork 步骤的 child 字段、子轨迹页
+// 的 traj_id 同源，侧栏点击才能解析到同一条轨迹（曾上报目录名，
+// 与 UUID 体系断裂）。步数/末步/final 由各自的共享侧索引给出。
 func (s *Server) childTrajectories(id *identity.Identity) []childTrajInfo {
-	ix, err := s.indexes.get(id.Timeline)
-	if err != nil {
-		return nil
-	}
-	refs, err := ix.ForkRefs()
-	if err != nil {
-		return nil
-	}
-	tlDir := filepath.Dir(id.Timeline.Path)
-	seen := map[string]bool{}
 	var out []childTrajInfo
-	for _, ref := range refs {
-		// child_ref 是相对 tlDir 的路径；解绝对路径。ref 来自轨迹
-		// 内容（traj append --field 可任意写入），解析结果必须仍在
-		// 轨迹目录之内——越界引用直接跳过，绝不 Stat/读文件。
-		childPath := filepath.Join(tlDir, ref)
-		if rel, rerr := filepath.Rel(tlDir, childPath); rerr != nil ||
-			rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-			continue
-		}
-		// childPath/trajectory.jsonl
-		childDir := filepath.Dir(childPath)
-		if seen[childDir] {
-			continue
-		}
-		seen[childDir] = true
-		ts, _ := os.Stat(childPath)
-		var started, last string
+	for _, tl := range s.identityChildTrajectories(id) {
+		ts, _ := os.Stat(tl.Path)
+		started := ""
 		if ts != nil {
 			started = ts.ModTime().UTC().Format("2006-01-02T15:04:05Z")
 		}
-		childTL := &traj.Timeline{Dir: childDir, Path: filepath.Join(childDir, "trajectory.jsonl")}
 		var steps int
 		var hasFinal bool
-		if cix, err := s.indexes.get(childTL); err == nil {
+		if cix, err := s.indexes.get(tl); err == nil {
 			if sum, err := cix.Summary(); err == nil {
 				steps = sum.StepCount
 				hasFinal = sum.HasFinal
 			}
+		}
+		last := ""
+		if cix, err := s.indexes.get(tl); err == nil {
 			if lt, err := cix.LastTS(); err == nil && lt != "" {
 				last = lt
 			}
@@ -184,7 +164,7 @@ func (s *Server) childTrajectories(id *identity.Identity) []childTrajInfo {
 			last = started
 		}
 		out = append(out, childTrajInfo{
-			id: filepath.Base(childDir), slug: filepath.Base(childDir),
+			id: tl.ID, slug: tl.Slug,
 			started: started, last: last,
 			steps: steps, hasFinal: hasFinal,
 		})
@@ -318,36 +298,22 @@ func (s *Server) handleLogTail(w http.ResponseWriter, r *http.Request, id *ident
 	writeJSON(w, 200, map[string]any{"name": rest[0], "content": string(data)})
 }
 
-// handleSubTrajectory 返回子轨迹的 mindlog + 面包屑——viewer
-// SubTrajectory 页契约。我们目前没有子轨迹的深度路径，但路径字段
-// 必须返回（即便为空数组），否则页面崩在 TypeError。
-func (s *Server) handleSubTrajectory(w http.ResponseWriter, _ *http.Request, id *identity.Identity, rest []string) {
-	if len(rest) == 0 || rest[0] == "" {
-		writeError(w, 400, "缺少轨迹 id")
-		return
-	}
-	// 与 viewer Mindlog 子集：traj_id、steps、live、identity。
-	view := mindlogNormalized{
-		TrajID:    rest[0],
-		DirRel:    relTrajDir(s.cfg.Root, id.Timeline.Dir),
-		StepCount: 0,
-		Steps:     []normalizedStep{},
-		Runs:      []runGroup{},
-		Live:      false,
-		Identity:  identityRef{ID: id.Name, Name: id.Name},
-	}
-	out := subTrajectory{
-		Mindlog: view,
-	}
-	writeJSON(w, 200, out)
-}
+// handleSubTrajectory 已迁移 subtraj.go（fork 穿透，2026-11-05）：
+// 真实实现返回子轨迹的完整 mindlog + 面包屑。
 
-// handleTrajectoryBlob 读取旧轨迹中保留的完整输出；不接受任意文件或跨轨迹路径。
+// handleTrajectoryBlob 读取轨迹中保留的完整输出（根与 fork 同一
+// 入口——runner 的 blob 落在执行轨迹目录里，Worker 的在 fork 下）；
+// 不接受任意文件或跨轨迹路径。
 func (s *Server) handleTrajectoryBlob(w http.ResponseWriter, r *http.Request, id *identity.Identity, rest []string) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
-	if len(rest) != 3 || rest[0] != id.Timeline.ID {
+	if len(rest) != 3 || rest[0] == "" {
+		writeError(w, 404, "输出文件不存在")
+		return
+	}
+	tl, err := s.resolveIdentityTraj(id, rest[0])
+	if err != nil {
 		writeError(w, 404, "输出文件不存在")
 		return
 	}
@@ -357,7 +323,7 @@ func (s *Server) handleTrajectoryBlob(w http.ResponseWriter, r *http.Request, id
 		writeError(w, 404, "输出文件不存在")
 		return
 	}
-	rel, err := filepath.Rel(id.Dir, id.Timeline.Dir)
+	rel, err := filepath.Rel(id.Dir, tl.Dir)
 	if err != nil || !filepath.IsLocal(rel) {
 		writeError(w, 404, "输出文件不存在")
 		return

@@ -395,16 +395,19 @@ func (s *Server) handleRunCommand(w http.ResponseWriter, r *http.Request, id *id
 		return
 	}
 	runID := rest[0]
-	steps, err := id.Timeline.Steps()
-	if err != nil {
-		writeError(w, 500, err.Error())
-		return
-	}
-	for _, s := range steps {
-		if rid, ok := s.Field("run_id"); ok && rid == runID && s.Type == traj.TypePrompt {
-			if c, ok := s.Field("content"); ok {
-				writeJSON(w, 200, map[string]any{"run_id": runID, "command": c})
-				return
+	// 根轨迹未命中再扫 fork（Super-agent Worker 的 prompt 在 fork
+	// 子轨迹里——根只留 mandate/fork/merge 控制面叙事）。
+	for _, tl := range append([]*traj.Timeline{id.Timeline}, s.identityChildTrajectories(id)...) {
+		steps, err := tl.Steps()
+		if err != nil {
+			continue
+		}
+		for _, s := range steps {
+			if rid, ok := s.Field("run_id"); ok && rid == runID && s.Type == traj.TypePrompt {
+				if c, ok := s.Field("content"); ok {
+					writeJSON(w, 200, map[string]any{"run_id": runID, "command": c})
+					return
+				}
 			}
 		}
 	}

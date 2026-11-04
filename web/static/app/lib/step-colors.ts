@@ -47,10 +47,11 @@ const COLORS: Record<string, StepColor> = {
   merge: t("plum"),
   trajectory: t("plum"),
   "run-summary": t("plum"),
-  // 树脂：行动（run 调度、shell 命令与输出）
+  // 树脂：行动（run 调度、shell 命令与输出、授权盖章）
   action: t("resin"),
   "shellm-run": t("resin"),
   "shell-output": t("resin"),
+  mandate: t("resin"),
   // 陶土：危险与错误（现数据暂无此族步骤类型，预置映射）
   error: t("clay"),
   alert: t("clay"),

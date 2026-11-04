@@ -109,17 +109,24 @@ func (s *Server) handleStepDetail(w http.ResponseWriter, r *http.Request, id *id
 		writeError(w, 400, "缺少 step id")
 		return
 	}
-	steps, err := id.Timeline.Steps()
-	if err != nil {
-		writeError(w, 500, err.Error())
-		return
-	}
+	// 根轨迹未命中再扫 fork（Super-agent Worker 的步骤在 fork 里，
+	// subtraj.go 的同一枚举）。index 是根轨迹流的序号——fork 命中
+	// 时它对根无意义，置 0（前端按 step_id 深链，不按跨轨迹索引）。
+	trajs := append([]*traj.Timeline{id.Timeline}, s.identityChildTrajectories(id)...)
 	var found *traj.Step
-	var idx int
-	for i, s := range steps {
-		if s.StepID == rest[0] || strings.HasPrefix(s.StepID, rest[0]) {
-			found = &s
-			idx = i
+	var steps []traj.Step
+	for _, tl := range trajs {
+		got, err := tl.Steps()
+		if err != nil {
+			continue
+		}
+		for i := range got {
+			if got[i].StepID == rest[0] || strings.HasPrefix(got[i].StepID, rest[0]) {
+				found, steps = &got[i], got
+				break
+			}
+		}
+		if found != nil {
 			break
 		}
 	}
@@ -131,7 +138,7 @@ func (s *Server) handleStepDetail(w http.ResponseWriter, r *http.Request, id *id
 	run := findRunGroup(steps, found)
 	out := map[string]any{
 		"step":               normalizeStep(*found),
-		"index":              idx,
+		"index":              0,
 		"run":                run,
 		"dispatcher_running": isIdentityLive(id.Timeline.Dir),
 		"dispatcher_pid":     nil,

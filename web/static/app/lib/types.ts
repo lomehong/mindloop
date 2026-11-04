@@ -505,6 +505,7 @@ export type StepType =
   | "feedback"
   | "final"
   | "fork"
+  | "mandate"
   | "run-summary"
   | "tp-thought"
   | "human-msg"

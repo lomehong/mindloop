@@ -3,35 +3,43 @@ package web
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/lomehong/mindloop/internal/identity"
 	"github.com/lomehong/mindloop/internal/traj"
 )
 
-// newForkChild 造一个子轨迹目录（trajectory.jsonl 数行），返回相对
-// 根轨迹目录的 child_ref——与 traj fork 步骤的真实落盘形态一致。
-func newForkChild(t *testing.T, id *identity.Identity, slug string, steps int) string {
+// newForkChild 用 traj.ForkAt 造一个真实形态的 fork 子轨迹：与根
+// 轨迹同目录的兄弟目录（child_ref 为 "../<dir>" 形态——runWorker
+// 的落盘布局），带 trajectory 头与双向引用。返回子轨迹句柄，调用
+// 方自行追加步骤。
+func newForkChild(t *testing.T, id *identity.Identity, slug string) *traj.Timeline {
 	t.Helper()
-	tlDir := filepath.Dir(id.Timeline.Path)
-	childDir := filepath.Join(tlDir, slug)
-	if err := os.MkdirAll(childDir, 0o755); err != nil {
+	tl, err := traj.ForkAt(context.Background(), filepath.Dir(id.Timeline.Dir), slug, id.Timeline)
+	if err != nil {
 		t.Fatal(err)
 	}
-	var b strings.Builder
-	for i := 0; i < steps; i++ {
-		fmt.Fprintf(&b, `{"type":"message","step_id":"child-%d","ts":"2026-01-0%dT00:00:00.000Z"}`+"\n", i, i+1)
+	return tl
+}
+
+// appendSteps 把 (type, run_id, content) 三元组逐条追加到轨迹。
+func appendSteps(t *testing.T, tl *traj.Timeline, steps [][3]string) {
+	t.Helper()
+	for _, s := range steps {
+		st := traj.NewStep(s[0])
+		if s[1] != "" {
+			st.Fields["run_id"] = s[1]
+		}
+		if s[2] != "" {
+			st.Fields["content"] = s[2]
+		}
+		if err := tl.Append(context.Background(), st); err != nil {
+			t.Fatal(err)
+		}
 	}
-	b.WriteString(`{"type":"final","step_id":"child-final","ts":"2026-01-09T00:00:00.000Z"}` + "\n")
-	if err := os.WriteFile(filepath.Join(childDir, "trajectory.jsonl"), []byte(b.String()), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return slug + "/trajectory.jsonl"
 }
 
 // TestHandleActivityShape：/activity 返回 IdentityActivity 契约的
@@ -74,8 +82,10 @@ func TestHandleActivityShape(t *testing.T) {
 }
 
 // TestHandleTreeWithForkChild：/tree 的 depth 语义——默认只含根；
-// depth=1 且轨迹带 fork 步骤时列出子轨迹（步数/final 标记来自
-// 子轨迹文件的实读）。
+// depth=1 且轨迹带 fork 步骤时列出子轨迹。id 上报子轨迹 header 的
+// 真 UUID（与 fork 步骤 child 字段、子轨迹页同源）；child_ref 的
+// "../<dir>" 兄弟形态必须能通过包含校验（真实 fork 布局——旧实现
+// 以根轨迹目录做校验基点曾全数误杀）。
 func TestHandleTreeWithForkChild(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("MINDLOOP_HOME", dir)
@@ -84,13 +94,13 @@ func TestHandleTreeWithForkChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := newForkChild(t, id, "abc10000-child", 3)
-
-	fork := traj.NewStep("fork")
-	fork.Fields["child_ref"] = ref
-	if err := id.Timeline.Append(context.Background(), fork); err != nil {
-		t.Fatal(err)
-	}
+	fork := newForkChild(t, id, "worker-tree")
+	appendSteps(t, fork, [][3]string{
+		{"message", "", "步骤一"},
+		{"message", "", "步骤二"},
+		{"message", "", "步骤三"},
+		{"final", "", "完成"},
+	})
 
 	ts, _ := newTestServer(t, home, "")
 
@@ -120,6 +130,7 @@ func TestHandleTreeWithForkChild(t *testing.T) {
 		ChildCount int    `json:"child_count"`
 		Children   *[]struct {
 			TrajID    string `json:"traj_id"`
+			Slug      string `json:"slug"`
 			StepCount int    `json:"step_count"`
 			HasFinal  bool   `json:"has_final"`
 		} `json:"children"`
@@ -131,11 +142,12 @@ func TestHandleTreeWithForkChild(t *testing.T) {
 		t.Fatalf("depth=1 应列出 1 个子轨迹，得到 child_count=%d", root2.ChildCount)
 	}
 	child := (*root2.Children)[0]
-	if !strings.Contains(child.TrajID, "child") {
-		t.Fatalf("子轨迹 id 不符: %q", child.TrajID)
+	if child.TrajID != fork.ID {
+		t.Fatalf("子轨迹 id 应为真 UUID %s，得到 %q", fork.ID, child.TrajID)
 	}
-	if child.StepCount != 4 { // 3 条 message + 1 条 final
-		t.Fatalf("子轨迹步数应实读为 4，得到 %d", child.StepCount)
+	// 头 + 3 条 message + final = 5（Steps 与索引同口径，含头行）。
+	if child.StepCount != 5 {
+		t.Fatalf("子轨迹步数应实读为 5，得到 %d", child.StepCount)
 	}
 	if !child.HasFinal {
 		t.Fatal("子轨迹含 final 步骤，has_final 应为 true")
@@ -270,39 +282,10 @@ func TestHandleThinkersStatus(t *testing.T) {
 	}
 }
 
-// TestHandleSubTrajectory：子轨迹视图恒返回 mindlog 骨架——viewer
-// 缺字段会崩在 TypeError（契约注释里的真实事故）。
-func TestHandleSubTrajectory(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("MINDLOOP_HOME", dir)
-	home := identity.Home()
-	identity.Create(context.Background(), "ada")
-	ts, _ := newTestServer(t, home, "")
-
-	resp, err := http.Get(ts.URL + "/api/identities/ada/traj/abc12345")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-	var got struct {
-		Mindlog struct {
-			TrajID   string           `json:"traj_id"`
-			Steps    []map[string]any `json:"steps"`
-			Identity map[string]any   `json:"identity"`
-			Runs     []map[string]any `json:"runs"`
-		} `json:"mindlog"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Mindlog.TrajID != "abc12345" || got.Mindlog.Steps == nil ||
-		got.Mindlog.Identity == nil || got.Mindlog.Runs == nil {
-		t.Fatalf("子轨迹骨架字段缺失: %+v", got.Mindlog)
-	}
-}
+// TestHandleSubTrajectory：真实实现（subtraj.go）下未知 id 404——
+// 前端子轨迹页把 404 语义化为"未找到轨迹"空态（sub-traj.tsx 的
+// retry 豁免），stub 时代的"未知 id 也 200 骨架"已废止。存在性
+// 与内容断言见 subtraj_test.go。
 
 // TestMindlogRunTldrDerived：运行组的 tldr 从 final 步骤正文派生
 // （"视图皆派生"——模型自己写的结论就是这轮运行的摘要，不额外
