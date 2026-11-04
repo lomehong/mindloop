@@ -7,7 +7,6 @@ package cli
 
 import (
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -56,12 +55,4 @@ func defaultProcChainNames() []string {
 		pid = ppid
 	}
 	return out
-}
-
-func defaultSelfExeBase() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return ""
-	}
-	return filepath.Base(exe)
 }
